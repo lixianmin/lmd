@@ -987,8 +987,8 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 
 	if err == sql.ErrNoRows {
 		res, err := db.Exec(
-			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, modified_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
 			doc.DocID, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize,
 		)
 		if err != nil {
@@ -1603,7 +1603,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1772,14 +1771,19 @@ package service
 import (
 	"testing"
 
+	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
 func TestSearchBM25(t *testing.T) {
-	db, _ := setupIndexTest(t)
+	db, dir := setupIndexTest(t)
 	defer db.Close()
 
+	_ = store.AddCollection(db, "test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(db, tok)
+	_, _ = idx.UpdateCollection("test", dir, "*.md", nil, nil)
+
 	searcher := NewSearcher(db, tok)
 
 	results, err := searcher.SearchLex("搜索引擎", "", 10, 0)
@@ -1803,10 +1807,14 @@ func TestSearchBM25(t *testing.T) {
 }
 
 func TestSearchBM25WithCollection(t *testing.T) {
-	db, _ := setupIndexTest(t)
+	db, dir := setupIndexTest(t)
 	defer db.Close()
 
+	_ = store.AddCollection(db, "test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(db, tok)
+	_, _ = idx.UpdateCollection("test", dir, "*.md", nil, nil)
+
 	searcher := NewSearcher(db, tok)
 
 	results, err := searcher.SearchLex("搜索引擎", "nonexistent", 10, 0)
@@ -1819,10 +1827,14 @@ func TestSearchBM25WithCollection(t *testing.T) {
 }
 
 func TestSearchBM25English(t *testing.T) {
-	db, _ := setupIndexTest(t)
+	db, dir := setupIndexTest(t)
 	defer db.Close()
 
+	_ = store.AddCollection(db, "test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(db, tok)
+	_, _ = idx.UpdateCollection("test", dir, "*.md", nil, nil)
+
 	searcher := NewSearcher(db, tok)
 
 	results, err := searcher.SearchLex("Hello", "", 10, 0)
@@ -2266,6 +2278,7 @@ import (
 	"fmt"
 
 	"github.com/lixianmin/lmd/internal/service"
+	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/spf13/cobra"
 )
@@ -2310,7 +2323,12 @@ var searchCmd = &cobra.Command{
 			fmt.Printf("Score: %.0f%%\n", r.Score*100)
 			if searchFull {
 				fmt.Println()
-				fmt.Println(r.Snippet)
+				doc, err := store.GetDocumentByDocID(db, r.DocID)
+				if err == nil {
+					fmt.Println(doc.Body)
+				} else {
+					fmt.Println(r.Snippet)
+				}
 			} else {
 				fmt.Printf("\n%s\n", r.Snippet)
 			}
@@ -2369,6 +2387,8 @@ var getCmd = &cobra.Command{
 			parts := strings.SplitN(input, "/", 2)
 			if len(parts) == 2 {
 				doc, err = store.GetDocumentByPath(db, parts[0], parts[1])
+			} else {
+				return fmt.Errorf("invalid path format, use collection/path or #docid: %s", input)
 			}
 		}
 
