@@ -168,7 +168,8 @@ CREATE VIRTUAL TABLE chunk_vectors USING vec0(
 );
 
 CREATE TABLE embed_status (
-    chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id),
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chunk_id    INTEGER NOT NULL REFERENCES chunks(id),
     model_name  TEXT NOT NULL,
     embedded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(chunk_id, model_name)
@@ -248,6 +249,98 @@ type SearchOptions struct {
 ### Public Store API (pkg/)
 
 ```go
+type CollectionConfig struct {
+    Path           string   // Local directory absolute path
+    GlobPattern    string   // File matching pattern (default "**/*.md")
+    IgnorePatterns []string // Patterns to ignore
+}
+
+type CollectionInfo struct {
+    Name         string
+    Path         string
+    GlobPattern  string
+    DocCount     int
+    ActiveCount  int
+    LastModified time.Time
+}
+
+type StoreOptions struct {
+    DBPath      string          // Required: path to SQLite database file
+    Config      *InlineConfig   // Optional: inline collection configuration
+    ConfigPath  string          // Optional: path to YAML config file
+}
+
+type InlineConfig struct {
+    Collections map[string]CollectionConfig
+}
+
+type UpdateOptions struct {
+    Collections []string // Empty = all collections
+    OnProgress  func(UpdateProgress)
+}
+
+type UpdateProgress struct {
+    Collection string
+    File       string
+    Current    int
+    Total      int
+}
+
+type UpdateResult struct {
+    Collections int
+    Indexed     int
+    Updated     int
+    Unchanged   int
+    Removed     int
+}
+
+type EmbedOptions struct {
+    Force      bool // Re-embed everything
+    ModelName  string
+    OnProgress func(EmbedProgress)
+}
+
+type EmbedProgress struct {
+    Current    int
+    Total      int
+    Collection string
+}
+
+type EmbedResult struct {
+    Embedded int
+    Skipped  int
+    Failed   int
+}
+
+type LexOptions struct {
+    Collection string
+    Limit      int
+    MinScore   float64
+}
+
+type VecOptions struct {
+    Collection string
+    Limit      int
+    MinScore   float64
+}
+
+type Document struct {
+    DocID      string
+    Collection string
+    Path       string
+    Title      string
+    Body       string
+    Context    string
+    FileSize   int64
+    ModifiedAt time.Time
+}
+
+type ContextInfo struct {
+    Collection string
+    Path       string
+    Context    string
+}
+
 type Store interface {
     AddCollection(name string, config CollectionConfig) error
     RemoveCollection(name string) error
@@ -333,6 +426,189 @@ Score: 93%
 This section covers goroutine and channel concurrency patterns...
 ```
 
+## MCP Server
+
+LMD exposes an MCP (Model Context Protocol) server for agent integration, speaking stdio by default with optional HTTP transport.
+
+### Transport Modes
+
+- **stdio** (default): Launched as subprocess by MCP client, communicates via stdin/stdout
+- **HTTP**: Long-lived server at `http://localhost:8181/mcp` (Streamable HTTP, stateless JSON responses)
+
+### MCP Tools Exposed
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `search` | Hybrid search (BM25 + vector + optional rerank) | `query` (string), `collection` (optional string), `limit` (int, default 5), `min_score` (float), `rerank` (bool), `expand` (bool) |
+| `search_lex` | BM25 keyword search only | `query` (string), `collection` (optional string), `limit` (int) |
+| `search_vector` | Semantic vector search only | `query` (string), `collection` (optional string), `limit` (int) |
+| `get` | Retrieve document by path or docid | `path_or_docid` (string), `full` (bool, default false) |
+| `status` | Index health and collection info | (none) |
+| `list_collections` | List all collections with stats | (none) |
+
+### Implementation
+
+The MCP server (`internal/cli/mcp.go`) delegates to the `Store` interface. It uses a lightweight MCP protocol handler that maps tool calls to Store method invocations and formats results as structured JSON.
+
+## Reranker
+
+### Model
+
+Uses Qwen3-Reranker-0.6B (GGUF, ~640MB), a cross-encoder model that scores document-query relevance.
+
+### Interface
+
+```go
+type Reranker interface {
+    Rerank(ctx context.Context, query string, documents []RerankItem) ([]RerankResult, error)
+    Close() error
+}
+
+type RerankItem struct {
+    DocID   string
+    Title   string
+    Content string
+}
+
+type RerankResult struct {
+    DocID string
+    Score float64 // 0.0-1.0
+}
+```
+
+### Scoring Method
+
+The reranker uses a yes/no classification with logprob confidence: for each candidate document, the model evaluates "Is this document relevant to the query?" and extracts the confidence probability from logprobs. The raw 0-10 rating is normalized to 0.0-1.0 by dividing by 10.
+
+### Position-Aware Blending Rationale
+
+Top-ranked RRF results are likely strong exact matches — the reranker is given less weight (25%) to preserve them. Lower-ranked results benefit more from the reranker's deeper understanding (60%), as pure retrieval signals are weaker.
+
+## Query Expansion
+
+### Model
+
+Uses a separate small generative model (Qwen2.5-1.5B-Instruct GGUF, ~1GB), not the embedding model. The embedding model (Qwen3-Embedding) only produces vectors and cannot generate text.
+
+### Prompt
+
+```
+Given the following search query, generate 2 alternative phrasings that would match
+different ways of expressing the same information. Keep the alternatives concise.
+Return one alternative per line, no numbering.
+
+Query: {query}
+```
+
+### Behavior
+
+- Only activated when `--expand` flag is passed or `ExpandQuery: true` in API
+- Model is lazy-loaded on first use, stays in memory for subsequent queries
+- If model fails to load, search proceeds without expansion (graceful degradation)
+
+## Context System
+
+### Purpose
+
+Context adds descriptive metadata to collections and paths within collections. When search results are returned, the matching context is included in the output. This helps agents and users understand *why* a document matched and *what domain* it belongs to.
+
+### URI Scheme
+
+`lmd://collection_name/path/within/collection`
+
+Examples:
+- `lmd://notes` → context for the entire "notes" collection
+- `lmd://notes/work` → context for the "work" subfolder within "notes"
+- `lmd://docs/api` → context for the "api" subfolder within "docs"
+
+### Application During Search
+
+When returning search results, the system finds the most specific matching context for each result's path. For a document at `notes/work/project-a.md`, it checks:
+1. `lmd://notes/work/project-a` (exact match)
+2. `lmd://notes/work` (parent)
+3. `lmd://notes` (collection-level)
+4. Global context (path="" in any collection)
+
+The most specific match is used. If no context is found, the field is empty.
+
+## Document Retrieval Flow (`get` command)
+
+1. Parse input: determine if it's a docid (starts with `#`) or a path
+2. If docid: `SELECT * FROM documents WHERE docid = ?`
+3. If path: `SELECT * FROM documents WHERE collection = ? AND path = ?`
+   - If no exact match, attempt fuzzy matching and suggest similar files
+4. If `--from <n>` is specified, return body starting from line n
+5. If `-l <num>` is specified, limit output to num lines
+6. If `--full` is specified, return entire document body; otherwise return a snippet summary
+7. Attach any matching context from `path_contexts`
+
+## llama.cpp Integration
+
+### Approach
+
+LMD uses CGo bindings to link against llama.cpp's shared library for loading GGUF models. This is the same approach Ollama uses (which is also written in Go).
+
+### Build Requirements
+
+- C compiler (gcc/clang)
+- llama.cpp shared library (`libllama.so` / `libllama.dylib`)
+- CGo enabled (`CGO_ENABLED=1`)
+
+### Model Loading
+
+Models are downloaded from HuggingFace on first use, cached in `~/.cache/lmd/models/`. The download uses the HF repo ID + filename pattern:
+- Embedding: `hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf`
+- Reranker: `hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf`
+- Expansion: `hf:Qwen/Qwen2.5-1.5B-Instruct-GGUF/qwen2.5-1.5b-instruct-q4_k_m.gguf`
+
+### Go Binding
+
+Use `github.com/ngx Tahoe/go-llama.cpp` or a similar Go CGo wrapper. If no mature binding exists, write a minimal CGo wrapper in `internal/embedding/llama/` that exposes:
+- `llama_load_model(path) → *model`
+- `llama_embed(model, texts) → [][]float32`
+- `llama_free_model(model)`
+
+## Schema Migration
+
+Schema version is tracked in a `_meta` table:
+
+```sql
+CREATE TABLE _meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- Initial row: INSERT INTO _meta (key, value) VALUES ('schema_version', '1');
+```
+
+On startup, `store/schema.go` reads the current version and applies migrations sequentially. Each migration is a Go function that executes SQL statements within a transaction. Migrations are one-way (no rollback support in v1).
+
+```go
+var migrations = []Migration{
+    {Version: 1, Up: migrateV1},
+}
+
+func migrateV1(db *sql.DB) error {
+    // Create all initial tables
+}
+```
+
+## Concurrency
+
+- SQLite opened in WAL (Write-Ahead Logging) mode to allow concurrent reads during writes
+- `update` and `embed` operations acquire an advisory lock to prevent concurrent indexing
+- Search operations can run concurrently with each other
+- Model inference (embedding/reranker/expansion) is serialized per model instance (GPU/CPU bound)
+
+## Score Normalization
+
+| Source | Raw Score | Normalization | Range |
+|--------|-----------|---------------|-------|
+| FTS5 (BM25) | SQLite `bm25()` (negative) | `min(abs(score) / max_score, 1.0)` where `max_score` is the top result's score | 0.0-1.0 |
+| Vector | Cosine distance (0+) | `1 / (1 + distance)` | 0.0-1.0 |
+| Reranker | 0-10 rating | `score / 10` | 0.0-1.0 |
+
+BM25 normalization uses the top result as denominator (rank-based normalization). This avoids needing to know the theoretical maximum BM25 score.
+
 ## Indexing Flow
 
 1. Scan collection directories matching glob pattern
@@ -370,7 +646,7 @@ This section covers goroutine and channel concurrency patterns...
 2. `SELECT * FROM documents_fts WHERE tokens MATCH ? ORDER BY bm25()`
 3. Join with `documents` for metadata
 4. Extract snippet
-5. Normalize score to 0.0-1.0
+5. Normalize score: `score = min(abs(score) / top_score, 1.0)` where `top_score` is the highest BM25 score in results
 
 ### Vector Search (`vsearch` command)
 
@@ -381,7 +657,7 @@ This section covers goroutine and channel concurrency patterns...
 
 ### Hybrid Search (`query` command)
 
-1. [Optional] Query expansion: generate 1-2 query variants via local GGUF model
+1. [Optional] Query expansion: generate 1-2 query variants via Qwen2.5-1.5B-Instruct (see Query Expansion section)
 2. For each query (original + variants), execute:
    a. BM25 search → ranked list
    b. Vector search → ranked list
@@ -466,4 +742,13 @@ Use Go standard library `log/slog`. Support `--verbose` flag for debug-level out
 | `github.com/mattn/go-sqlite3` | SQLite3 with CGo (FTS5 + extension support) |
 | `github.com/spf13/cobra` | CLI framework |
 | sqlite-vec | Vector similarity search extension |
-| llama.cpp (via CGo) | GGUF model loading for embeddings |
+| llama.cpp (via CGo) | GGUF model loading for embeddings, reranking, query expansion |
+
+## Implementation Phasing
+
+The spec covers multiple subsystems. Recommended implementation order:
+
+**Phase 1 - Foundation**: Store layer (SQLite schema, CRUD) + Tokenizer (gse) + BM25 search + basic CLI (collection, update, search, get)
+**Phase 2 - Vector**: Embedding provider (GGUF) + chunking + vector storage (sqlite-vec) + vsearch command
+**Phase 3 - Hybrid**: RRF fusion + query command + reranker + query expansion
+**Phase 4 - Integration**: MCP server + context system + public API polish + output formatters
