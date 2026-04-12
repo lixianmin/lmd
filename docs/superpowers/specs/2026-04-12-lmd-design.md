@@ -765,7 +765,7 @@ Test fixtures: Built-in set of Chinese-English mixed Markdown documents.
 
 ## Logging
 
-Use Go standard library `log/slog`. Support `--verbose` flag for debug-level output.
+Use `github.com/lixianmin/logo` for logging. Default level is Info; `--verbose` flag sets level to Debug. Support `logo.NewRollingFileHook` for file logging when needed.
 
 ## Timezone Handling
 
@@ -782,6 +782,7 @@ In Go code, all time values are read/written in Asia/Shanghai timezone. The `tim
 | Dependency | Purpose |
 |-----------|---------|
 | `github.com/go-ego/gse` | Chinese/English text segmentation |
+| `github.com/lixianmin/logo` | Lightweight logging library |
 | `github.com/mattn/go-sqlite3` | SQLite3 with CGo (FTS5 + extension support) |
 | `github.com/spf13/cobra` | CLI framework |
 | sqlite-vec | Vector similarity search extension |

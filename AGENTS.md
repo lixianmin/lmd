@@ -42,6 +42,7 @@ test/fixtures/     - Test markdown documents (Chinese + English)
 - Default embedding model: Qwen3-Embedding-0.6B (GGUF)
 - Fusion: RRF with MMR diversity re-ranking
 - CLI framework: cobra
+- Logging: github.com/lixianmin/logo
 - Timezone: All timestamps in GMT+8 (CST)
 - SQLite mode: WAL for concurrent reads
 
