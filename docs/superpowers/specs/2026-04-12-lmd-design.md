@@ -270,6 +270,14 @@ type StoreOptions struct {
     ConfigPath  string          // Optional: path to YAML config file
 }
 
+// YAML config file format (when ConfigPath is used):
+// collections:
+//   docs:
+//     path: /path/to/docs
+//     glob_pattern: "**/*.md"
+//   notes:
+//     path: /path/to/notes
+
 type InlineConfig struct {
     Collections map[string]CollectionConfig
 }
@@ -372,6 +380,7 @@ lmd [global options] <command> [args]
 
 Global options:
   --index <path>     Database file path (default: ~/.cache/lmd/index.sqlite)
+  --verbose          Enable debug-level logging
   --help, -h         Show help
   --version          Show version
 
@@ -536,7 +545,7 @@ The most specific match is used. If no context is found, the field is empty.
 1. Parse input: determine if it's a docid (starts with `#`) or a path
 2. If docid: `SELECT * FROM documents WHERE docid = ?`
 3. If path: `SELECT * FROM documents WHERE collection = ? AND path = ?`
-   - If no exact match, attempt fuzzy matching and suggest similar files
+   - If no exact match, attempt prefix-based fuzzy matching and suggest similar files
 4. If `--from <n>` is specified, return body starting from line n
 5. If `-l <num>` is specified, limit output to num lines
 6. If `--full` is specified, return entire document body; otherwise return a snippet summary
@@ -709,6 +718,8 @@ Algorithm:
 | sqlite-vec unavailable | Disable vector features, warn user to install |
 | File read failure | Skip file, log error, continue with remaining files |
 | Collection path missing | Error with clear message |
+| Model download failure | Error with retry suggestion; partial downloads are cleaned up |
+| Model download interrupted | Clean up partial file, error out, user re-runs command |
 
 ## Testing Strategy
 
