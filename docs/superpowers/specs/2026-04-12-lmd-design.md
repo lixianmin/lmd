@@ -22,7 +22,7 @@ The design is inspired by [QMD](https://github.com/tobi/qmd) but addresses three
 | Language | Go | Performance, single binary, good SQLite ecosystem |
 | Tokenizer | go-ego/gse | Go-native jieba implementation, excellent Chinese support |
 | Vector storage | sqlite-vec | C-optimized SIMD, low Go memory footprint |
-| Keyword search | gse pre-tokenize + FTS5 simple | Avoids Unicode61, leverages mature FTS5 BM25 |
+| Keyword search | gse pre-tokenize + FTS5 unicode61 | Splits on whitespace after gse pre-tokenization, leverages mature FTS5 BM25 |
 | Embedding model | Qwen3-Embedding-0.6B (GGUF) | 119 languages including CJK, MTEB top-ranked |
 | Fusion strategy | RRF priority + optional reranking | Fast by default, quality when needed |
 | Query expansion | Optional | User-controlled complexity |
@@ -31,6 +31,8 @@ The design is inspired by [QMD](https://github.com/tobi/qmd) but addresses three
 | Document chunking | Markdown-aware | Respects heading/code block boundaries |
 | Collection storage | Single SQLite DB | Convenient cross-collection search |
 | Architecture | Layered pipeline (CLI → Service → Store) | Clear separation, testable, extensible |
+| MMR diversity | Applied after fusion | Reduces redundant similar results |
+| Timezone | GMT+8 (CST) for all timestamps | User in East Asia, avoid UTC confusion |
 
 ## Architecture
 
@@ -117,8 +119,8 @@ CREATE TABLE collections (
     path            TEXT NOT NULL,
     glob_pattern    TEXT DEFAULT '**/*.md',
     ignore_patterns TEXT,
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
+    updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 );
 
 CREATE TABLE path_contexts (
@@ -139,8 +141,8 @@ CREATE TABLE documents (
     hash        TEXT NOT NULL,
     file_size   INTEGER,
     modified_at DATETIME,
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
+    updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 );
 
 CREATE VIRTUAL TABLE documents_fts USING fts5(
@@ -148,7 +150,7 @@ CREATE VIRTUAL TABLE documents_fts USING fts5(
     title_tokens,
     content='documents',
     content_rowid='id',
-    tokenize='simple'
+    tokenize='unicode61'
 );
 
 CREATE TABLE chunks (
@@ -171,7 +173,7 @@ CREATE TABLE embed_status (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chunk_id    INTEGER NOT NULL REFERENCES chunks(id),
     model_name  TEXT NOT NULL,
-    embedded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    embedded_at DATETIME DEFAULT (DATETIME('now', '+8 hours')),
     UNIQUE(chunk_id, model_name)
 );
 ```
@@ -689,6 +691,30 @@ BM25 normalization uses the top result as denominator (rank-based normalization)
 | Top-K | 30 | Candidates sent to reranker |
 | OrigWeight | 2 | Original query weight multiplier |
 
+## MMR (Maximal Marginal Relevance)
+
+After RRF fusion and optional reranking, MMR is applied to promote result diversity and reduce redundancy.
+
+### Algorithm
+
+For each candidate position, MMR selects the document that maximizes:
+
+```
+MMR(d) = λ × rel(d) - (1-λ) × max[sim(d, d') for d' in already-selected]
+```
+
+Where:
+- `rel(d)` = document's fused score (RRF or blended)
+- `sim(d, d')` = cosine similarity between document embeddings or chunk content overlap
+- `λ` = relevance-diversity trade-off (default: 0.7, higher = more relevance, lower = more diversity)
+
+### Implementation
+
+- Use chunk content TF-IDF similarity (not embedding vectors) for efficiency
+- λ configurable via `--mmr-lambda` flag (default 0.7)
+- Applied to top-30 candidates before final ranking
+- Reduces cases where multiple chunks from the same document or very similar documents dominate results
+
 ## Markdown-Aware Chunking
 
 Break points scored by boundary type:
@@ -740,6 +766,12 @@ Test fixtures: Built-in set of Chinese-English mixed Markdown documents.
 ## Logging
 
 Use Go standard library `log/slog`. Support `--verbose` flag for debug-level output.
+
+## Timezone Handling
+
+All timestamps in the database (`created_at`, `updated_at`, `modified_at`, `embedded_at`) are stored in **GMT+8 (CST)** format using `DATETIME('now', '+8 hours')` as the default value in SQLite.
+
+In Go code, all time values are read/written in Asia/Shanghai timezone. The `time.LoadLocation("Asia/Shanghai")` is used for formatting and parsing.
 
 ## Module Path
 
