@@ -8,6 +8,8 @@ require (
 )
 
 require (
+	github.com/go-ego/gse v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/vcaesar/cedar v0.30.0 // indirect
 )
