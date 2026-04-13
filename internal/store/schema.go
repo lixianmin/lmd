@@ -1,63 +1,8 @@
 package store
 
-import (
-	"database/sql"
-)
+import "database/sql"
 
-type Migration struct {
-	Version int
-	Up      func(tx *sql.Tx) error
-}
-
-var migrations = []Migration{
-	{Version: 1, Up: migrateV1},
-}
-
-func Migrate(db *sql.DB) error {
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS _meta (
-			key   TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)
-	`); err != nil {
-		return err
-	}
-
-	var current int
-	row := db.QueryRow("SELECT CAST(value AS INTEGER) FROM _meta WHERE key='schema_version'")
-	if err := row.Scan(&current); err != nil {
-		if err == sql.ErrNoRows {
-			current = 0
-		} else {
-			return err
-		}
-	}
-
-	for _, m := range migrations {
-		if m.Version > current {
-			tx, err := db.Begin()
-			if err != nil {
-				return err
-			}
-			if err := m.Up(tx); err != nil {
-				tx.Rollback()
-				return err
-			}
-			if _, err := tx.Exec(
-				"INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?)", m.Version,
-			); err != nil {
-				tx.Rollback()
-				return err
-			}
-			if err := tx.Commit(); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func migrateV1(tx *sql.Tx) error {
+func CreateTables(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS collections (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,11 +57,15 @@ func migrateV1(tx *sql.Tx) error {
 			embedded_at DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			UNIQUE(chunk_id, model_name)
 		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
+			chunk_id INTEGER PRIMARY KEY,
+			embedding float[1024]
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash)`,
 	}
 	for _, s := range stmts {
-		if _, err := tx.Exec(s); err != nil {
+		if _, err := db.Exec(s); err != nil {
 			return err
 		}
 	}

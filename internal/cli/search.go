@@ -2,9 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/lixianmin/lmd/internal/embedding"
+	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/spf13/cobra"
 )
@@ -14,6 +16,7 @@ var (
 	searchLimit      int
 	searchFull       bool
 	searchMinScore   float64
+	outputFormat     string
 )
 
 var searchCmd = &cobra.Command{
@@ -38,30 +41,71 @@ var searchCmd = &cobra.Command{
 			return err
 		}
 
-		if len(results) == 0 {
-			fmt.Println("No results found.")
-			return nil
+		return formatResults(os.Stdout, results)
+	},
+}
+
+var vsearchCmd = &cobra.Command{
+	Use:   "vsearch <query>",
+	Short: "Vector semantic search",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openDB()
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		tok, err := tokenizer.NewGseTokenizer()
+		if err != nil {
+			return fmt.Errorf("failed to initialize tokenizer: %w", err)
 		}
 
-		for _, r := range results {
-			fmt.Printf("%s:%d #%s\n", r.Path, r.Line, r.DocID)
-			fmt.Printf("Title: %s\n", r.Title)
-			fmt.Printf("Score: %.0f%%\n", r.Score*100)
-			if searchFull {
-				fmt.Println()
-				doc, err := store.GetDocumentByDocID(db, r.DocID)
-				if err == nil {
-					fmt.Println(doc.Body)
-				} else {
-					fmt.Println(r.Snippet)
-				}
-			} else {
-				fmt.Printf("\n%s\n", r.Snippet)
-			}
-			fmt.Println()
+		provider := embedding.NewMockProvider(1024)
+		searcher := service.NewSearcher(db, tok)
+		results, err := searcher.SearchVector(provider, args[0], searchCollection, searchLimit, searchMinScore)
+		if err != nil {
+			return err
 		}
-		return nil
+
+		return formatResults(os.Stdout, results)
 	},
+}
+
+var queryCmd = &cobra.Command{
+	Use:   "query <query>",
+	Short: "Hybrid search (BM25 + vector with RRF fusion)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openDB()
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		tok, err := tokenizer.NewGseTokenizer()
+		if err != nil {
+			return fmt.Errorf("failed to initialize tokenizer: %w", err)
+		}
+
+		provider := embedding.NewMockProvider(1024)
+		searcher := service.NewSearcher(db, tok)
+		results, err := searcher.SearchHybrid(provider, args[0], searchCollection, searchLimit, searchMinScore)
+		if err != nil {
+			return err
+		}
+
+		return formatResults(os.Stdout, results)
+	},
+}
+
+func formatResults(w *os.File, hits []formatter.SearchHit) error {
+	switch outputFormat {
+	case "json":
+		return formatter.NewJSONFormatter().Format(w, hits)
+	default:
+		return formatter.NewTextFormatter(formatter.TextConfig{Full: searchFull}).Format(w, hits)
+	}
 }
 
 func init() {
@@ -69,5 +113,12 @@ func init() {
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "n", 5, "number of results")
 	searchCmd.Flags().BoolVar(&searchFull, "full", false, "show full document content")
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "minimum score threshold")
+	searchCmd.Flags().StringVar(&outputFormat, "format", "text", "output format: text, json")
+
+	vsearchCmd.Flags().AddFlagSet(searchCmd.Flags())
+	queryCmd.Flags().AddFlagSet(searchCmd.Flags())
+
 	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(vsearchCmd)
+	rootCmd.AddCommand(queryCmd)
 }

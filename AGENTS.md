@@ -45,6 +45,7 @@ test/fixtures/     - Test markdown documents (Chinese + English)
 - Logging: github.com/lixianmin/logo
 - Timezone: All timestamps in GMT+8 (CST)
 - SQLite mode: WAL for concurrent reads
+- DB operations: Prefer prepared statements for frequently used queries
 
 ## Build & Test
 
@@ -61,3 +62,4 @@ The file `docs/todo.md` contains temporary development thoughts and ideas. When 
 - For design issues: update the spec and plan, then remove from todo.md
 - For action items: complete the action, then remove from todo.md
 - When all items are resolved, todo.md should become empty (except the header)
+- Always check todo.md before starting a new task

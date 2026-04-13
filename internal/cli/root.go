@@ -42,5 +42,5 @@ func getDefaultIndexPath() string {
 }
 
 func openDB() (*sql.DB, error) {
-	return store.OpenAndMigrate(getDefaultIndexPath())
+	return store.OpenAndInit(getDefaultIndexPath())
 }

@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestMigrateCreatesTables(t *testing.T) {
+func TestCreateTablesCreatesAllTables(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	if err := Migrate(db); err != nil {
-		t.Fatalf("Migrate failed: %v", err)
+	if err := CreateTables(db); err != nil {
+		t.Fatalf("CreateTables failed: %v", err)
 	}
 
-	tables := []string{"collections", "path_contexts", "documents", "chunks", "embed_status", "_meta"}
+	tables := []string{"collections", "path_contexts", "documents", "chunks", "embed_status"}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRow(
@@ -24,35 +24,23 @@ func TestMigrateCreatesTables(t *testing.T) {
 			t.Errorf("table %s not found: %v", table, err)
 		}
 	}
-}
 
-func TestMigrateIdempotent(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	if err := Migrate(db); err != nil {
-		t.Fatalf("first Migrate failed: %v", err)
-	}
-	if err := Migrate(db); err != nil {
-		t.Fatalf("second Migrate failed: %v", err)
-	}
-}
-
-func TestMigrateSetsVersion(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	if err := Migrate(db); err != nil {
-		t.Fatalf("Migrate failed: %v", err)
-	}
-
-	var version string
-	err := db.QueryRow("SELECT value FROM _meta WHERE key='schema_version'").Scan(&version)
+	var vecName string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_vectors'").Scan(&vecName)
 	if err != nil {
-		t.Fatalf("failed to query schema_version: %v", err)
+		t.Errorf("virtual table chunk_vectors not found: %v", err)
 	}
-	if version != "1" {
-		t.Fatalf("expected schema_version=1, got %s", version)
+}
+
+func TestCreateTablesIdempotent(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if err := CreateTables(db); err != nil {
+		t.Fatalf("first CreateTables failed: %v", err)
+	}
+	if err := CreateTables(db); err != nil {
+		t.Fatalf("second CreateTables failed: %v", err)
 	}
 }
 

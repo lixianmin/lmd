@@ -105,9 +105,13 @@ func TestRenameCollection(t *testing.T) {
 func openMigratedDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openTestDB(t)
-	if err := Migrate(db); err != nil {
+	if err := CreateTables(db); err != nil {
 		db.Close()
-		t.Fatalf("migration failed: %v", err)
+		t.Fatalf("CreateTables failed: %v", err)
+	}
+	if err := PrepareFTSStatements(db); err != nil {
+		db.Close()
+		t.Fatalf("prepareFTSStatements failed: %v", err)
 	}
 	return db
 }

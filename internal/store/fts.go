@@ -14,25 +14,43 @@ type FTSSearchResult struct {
 	Score      float64
 }
 
-func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSSearchResult, error) {
-	query := `
+var ftsSearchAll *sql.Stmt
+var ftsSearchByCollection *sql.Stmt
+
+func PrepareFTSStatements(db *sql.DB) error {
+	var err error
+	ftsSearchAll, err = db.Prepare(`
 		SELECT d.id, d.docid, d.collection, d.path, d.title,
 			   abs(rank) as raw_score
 		FROM documents_fts f
 		JOIN documents d ON d.id = f.rowid
 		WHERE f.tokens MATCH ?
-	`
-	args := []any{tokenizedQuery}
-
-	if collection != "" {
-		query += " AND d.collection = ?"
-		args = append(args, collection)
+		ORDER BY rank LIMIT ?
+	`)
+	if err != nil {
+		return err
 	}
 
-	query += " ORDER BY rank LIMIT ?"
-	args = append(args, limit)
+	ftsSearchByCollection, err = db.Prepare(`
+		SELECT d.id, d.docid, d.collection, d.path, d.title,
+			   abs(rank) as raw_score
+		FROM documents_fts f
+		JOIN documents d ON d.id = f.rowid
+		WHERE f.tokens MATCH ? AND d.collection = ?
+		ORDER BY rank LIMIT ?
+	`)
+	return err
+}
 
-	rows, err := db.Query(query, args...)
+func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSSearchResult, error) {
+	var rows *sql.Rows
+	var err error
+
+	if collection != "" {
+		rows, err = ftsSearchByCollection.Query(tokenizedQuery, collection, limit)
+	} else {
+		rows, err = ftsSearchAll.Query(tokenizedQuery, limit)
+	}
 	if err != nil {
 		return nil, err
 	}

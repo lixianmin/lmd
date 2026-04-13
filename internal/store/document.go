@@ -39,20 +39,27 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 	).Scan(&existingID)
 
 	if err == sql.ErrNoRows {
-		res, err := db.Exec(
+		stmt, err := db.Prepare(
 			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, modified_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
-			doc.DocID, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize,
 		)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		res, err := stmt.Exec(doc.DocID, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize)
 		if err != nil {
 			return err
 		}
 		doc.ID, _ = res.LastInsertId()
 
-		_, err = db.Exec(
-			"INSERT INTO documents_fts (rowid, tokens, title_tokens) VALUES (?, ?, ?)",
-			doc.ID, tokenizedBody, tokenizedTitle,
-		)
+		ftsStmt, err := db.Prepare("INSERT INTO documents_fts (rowid, tokens, title_tokens) VALUES (?, ?, ?)")
+		if err != nil {
+			return err
+		}
+		defer ftsStmt.Close()
+		_, err = ftsStmt.Exec(doc.ID, tokenizedBody, tokenizedTitle)
 		return err
 	}
 
@@ -61,19 +68,27 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 	}
 
 	doc.ID = existingID
-	_, err = db.Exec(
-		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours')
-		 WHERE id=?`,
-		doc.DocID, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID,
+
+	updateStmt, err := db.Prepare(
+		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
 	)
 	if err != nil {
 		return err
 	}
+	defer updateStmt.Close()
 
-	_, err = db.Exec(
-		"UPDATE documents_fts SET tokens=?, title_tokens=? WHERE rowid=?",
-		tokenizedBody, tokenizedTitle, existingID,
-	)
+	_, err = updateStmt.Exec(doc.DocID, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID)
+	if err != nil {
+		return err
+	}
+
+	ftsUpdateStmt, err := db.Prepare("UPDATE documents_fts SET tokens=?, title_tokens=? WHERE rowid=?")
+	if err != nil {
+		return err
+	}
+	defer ftsUpdateStmt.Close()
+
+	_, err = ftsUpdateStmt.Exec(tokenizedBody, tokenizedTitle, existingID)
 	return err
 }
 
@@ -85,12 +100,20 @@ func GetDocumentByPath(db *sql.DB, collection, path string) (*DocumentRecord, er
 	return getDocument(db, "WHERE collection=? AND path=?", collection, path)
 }
 
+func GetDocumentByID(db *sql.DB, id int64) (*DocumentRecord, error) {
+	return getDocument(db, "WHERE id=?", id)
+}
+
 func getDocument(db *sql.DB, whereClause string, args ...any) (*DocumentRecord, error) {
 	query := "SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents " + whereClause
-	row := db.QueryRow(query, args...)
+	stmt, err := db.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
 
 	var doc DocumentRecord
-	err := row.Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+	err = stmt.QueryRow(args...).Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
@@ -102,15 +125,25 @@ func getDocument(db *sql.DB, whereClause string, args ...any) (*DocumentRecord, 
 }
 
 func DeleteDocument(db *sql.DB, id int64) error {
-	_, err := db.Exec("DELETE FROM documents WHERE id=?", id)
+	stmt, err := db.Prepare("DELETE FROM documents WHERE id=?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(id)
 	return err
 }
 
 func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord, error) {
-	rows, err := db.Query(
+	stmt, err := db.Prepare(
 		"SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE collection=?",
-		collection,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query(collection)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +162,14 @@ func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord,
 }
 
 func GetDocumentHash(db *sql.DB, collection, path string) (string, error) {
+	stmt, err := db.Prepare("SELECT hash FROM documents WHERE collection=? AND path=?")
+	if err != nil {
+		return "", err
+	}
+	defer stmt.Close()
+
 	var hash string
-	err := db.QueryRow("SELECT hash FROM documents WHERE collection=? AND path=?", collection, path).Scan(&hash)
+	err = stmt.QueryRow(collection, path).Scan(&hash)
 	if err == sql.ErrNoRows {
 		return "", errors.New("document not found")
 	}

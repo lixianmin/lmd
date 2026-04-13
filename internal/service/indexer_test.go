@@ -113,7 +113,11 @@ func openTestServiceDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Migrate(db); err != nil {
+	if err := store.CreateTables(db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := store.PrepareFTSStatements(db); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}

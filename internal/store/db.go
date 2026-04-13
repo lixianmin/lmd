@@ -5,8 +5,13 @@ import (
 	"os"
 	"path/filepath"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func init() {
+	sqlite_vec.Auto()
+}
 
 func OpenDB(dbPath string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -26,12 +31,16 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-func OpenAndMigrate(dbPath string) (*sql.DB, error) {
+func OpenAndInit(dbPath string) (*sql.DB, error) {
 	db, err := OpenDB(dbPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := Migrate(db); err != nil {
+	if err := CreateTables(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := PrepareFTSStatements(db); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -68,7 +68,7 @@ type LmdStore struct {
 }
 
 func CreateStore(opts StoreOptions) (*LmdStore, error) {
-	db, err := store.OpenAndMigrate(opts.DBPath)
+	db, err := store.OpenAndInit(opts.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
