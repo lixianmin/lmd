@@ -47,7 +47,7 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 	}
 
 	var records []ChunkRecord
-	err := WithTransaction(func(tx *sql.Tx) error {
+	err := withTransaction(func(tx *sql.Tx) error {
 		stmt, err := tx.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
 		if err != nil {
 			return err
@@ -95,7 +95,7 @@ func InsertVector(chunkId int64, embedding []float32) error {
 }
 
 func DeleteVectorsByDocId(docId int64) error {
-	return WithTransaction(func(tx *sql.Tx) error {
+	return withTransaction(func(tx *sql.Tx) error {
 		selectStmt, err := tx.Prepare("SELECT id FROM chunks WHERE doc_id=?")
 		if err != nil {
 			return err
