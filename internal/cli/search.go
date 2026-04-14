@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -59,7 +60,7 @@ func syncEmbeddings(db *sql.DB) {
 	provider := newProvider()
 	defer provider.Close()
 	embedder := service.NewEmbedder(db, provider)
-	result, err := embedder.EmbedAll()
+	result, err := embedder.EmbedAll(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: embed sync failed: %v\n", err)
 		return

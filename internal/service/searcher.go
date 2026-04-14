@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -61,7 +62,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 }
 
 func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
-	queryVec, err := provider.EmbedQuery(nil, query)
+	queryVec, err := provider.EmbedQuery(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -20,7 +21,7 @@ func TestEmbedChunks(t *testing.T) {
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
 
-	result, err := embedder.EmbedAll()
+	result, err := embedder.EmbedAll(context.Background())
 	if err != nil {
 		t.Fatalf("EmbedAll failed: %v", err)
 	}
@@ -41,8 +42,8 @@ func TestEmbedChunksIdempotent(t *testing.T) {
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
 
-	embedder.EmbedAll()
-	r2, _ := embedder.EmbedAll()
+	embedder.EmbedAll(context.Background())
+	r2, _ := embedder.EmbedAll(context.Background())
 	if r2.Embedded != 0 {
 		t.Fatalf("second run should embed 0 (all done), got %d", r2.Embedded)
 	}

@@ -52,6 +52,7 @@ test/fixtures/     - Test markdown documents (Chinese + English)
 - SQLite mode: WAL for concurrent reads
 - DB operations: Prefer prepared statements for frequently used queries
 - No migration system: single `CreateTables` function
+- **Naming convention**: prefer `docId` over `docID` (camelCase with lowercase 'd' for second word)
 
 ## Build & Test
 

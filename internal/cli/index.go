@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -170,7 +171,7 @@ var rebuildCmd = &cobra.Command{
 		provider := newProvider()
 		defer provider.Close()
 		embedder := service.NewEmbedder(db, provider)
-		embedResult, err := embedder.EmbedAll()
+		embedResult, err := embedder.EmbedAll(context.Background())
 		if err != nil {
 			return fmt.Errorf("embedding failed: %w", err)
 		}

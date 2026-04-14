@@ -11,6 +11,8 @@ require (
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/lixianmin/got v0.0.0-20241022084720-9b9e479e6a53 // indirect
+	github.com/lixianmin/logo v0.0.0-20260412150128-3cc29b6c2dae // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/vcaesar/cedar v0.30.0 // indirect
 )

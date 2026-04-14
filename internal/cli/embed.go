@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lixianmin/lmd/internal/service"
@@ -23,7 +24,7 @@ var embedCmd = &cobra.Command{
 		defer provider.Close()
 		embedder := service.NewEmbedder(db, provider)
 
-		result, err := embedder.EmbedAll()
+		result, err := embedder.EmbedAll(context.Background())
 		if err != nil {
 			return err
 		}

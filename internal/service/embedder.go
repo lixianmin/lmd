@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -22,7 +23,7 @@ func NewEmbedder(db *sql.DB, provider embedding.EmbeddingProvider) *Embedder {
 	return &Embedder{db: db, provider: provider}
 }
 
-func (e *Embedder) EmbedAll() (*EmbedResult, error) {
+func (e *Embedder) EmbedAll(ctx context.Context) (*EmbedResult, error) {
 	result := &EmbedResult{}
 
 	chunks, err := store.GetUnembeddedChunks(e.db)
@@ -39,7 +40,7 @@ func (e *Embedder) EmbedAll() (*EmbedResult, error) {
 		texts[i] = c.Content
 	}
 
-	vecs, err := e.provider.EmbedBatch(nil, texts)
+	vecs, err := e.provider.EmbedBatch(ctx, texts)
 	if err != nil {
 		return nil, err
 	}
