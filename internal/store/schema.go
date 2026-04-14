@@ -33,11 +33,6 @@ func CreateTables(db *sql.DB) error {
 			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-			content,
-			content='chunks',
-			content_rowid='id'
-		)`,
 		`CREATE TABLE IF NOT EXISTS chunks (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			doc_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -47,6 +42,12 @@ func CreateTables(db *sql.DB) error {
 			token_count INTEGER,
 			hash        TEXT NOT NULL,
 			UNIQUE(doc_id, seq)
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+			content,
+			content = 'chunks',
+			content_rowid = 'id',
+			tokenize = 'porter unicode61'
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
 			chunk_id INTEGER PRIMARY KEY,

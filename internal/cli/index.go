@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/store"
@@ -107,8 +108,80 @@ var statusCmd = &cobra.Command{
 	},
 }
 
+var rebuildCmd = &cobra.Command{
+	Use:   "rebuild",
+	Short: "Drop all data and rebuild index from scratch (keeps collections)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openDB()
+		if err != nil {
+			return err
+		}
+
+		cols, err := store.ListCollections(db)
+		if err != nil {
+			return err
+		}
+		if len(cols) == 0 {
+			db.Close()
+			fmt.Println("No collections to reindex.")
+			return nil
+		}
+
+		db.Close()
+
+		dbPath := getDefaultIndexPath()
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove database: %w", err)
+		}
+		fmt.Println("Database reset.")
+
+		db, err = store.OpenAndInit(dbPath)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		if err := store.PrepareFTSStatements(db); err != nil {
+			return err
+		}
+
+		for _, col := range cols {
+			if err := store.AddCollection(db, col.Name, col.Path, col.GlobPattern, col.IgnorePatterns); err != nil {
+				fmt.Printf("Warning: failed to restore collection %s: %v\n", col.Name, err)
+			}
+		}
+
+		tok, err := tokenizer.NewGseTokenizer()
+		if err != nil {
+			return fmt.Errorf("failed to initialize tokenizer: %w", err)
+		}
+		idx := service.NewIndexer(db, tok)
+
+		for _, col := range cols {
+			result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+			if err != nil {
+				fmt.Printf("Error indexing %s: %v\n", col.Name, err)
+				continue
+			}
+			fmt.Printf("%s: indexed=%d updated=%d unchanged=%d removed=%d\n",
+				col.Name, result.Indexed, result.Updated, result.Unchanged, result.Removed)
+		}
+
+		provider := newProvider()
+		defer provider.Close()
+		embedder := service.NewEmbedder(db, provider)
+		embedResult, err := embedder.EmbedAll(provider.ModelName(), false)
+		if err != nil {
+			return fmt.Errorf("embedding failed: %w", err)
+		}
+		fmt.Printf("\nEmbedded %d chunks, skipped %d\n", embedResult.Embedded, embedResult.Skipped)
+		return nil
+	},
+}
+
 func init() {
 	updateCmd.Flags().StringVarP(&updateCollection, "collection", "c", "", "update specific collection only")
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(rebuildCmd)
 }
