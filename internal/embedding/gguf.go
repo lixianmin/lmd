@@ -112,7 +112,8 @@ func (g *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
 	}
 
 	body, _ := json.Marshal(embeddingRequest{Input: input, Model: "default"})
-	resp, err := http.Post(g.baseURL+"/embeddings", "application/json", bytes.NewReader(body))
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Post(g.baseURL+"/embeddings", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("embedding API call failed: %w", err)
 	}
