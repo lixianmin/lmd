@@ -69,7 +69,7 @@ func TestGetUnembeddedChunks(t *testing.T) {
 		{Content: "chunk two", Position: 10, TokenCount: 2, Hash: "c2"},
 	}, []string{"chunk one", "chunk two"})
 
-	unembedded, err := GetUnembeddedChunks(db, "test-model")
+	unembedded, err := GetUnembeddedChunks(db)
 	if err != nil {
 		t.Fatalf("GetUnembeddedChunks failed: %v", err)
 	}
@@ -77,11 +77,11 @@ func TestGetUnembeddedChunks(t *testing.T) {
 		t.Fatalf("expected 2 unembedded chunks, got %d", len(unembedded))
 	}
 
-	_ = MarkEmbedded(db, unembedded[0].ID, "test-model")
+	_ = InsertVector(db, unembedded[0].ID, makeTestVec(0.1))
 
-	unembedded2, _ := GetUnembeddedChunks(db, "test-model")
+	unembedded2, _ := GetUnembeddedChunks(db)
 	if len(unembedded2) != 1 {
-		t.Fatalf("expected 1 unembedded after marking, got %d", len(unembedded2))
+		t.Fatalf("expected 1 unembedded after embedding, got %d", len(unembedded2))
 	}
 }
 

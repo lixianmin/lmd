@@ -20,7 +20,7 @@ func TestEmbedChunks(t *testing.T) {
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
 
-	result, err := embedder.EmbedAll("mock", false)
+	result, err := embedder.EmbedAll()
 	if err != nil {
 		t.Fatalf("EmbedAll failed: %v", err)
 	}
@@ -41,13 +41,13 @@ func TestEmbedChunksIdempotent(t *testing.T) {
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
 
-	r1, _ := embedder.EmbedAll("mock", false)
-	r2, _ := embedder.EmbedAll("mock", false)
+	embedder.EmbedAll()
+	r2, _ := embedder.EmbedAll()
 	if r2.Embedded != 0 {
 		t.Fatalf("second run should embed 0 (all done), got %d", r2.Embedded)
 	}
-	if r2.Skipped != r1.Embedded {
-		t.Fatalf("expected %d skipped, got %d", r1.Embedded, r2.Skipped)
+	if r2.Skipped != 0 {
+		t.Fatalf("expected 0 skipped, got %d", r2.Skipped)
 	}
 }
 

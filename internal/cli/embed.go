@@ -23,7 +23,7 @@ var embedCmd = &cobra.Command{
 		defer provider.Close()
 		embedder := service.NewEmbedder(db, provider)
 
-		result, err := embedder.EmbedAll(provider.ModelName(), embedForce)
+		result, err := embedder.EmbedAll()
 		if err != nil {
 			return err
 		}

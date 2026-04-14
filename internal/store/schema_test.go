@@ -14,7 +14,7 @@ func TestCreateTablesCreatesAllTables(t *testing.T) {
 		t.Fatalf("CreateTables failed: %v", err)
 	}
 
-	tables := []string{"collections", "path_contexts", "documents", "chunks", "embed_status"}
+	tables := []string{"collections", "path_contexts", "documents", "chunks"}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRow(

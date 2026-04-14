@@ -18,7 +18,7 @@ func TestSearchHybrid(t *testing.T) {
 
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
-	_, _ = embedder.EmbedAll("mock", false)
+	_, _ = embedder.EmbedAll()
 
 	searcher := NewSearcher(db, tok)
 	results, err := searcher.SearchHybrid(provider, "并发编程", "", 5, 0)
@@ -41,7 +41,7 @@ func TestSearchHybridCollection(t *testing.T) {
 
 	provider := embedding.NewMockProvider(1024)
 	embedder := NewEmbedder(db, provider)
-	_, _ = embedder.EmbedAll("mock", false)
+	_, _ = embedder.EmbedAll()
 
 	searcher := NewSearcher(db, tok)
 	results, err := searcher.SearchHybrid(provider, "并发编程", "test", 5, 0)

@@ -59,7 +59,7 @@ func syncEmbeddings(db *sql.DB) {
 	provider := newProvider()
 	defer provider.Close()
 	embedder := service.NewEmbedder(db, provider)
-	result, err := embedder.EmbedAll(provider.ModelName(), false)
+	result, err := embedder.EmbedAll()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: embed sync failed: %v\n", err)
 		return

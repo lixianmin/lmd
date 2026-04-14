@@ -98,7 +98,7 @@ var statusCmd = &cobra.Command{
 		db.QueryRow("SELECT COUNT(*) FROM chunks").Scan(&chunkCount)
 
 		var embedCount int
-		db.QueryRow("SELECT COUNT(*) FROM embed_status").Scan(&embedCount)
+		db.QueryRow("SELECT COUNT(*) FROM chunks_vec_rowids").Scan(&embedCount)
 
 		fmt.Printf("\n  Total: %d documents, %d chunks, %d embedded\n", totalDocs, chunkCount, embedCount)
 		if chunkCount > 0 && embedCount < chunkCount {
@@ -170,7 +170,7 @@ var rebuildCmd = &cobra.Command{
 		provider := newProvider()
 		defer provider.Close()
 		embedder := service.NewEmbedder(db, provider)
-		embedResult, err := embedder.EmbedAll(provider.ModelName(), false)
+		embedResult, err := embedder.EmbedAll()
 		if err != nil {
 			return fmt.Errorf("embedding failed: %w", err)
 		}

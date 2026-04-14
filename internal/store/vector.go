@@ -215,13 +215,12 @@ func QueryVectors(db *sql.DB, query []float32, limit int) ([]VectorSearchResult,
 	return results, rows.Err()
 }
 
-func GetUnembeddedChunks(db *sql.DB, modelName string) ([]ChunkRecord, error) {
+func GetUnembeddedChunks(db *sql.DB) ([]ChunkRecord, error) {
 	stmt, err := db.Prepare(`
 		SELECT c.id, c.doc_id, c.seq, c.content, c.position, c.token_count, c.hash
 		FROM chunks c
-		WHERE c.id NOT IN (
-			SELECT chunk_id FROM embed_status WHERE model_name = ?
-		)
+		LEFT JOIN chunks_vec v ON c.id = v.chunk_id
+		WHERE v.chunk_id IS NULL
 		ORDER BY c.id
 	`)
 	if err != nil {
@@ -229,7 +228,7 @@ func GetUnembeddedChunks(db *sql.DB, modelName string) ([]ChunkRecord, error) {
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query(modelName)
+	rows, err := stmt.Query()
 	if err != nil {
 		return nil, err
 	}
@@ -244,16 +243,6 @@ func GetUnembeddedChunks(db *sql.DB, modelName string) ([]ChunkRecord, error) {
 		chunks = append(chunks, c)
 	}
 	return chunks, rows.Err()
-}
-
-func MarkEmbedded(db *sql.DB, chunkID int64, modelName string) error {
-	stmt, err := db.Prepare("INSERT OR IGNORE INTO embed_status (chunk_id, model_name) VALUES (?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(chunkID, modelName)
-	return err
 }
 
 func GetChunksByDocID(db *sql.DB, docID int64) ([]ChunkRecord, error) {
@@ -293,12 +282,6 @@ func GetChunkByID(db *sql.DB, chunkID int64) (*ChunkRecord, error) {
 		return nil, errors.New("chunk not found")
 	}
 	return &c, err
-}
-
-func CountEmbedded(db *sql.DB, modelName string) (int, error) {
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM embed_status WHERE model_name=?", modelName).Scan(&count)
-	return count, err
 }
 
 func SimilarityToScore(distance float64) float64 {
