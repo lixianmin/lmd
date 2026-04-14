@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
@@ -21,23 +21,18 @@ var getCmd = &cobra.Command{
 	Short: "Get a document by path or docid",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		input := args[0]
-		var doc *store.DocumentRecord
+		var doc *dao.DocumentRecord
+		var err error
 
 		if strings.HasPrefix(input, "#") {
-			doc, err = store.GetDocumentByDocId(db, input[1:])
+			doc, err = dao.GetDocumentByDocId(input[1:])
 		} else {
 			parts := strings.SplitN(input, "/", 2)
 			if len(parts) == 2 {
-				doc, err = store.GetDocumentByPath(db, parts[0], parts[1])
+				doc, err = dao.GetDocumentByPath(parts[0], parts[1])
 			} else {
-				matches, searchErr := store.SearchDocumentsByPath(db, input, 10)
+				matches, searchErr := dao.SearchDocumentsByPath(input, 10)
 				if searchErr != nil {
 					return fmt.Errorf("invalid path format, use collection/path or #docid: %s", input)
 				}
@@ -52,7 +47,7 @@ var getCmd = &cobra.Command{
 			}
 
 			if err != nil {
-				matches, searchErr := store.SearchDocumentsByPath(db, parts[1], 10)
+				matches, searchErr := dao.SearchDocumentsByPath(parts[1], 10)
 				if searchErr == nil && len(matches) > 0 {
 					fmt.Fprintf(os.Stderr, "Document not found: %s\n\nSimilar files:\n", input)
 					for _, m := range matches {
@@ -67,9 +62,9 @@ var getCmd = &cobra.Command{
 			return fmt.Errorf("document not found: %s", input)
 		}
 
-		logo.Info("get: input=%s docId=%s path=%s/%s", input, store.ShortDocId(doc.DocId), doc.Collection, doc.Path)
+		logo.Info("get: input=%s docId=%s path=%s/%s", input, dao.ShortDocId(doc.DocId), doc.Collection, doc.Path)
 
-		fmt.Printf("#%s %s\n", store.ShortDocId(doc.DocId), doc.Title)
+		fmt.Printf("#%s %s\n", dao.ShortDocId(doc.DocId), doc.Title)
 		fmt.Printf("Collection: %s\n", doc.Collection)
 		fmt.Printf("Path: %s\n", doc.Path)
 		fmt.Printf("Size: %d bytes\n", doc.FileSize)

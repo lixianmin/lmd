@@ -4,26 +4,26 @@ import (
 	"context"
 	"testing"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
 func TestEmbedChunks(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok := newTestTokenizer(t)
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(db, provider)
+	embedder := NewEmbedder(provider)
 
-	result, err := embedder.EmbedAll(context.Background())
+	result, err := embedder.EmbedBatch(context.Background(), 0)
 	if err != nil {
-		t.Fatalf("EmbedAll failed: %v", err)
+		t.Fatalf("EmbedBatch failed: %v", err)
 	}
 	if result.Embedded == 0 {
 		t.Fatal("expected some chunks to be embedded")
@@ -31,19 +31,19 @@ func TestEmbedChunks(t *testing.T) {
 }
 
 func TestEmbedChunksIdempotent(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok := newTestTokenizer(t)
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(db, provider)
+	embedder := NewEmbedder(provider)
 
-	embedder.EmbedAll(context.Background())
-	r2, _ := embedder.EmbedAll(context.Background())
+	embedder.EmbedBatch(context.Background(), 0)
+	r2, _ := embedder.EmbedBatch(context.Background(), 0)
 	if r2.Embedded != 0 {
 		t.Fatalf("second run should embed 0 (all done), got %d", r2.Embedded)
 	}

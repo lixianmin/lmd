@@ -1,4 +1,4 @@
-package store
+package dao
 
 import (
 	"database/sql"
@@ -36,11 +36,11 @@ func OpenAndInit(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := CreateTables(db); err != nil {
+	if err := createTables(); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err := PrepareFTSStatements(db); err != nil {
+	if err := prepareFTSStatements(); err != nil {
 		db.Close()
 		return nil, err
 	}

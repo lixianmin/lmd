@@ -1,8 +1,6 @@
-package store
+package dao
 
-import "database/sql"
-
-func CreateTables(db *sql.DB) error {
+func createTables() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS collections (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +55,7 @@ func CreateTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash)`,
 	}
 	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
+		if _, err := DB.db.Exec(s); err != nil {
 			return err
 		}
 	}

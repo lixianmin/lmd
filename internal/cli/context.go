@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
@@ -19,15 +19,9 @@ var contextAddCmd = &cobra.Command{
 	Short: "Add or update context for a path",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		collection, p := parseContextPath(args[0])
 		logo.Info("context add: %s/%s", collection, p)
-		return store.AddContext(db, collection, p, args[1])
+		return dao.AddContext(collection, p, args[1])
 	},
 }
 
@@ -36,15 +30,9 @@ var contextRemoveCmd = &cobra.Command{
 	Short: "Remove context for a path",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		collection, p := parseContextPath(args[0])
 		logo.Info("context remove: %s/%s", collection, p)
-		return store.RemoveContext(db, collection, p)
+		return dao.RemoveContext(collection, p)
 	},
 }
 
@@ -53,13 +41,7 @@ var contextListCmd = &cobra.Command{
 	Short: "List contexts for a collection",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		contexts, err := store.ListContexts(db, args[0])
+		contexts, err := dao.ListContexts(args[0])
 		if err != nil {
 			return err
 		}

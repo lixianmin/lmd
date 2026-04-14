@@ -1,7 +1,6 @@
-package store
+package dao
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -18,7 +17,7 @@ type CollectionRecord struct {
 	DocCount       int
 }
 
-func AddCollection(db *sql.DB, name, path, globPattern string, ignorePatterns []string) error {
+func AddCollection(name, path, globPattern string, ignorePatterns []string) error {
 	var ignoreJSON *string
 	if len(ignorePatterns) > 0 {
 		b, err := json.Marshal(ignorePatterns)
@@ -29,7 +28,7 @@ func AddCollection(db *sql.DB, name, path, globPattern string, ignorePatterns []
 		ignoreJSON = &s
 	}
 
-	stmt, err := db.Prepare("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)")
+	stmt, err := DB.db.Prepare("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -38,8 +37,8 @@ func AddCollection(db *sql.DB, name, path, globPattern string, ignorePatterns []
 	return err
 }
 
-func RemoveCollection(db *sql.DB, name string) error {
-	stmt, err := db.Prepare("DELETE FROM collections WHERE name=?")
+func RemoveCollection(name string) error {
+	stmt, err := DB.db.Prepare("DELETE FROM collections WHERE name=?")
 	if err != nil {
 		return err
 	}
@@ -56,8 +55,8 @@ func RemoveCollection(db *sql.DB, name string) error {
 	return nil
 }
 
-func ListCollections(db *sql.DB) ([]CollectionRecord, error) {
-	stmt, err := db.Prepare(`
+func ListCollections() ([]CollectionRecord, error) {
+	stmt, err := DB.db.Prepare(`
 		SELECT c.id, c.name, c.path, c.glob_pattern, c.ignore_patterns,
 		       c.created_at, c.updated_at,
 		       COUNT(d.id) AS doc_count
@@ -95,8 +94,8 @@ func ListCollections(db *sql.DB) ([]CollectionRecord, error) {
 	return cols, rows.Err()
 }
 
-func RenameCollection(db *sql.DB, oldName, newName string) error {
-	stmt, err := db.Prepare("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?")
+func RenameCollection(oldName, newName string) error {
+	stmt, err := DB.db.Prepare("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?")
 	if err != nil {
 		return err
 	}

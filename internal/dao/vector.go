@@ -1,4 +1,4 @@
-package store
+package dao
 
 import (
 	"database/sql"
@@ -41,12 +41,12 @@ func padVector(vec []float32) []float32 {
 	return padded
 }
 
-func InsertChunks(db *sql.DB, docId int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
+func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
 	if len(chunks) != len(tokenizedContents) {
 		return nil, fmt.Errorf("chunks (%d) and tokenizedContents (%d) must have same length", len(chunks), len(tokenizedContents))
 	}
 
-	tx, err := db.Begin()
+	tx, err := DB.db.Begin()
 	if err != nil {
 		return nil, err
 	}
@@ -95,12 +95,12 @@ func InsertChunks(db *sql.DB, docId int64, chunks []ChunkData, tokenizedContents
 	return records, nil
 }
 
-func InsertVector(db *sql.DB, chunkId int64, embedding []float32) error {
+func InsertVector(chunkId int64, embedding []float32) error {
 	vec, err := sqlite_vec.SerializeFloat32(padVector(embedding))
 	if err != nil {
 		return err
 	}
-	stmt, err := db.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
+	stmt, err := DB.db.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
 	if err != nil {
 		return err
 	}
@@ -109,8 +109,8 @@ func InsertVector(db *sql.DB, chunkId int64, embedding []float32) error {
 	return err
 }
 
-func DeleteVectorsByDocId(db *sql.DB, docId int64) error {
-	tx, err := db.Begin()
+func DeleteVectorsByDocId(docId int64) error {
+	tx, err := DB.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -179,13 +179,13 @@ func DeleteVectorsByDocId(db *sql.DB, docId int64) error {
 	return nil
 }
 
-func QueryVectors(db *sql.DB, query []float32, limit int) ([]VectorSearchResult, error) {
+func QueryVectors(query []float32, limit int) ([]VectorSearchResult, error) {
 	q, err := sqlite_vec.SerializeFloat32(padVector(query))
 	if err != nil {
 		return nil, err
 	}
 
-	stmt, err := db.Prepare(`
+	stmt, err := DB.db.Prepare(`
 		SELECT chunk_id, distance
 		FROM chunks_vec
 		WHERE embedding MATCH ?
@@ -214,20 +214,26 @@ func QueryVectors(db *sql.DB, query []float32, limit int) ([]VectorSearchResult,
 	return results, rows.Err()
 }
 
-func GetUnembeddedChunks(db *sql.DB) ([]ChunkRecord, error) {
-	stmt, err := db.Prepare(`
+func GetUnembeddedChunks(limit int) ([]ChunkRecord, error) {
+	query := `
 		SELECT c.id, c.doc_id, c.seq, c.content, c.position, c.token_count, c.hash
 		FROM chunks c
 		LEFT JOIN chunks_vec v ON c.id = v.chunk_id
 		WHERE v.chunk_id IS NULL
 		ORDER BY c.id
-	`)
+	`
+	var args []interface{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	stmt, err := DB.db.Prepare(query)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query()
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		return nil, err
 	}
@@ -244,8 +250,8 @@ func GetUnembeddedChunks(db *sql.DB) ([]ChunkRecord, error) {
 	return chunks, rows.Err()
 }
 
-func GetChunksByDocId(db *sql.DB, docId int64) ([]ChunkRecord, error) {
-	stmt, err := db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq")
+func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
+	stmt, err := DB.db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq")
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +274,8 @@ func GetChunksByDocId(db *sql.DB, docId int64) ([]ChunkRecord, error) {
 	return chunks, rows.Err()
 }
 
-func GetChunkByID(db *sql.DB, chunkID int64) (*ChunkRecord, error) {
-	stmt, err := db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?")
+func GetChunkByID(chunkID int64) (*ChunkRecord, error) {
+	stmt, err := DB.db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?")
 	if err != nil {
 		return nil, err
 	}

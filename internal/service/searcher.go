@@ -2,22 +2,20 @@ package service
 
 import (
 	"context"
-	"database/sql"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/formatter"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
 
 type Searcher struct {
-	db        *sql.DB
 	tokenizer tokenizer.Tokenizer
 }
 
-func NewSearcher(db *sql.DB, tok tokenizer.Tokenizer) *Searcher {
-	return &Searcher{db: db, tokenizer: tok}
+func NewSearcher(tok tokenizer.Tokenizer) *Searcher {
+	return &Searcher{tokenizer: tok}
 }
 
 func (s *Searcher) SearchLex(query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
@@ -29,7 +27,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 		}
 	}
 
-	ftsResults, err := store.SearchFTS(s.db, ftsQuery, collection, limit)
+	ftsResults, err := dao.SearchFTS(ftsQuery, collection, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +39,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			DocId:      store.ShortDocId(r.DocId),
+			DocId:      dao.ShortDocId(r.DocId),
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
@@ -61,24 +59,24 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 		return nil, err
 	}
 
-	vecResults, err := store.QueryVectors(s.db, queryVec, limit)
+	vecResults, err := dao.QueryVectors(queryVec, limit)
 	if err != nil {
 		return nil, err
 	}
 
 	var hits []formatter.SearchHit
 	for _, r := range vecResults {
-		score := store.SimilarityToScore(r.Distance)
+		score := dao.SimilarityToScore(r.Distance)
 		if score < minScore {
 			continue
 		}
 
-		chunk, err := store.GetChunkByID(s.db, r.ChunkID)
+		chunk, err := dao.GetChunkByID(r.ChunkID)
 		if err != nil {
 			continue
 		}
 
-		doc, err := store.GetDocumentByID(s.db, chunk.DocId)
+		doc, err := dao.GetDocumentByID(chunk.DocId)
 		if err != nil {
 			continue
 		}
@@ -88,7 +86,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			DocId:      store.ShortDocId(doc.DocId),
+			DocId:      dao.ShortDocId(doc.DocId),
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,

@@ -2,7 +2,6 @@ package service
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"io/fs"
 	"os"
@@ -11,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lixianmin/lmd/internal/chunker"
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
@@ -24,14 +23,12 @@ type UpdateResult struct {
 }
 
 type Indexer struct {
-	db        *sql.DB
 	tokenizer tokenizer.Tokenizer
 	chunker   chunker.Chunker
 }
 
-func NewIndexer(db *sql.DB, tok tokenizer.Tokenizer) *Indexer {
+func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	return &Indexer{
-		db:        db,
 		tokenizer: tok,
 		chunker:   chunker.NewMarkdownChunker(900),
 	}
@@ -45,7 +42,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 		pattern = "**/*.md"
 	}
 
-	existingDocs, err := store.ListDocumentsByCollection(idx.db, collectionName)
+	existingDocs, err := dao.ListDocumentsByCollection(collectionName)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +98,13 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 		title := extractTitle(string(content), relPath)
 		body := string(content)
 
-		existingDoc, _ := store.GetDocumentByPath(idx.db, collectionName, relPath)
+		existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
 		if existingDoc != nil {
 			logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
-			store.DeleteVectorsByDocId(idx.db, existingDoc.ID)
+			dao.DeleteVectorsByDocId(existingDoc.ID)
 		}
 
-		doc := &store.DocumentRecord{
+		doc := &dao.DocumentRecord{
 			Collection: collectionName,
 			Path:       relPath,
 			Title:      title,
@@ -116,7 +113,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			FileSize:   int64(len(content)),
 		}
 
-		if err := store.UpsertDocument(idx.db, doc); err != nil {
+		if err := dao.UpsertDocument(doc); err != nil {
 			return err
 		}
 
@@ -128,11 +125,11 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 
 	for path := range existingPaths {
 		if !foundPaths[path] {
-			doc, err := store.GetDocumentByPath(idx.db, collectionName, path)
+			doc, err := dao.GetDocumentByPath(collectionName, path)
 			if err == nil {
 				logo.Info("indexer: removing deleted file %s/%s", collectionName, path)
-				store.DeleteVectorsByDocId(idx.db, doc.ID)
-				store.DeleteDocument(idx.db, doc.ID)
+				dao.DeleteVectorsByDocId(doc.ID)
+				dao.DeleteDocument(doc.ID)
 				result.Removed++
 			}
 		}
@@ -150,10 +147,10 @@ func (idx *Indexer) createChunks(docId int64, title, body, hash string) error {
 		return nil
 	}
 
-	data := make([]store.ChunkData, len(chunks))
+	data := make([]dao.ChunkData, len(chunks))
 	tokenized := make([]string, len(chunks))
 	for i, c := range chunks {
-		data[i] = store.ChunkData{
+		data[i] = dao.ChunkData{
 			Content:    c.Content,
 			Position:   c.Position,
 			TokenCount: c.TokenCount,
@@ -161,7 +158,7 @@ func (idx *Indexer) createChunks(docId int64, title, body, hash string) error {
 		}
 		tokenized[i] = idx.tokenizer.TokenizeToString(c.Content)
 	}
-	_, err = store.InsertChunks(idx.db, docId, data, tokenized)
+	_, err = dao.InsertChunks(docId, data, tokenized)
 	return err
 }
 

@@ -4,24 +4,24 @@ import (
 	"context"
 	"testing"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
-	"github.com/lixianmin/lmd/internal/store"
 )
 
 func TestSearchHybrid(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok := newTestTokenizer(t)
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(db, provider)
-	_, _ = embedder.EmbedAll(context.Background())
+	embedder := NewEmbedder(provider)
+	_, _ = embedder.EmbedBatch(context.Background(), 0)
 
-	searcher := NewSearcher(db, tok)
+	searcher := NewSearcher(tok)
 	results, err := searcher.SearchHybrid(provider, "并发编程", "", 5, 0)
 	if err != nil {
 		t.Fatalf("SearchHybrid failed: %v", err)
@@ -32,19 +32,19 @@ func TestSearchHybrid(t *testing.T) {
 }
 
 func TestSearchHybridCollection(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok := newTestTokenizer(t)
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(db, provider)
-	_, _ = embedder.EmbedAll(context.Background())
+	embedder := NewEmbedder(provider)
+	_, _ = embedder.EmbedBatch(context.Background(), 0)
 
-	searcher := NewSearcher(db, tok)
+	searcher := NewSearcher(tok)
 	results, err := searcher.SearchHybrid(provider, "并发编程", "test", 5, 0)
 	if err != nil {
 		t.Fatalf("SearchHybrid failed: %v", err)

@@ -1,11 +1,10 @@
 package cli
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +17,9 @@ var rootCmd = &cobra.Command{
 	Use:   "lmd",
 	Short: "LMD - Local Markdown Docs search engine",
 	Long:  "A local hybrid search engine for Markdown documents with Chinese language support.",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return dao.Init(getDefaultIndexPath())
+	},
 }
 
 func Execute() error {
@@ -39,8 +41,4 @@ func getDefaultIndexPath() string {
 		return "lmd.sqlite"
 	}
 	return filepath.Join(home, ".cache", "lmd", "index.sqlite")
-}
-
-func openDB() (*sql.DB, error) {
-	return store.OpenAndInit(getDefaultIndexPath())
 }

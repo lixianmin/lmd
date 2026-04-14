@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
@@ -22,20 +22,14 @@ var updateCmd = &cobra.Command{
 		start := time.Now()
 		logo.Info("update: starting")
 
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		tok, err := tokenizer.NewGseTokenizer()
 		if err != nil {
 			return fmt.Errorf("failed to initialize tokenizer: %w", err)
 		}
 
-		idx := service.NewIndexer(db, tok)
+		idx := service.NewIndexer(tok)
 
-		cols, err := store.ListCollections(db)
+		cols, err := dao.ListCollections()
 		if err != nil {
 			return err
 		}
@@ -78,13 +72,7 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show index status",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		cols, err := store.ListCollections(db)
+		cols, err := dao.ListCollections()
 		if err != nil {
 			return err
 		}
@@ -104,11 +92,7 @@ var statusCmd = &cobra.Command{
 			totalDocs += c.DocCount
 		}
 
-		var chunkCount int
-		db.QueryRow("SELECT COUNT(*) FROM chunks").Scan(&chunkCount)
-
-		var embedCount int
-		db.QueryRow("SELECT COUNT(*) FROM chunks_vec_rowids").Scan(&embedCount)
+		chunkCount, embedCount := dao.GetChunkCounts()
 
 		fmt.Printf("\n  Total: %d documents, %d chunks, %d embedded\n", totalDocs, chunkCount, embedCount)
 		logo.Info("status: docs=%d chunks=%d embedded=%d", totalDocs, chunkCount, embedCount)
@@ -126,22 +110,16 @@ var rebuildCmd = &cobra.Command{
 		start := time.Now()
 		logo.Info("rebuild: starting")
 
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-
-		cols, err := store.ListCollections(db)
+		cols, err := dao.ListCollections()
 		if err != nil {
 			return err
 		}
 		if len(cols) == 0 {
-			db.Close()
 			fmt.Println("No collections to reindex.")
 			return nil
 		}
 
-		db.Close()
+		dao.DB.Close()
 
 		dbPath := getDefaultIndexPath()
 		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
@@ -149,18 +127,12 @@ var rebuildCmd = &cobra.Command{
 		}
 		fmt.Println("Database reset.")
 
-		db, err = store.OpenAndInit(dbPath)
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		if err := store.PrepareFTSStatements(db); err != nil {
+		if err := dao.Init(dbPath); err != nil {
 			return err
 		}
 
 		for _, col := range cols {
-			if err := store.AddCollection(db, col.Name, col.Path, col.GlobPattern, col.IgnorePatterns); err != nil {
+			if err := dao.AddCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns); err != nil {
 				fmt.Printf("Warning: failed to restore collection %s: %v\n", col.Name, err)
 			}
 		}
@@ -169,7 +141,7 @@ var rebuildCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to initialize tokenizer: %w", err)
 		}
-		idx := service.NewIndexer(db, tok)
+		idx := service.NewIndexer(tok)
 
 		for _, col := range cols {
 			result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
@@ -183,8 +155,8 @@ var rebuildCmd = &cobra.Command{
 
 		provider := newProvider()
 		defer provider.Close()
-		embedder := service.NewEmbedder(db, provider)
-		embedResult, err := embedder.EmbedAll(context.Background())
+		embedder := service.NewEmbedder(provider)
+		embedResult, err := embedder.EmbedBatch(context.Background(), 0)
 		if err != nil {
 			return fmt.Errorf("embedding failed: %w", err)
 		}

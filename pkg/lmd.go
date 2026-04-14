@@ -2,12 +2,11 @@ package lmd
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
@@ -61,29 +60,26 @@ type Document struct {
 }
 
 type LmdStore struct {
-	db        *sql.DB
 	tokenizer *tokenizer.GseTokenizer
 	indexer   *service.Indexer
 	searcher  *service.Searcher
 }
 
 func CreateStore(opts StoreOptions) (*LmdStore, error) {
-	db, err := store.OpenAndInit(opts.DBPath)
-	if err != nil {
+	if err := dao.Init(opts.DBPath); err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	tok, err := tokenizer.NewGseTokenizer()
 	if err != nil {
-		db.Close()
+		dao.DB.Close()
 		return nil, fmt.Errorf("failed to initialize tokenizer: %w", err)
 	}
 
 	return &LmdStore{
-		db:        db,
 		tokenizer: tok,
-		indexer:   service.NewIndexer(db, tok),
-		searcher:  service.NewSearcher(db, tok),
+		indexer:   service.NewIndexer(tok),
+		searcher:  service.NewSearcher(tok),
 	}, nil
 }
 
@@ -92,15 +88,15 @@ func (s *LmdStore) AddCollection(name string, config CollectionConfig) error {
 	if glob == "" {
 		glob = "**/*.md"
 	}
-	return store.AddCollection(s.db, name, config.Path, glob, config.IgnorePatterns)
+	return dao.AddCollection(name, config.Path, glob, config.IgnorePatterns)
 }
 
 func (s *LmdStore) RemoveCollection(name string) error {
-	return store.RemoveCollection(s.db, name)
+	return dao.RemoveCollection(name)
 }
 
 func (s *LmdStore) ListCollections() ([]CollectionInfo, error) {
-	cols, err := store.ListCollections(s.db)
+	cols, err := dao.ListCollections()
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +113,7 @@ func (s *LmdStore) ListCollections() ([]CollectionInfo, error) {
 }
 
 func (s *LmdStore) Update(ctx context.Context, opts UpdateOptions) (*UpdateResult, error) {
-	cols, err := store.ListCollections(s.db)
+	cols, err := dao.ListCollections()
 	if err != nil {
 		return nil, err
 	}
@@ -174,15 +170,15 @@ func (s *LmdStore) SearchLex(query string, opts LexOptions) ([]SearchResult, err
 }
 
 func (s *LmdStore) Get(pathOrDocId string) (*Document, error) {
-	var doc *store.DocumentRecord
+	var doc *dao.DocumentRecord
 	var err error
 
 	if len(pathOrDocId) > 0 && pathOrDocId[0] == '#' {
-		doc, err = store.GetDocumentByDocId(s.db, pathOrDocId[1:])
+		doc, err = dao.GetDocumentByDocId(pathOrDocId[1:])
 	} else {
 		parts := splitPath(pathOrDocId)
 		if len(parts) == 2 {
-			doc, err = store.GetDocumentByPath(s.db, parts[0], parts[1])
+			doc, err = dao.GetDocumentByPath(parts[0], parts[1])
 		} else {
 			return nil, fmt.Errorf("invalid path format, use collection/path or #docid")
 		}
@@ -203,7 +199,7 @@ func (s *LmdStore) Get(pathOrDocId string) (*Document, error) {
 }
 
 func (s *LmdStore) Close() error {
-	return s.db.Close()
+	return dao.DB.Close()
 }
 
 func splitPath(p string) []string {

@@ -19,17 +19,11 @@ var embedCmd = &cobra.Command{
 		start := time.Now()
 		logo.Info("embed: starting")
 
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		provider := newProvider()
 		defer provider.Close()
-		embedder := service.NewEmbedder(db, provider)
+		embedder := service.NewEmbedder(provider)
 
-		result, err := embedder.EmbedAll(context.Background())
+		result, err := embedder.EmbedBatch(context.Background(), 0)
 		if err != nil {
 			return err
 		}

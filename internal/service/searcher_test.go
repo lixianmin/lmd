@@ -3,20 +3,20 @@ package service
 import (
 	"testing"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
 func TestSearchBM25(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
-	searcher := NewSearcher(db, tok)
+	searcher := NewSearcher(tok)
 
 	results, err := searcher.SearchLex("搜索引擎", "", 10, 0)
 	if err != nil {
@@ -39,15 +39,15 @@ func TestSearchBM25(t *testing.T) {
 }
 
 func TestSearchBM25WithCollection(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
-	searcher := NewSearcher(db, tok)
+	searcher := NewSearcher(tok)
 
 	results, err := searcher.SearchLex("搜索引擎", "nonexistent", 10, 0)
 	if err != nil {
@@ -59,15 +59,15 @@ func TestSearchBM25WithCollection(t *testing.T) {
 }
 
 func TestSearchBM25English(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
-	searcher := NewSearcher(db, tok)
+	searcher := NewSearcher(tok)
 
 	results, err := searcher.SearchLex("Hello", "", 10, 0)
 	if err != nil {

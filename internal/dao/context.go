@@ -1,4 +1,4 @@
-package store
+package dao
 
 import (
 	"database/sql"
@@ -12,8 +12,8 @@ type ContextRecord struct {
 	Context    string
 }
 
-func AddContext(db *sql.DB, collection, p, context string) error {
-	stmt, err := db.Prepare(
+func AddContext(collection, p, context string) error {
+	stmt, err := DB.db.Prepare(
 		"INSERT OR REPLACE INTO path_contexts (collection, path, context) VALUES (?, ?, ?)",
 	)
 	if err != nil {
@@ -24,8 +24,8 @@ func AddContext(db *sql.DB, collection, p, context string) error {
 	return err
 }
 
-func GetContext(db *sql.DB, collection, p string) (string, error) {
-	stmt, err := db.Prepare("SELECT context FROM path_contexts WHERE collection=? AND path=?")
+func GetContext(collection, p string) (string, error) {
+	stmt, err := DB.db.Prepare("SELECT context FROM path_contexts WHERE collection=? AND path=?")
 	if err != nil {
 		return "", err
 	}
@@ -39,8 +39,8 @@ func GetContext(db *sql.DB, collection, p string) (string, error) {
 	return ctx, err
 }
 
-func RemoveContext(db *sql.DB, collection, p string) error {
-	stmt, err := db.Prepare("DELETE FROM path_contexts WHERE collection=? AND path=?")
+func RemoveContext(collection, p string) error {
+	stmt, err := DB.db.Prepare("DELETE FROM path_contexts WHERE collection=? AND path=?")
 	if err != nil {
 		return err
 	}
@@ -57,8 +57,8 @@ func RemoveContext(db *sql.DB, collection, p string) error {
 	return nil
 }
 
-func ListContexts(db *sql.DB, collection string) ([]ContextRecord, error) {
-	stmt, err := db.Prepare(
+func ListContexts(collection string) ([]ContextRecord, error) {
+	stmt, err := DB.db.Prepare(
 		"SELECT collection, path, context FROM path_contexts WHERE collection=? ORDER BY path",
 	)
 	if err != nil {
@@ -83,11 +83,11 @@ func ListContexts(db *sql.DB, collection string) ([]ContextRecord, error) {
 	return contexts, rows.Err()
 }
 
-func FindBestContext(db *sql.DB, collection, docPath string) string {
+func FindBestContext(collection, docPath string) string {
 	parts := strings.Split(docPath, "/")
 	for i := len(parts); i >= 0; i-- {
 		p := strings.Join(parts[:i], "/")
-		ctx, err := GetContext(db, collection, p)
+		ctx, err := GetContext(collection, p)
 		if err == nil && ctx != "" {
 			return ctx
 		}

@@ -1,25 +1,24 @@
 package service
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
 func TestIndexCollection(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	db, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	if err := store.AddCollection(db, "test", dir, "*.md", nil); err != nil {
+	if err := dao.AddCollection("test", dir, "*.md", nil); err != nil {
 		t.Fatal(err)
 	}
 
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 
 	result, err := idx.UpdateCollection("test", dir, "*.md", nil)
 	if err != nil {
@@ -31,19 +30,21 @@ func TestIndexCollection(t *testing.T) {
 			result.Indexed, result.Updated, result.Unchanged)
 	}
 
-	docs, _ := store.ListDocumentsByCollection(db, "test")
+	docs, _ := dao.ListDocumentsByCollection("test")
 	if len(docs) != 2 {
 		t.Fatalf("expected 2 documents in db, got %d", len(docs))
 	}
+
+	_ = db
 }
 
 func TestIndexCollectionIncremental(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	db, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 
 	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
 	if result1.Indexed != 2 {
@@ -55,15 +56,17 @@ func TestIndexCollectionIncremental(t *testing.T) {
 		t.Fatalf("second run: expected 2 unchanged, got indexed=%d updated=%d unchanged=%d",
 			result2.Indexed, result2.Updated, result2.Unchanged)
 	}
+
+	_ = db
 }
 
 func TestIndexCollectionDetectDeletion(t *testing.T) {
-	db, dir := setupIndexTest(t)
-	defer db.Close()
+	db, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
 
-	_ = store.AddCollection(db, "test", dir, "*.md", nil)
+	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(db, tok)
+	idx := NewIndexer(tok)
 
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
@@ -74,13 +77,15 @@ func TestIndexCollectionDetectDeletion(t *testing.T) {
 		t.Fatalf("expected 1 removed, got %d", result.Removed)
 	}
 
-	docs, _ := store.ListDocumentsByCollection(db, "test")
+	docs, _ := dao.ListDocumentsByCollection("test")
 	if len(docs) != 1 {
 		t.Fatalf("expected 1 remaining document, got %d", len(docs))
 	}
+
+	_ = db
 }
 
-func setupIndexTest(t *testing.T) (*sql.DB, string) {
+func setupIndexTest(t *testing.T) (*dao.Store, string, func()) {
 	t.Helper()
 
 	fixtureDir := filepath.Join("..", "..", "test", "fixtures")
@@ -102,24 +107,19 @@ func setupIndexTest(t *testing.T) (*sql.DB, string) {
 		os.WriteFile(filepath.Join(dir, f.Name()), data, 0644)
 	}
 
-	tdb := openTestServiceDB(t)
-	return tdb, dir
+	cleanup := openTestServiceDB(t)
+	return dao.DB, dir, cleanup
 }
 
-func openTestServiceDB(t *testing.T) *sql.DB {
+func openTestServiceDB(t *testing.T) func() {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.OpenDB(filepath.Join(dir, "test.sqlite"))
-	if err != nil {
+	if err := dao.Init(filepath.Join(dir, "test.sqlite")); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateTables(db); err != nil {
-		db.Close()
-		t.Fatal(err)
+	return func() {
+		if dao.DB != nil {
+			dao.DB.Close()
+		}
 	}
-	if err := store.PrepareFTSStatements(db); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	return db
 }

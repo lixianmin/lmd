@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/lixianmin/lmd/internal/cli"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/logo"
 )
 
@@ -12,7 +13,11 @@ func main() {
 	var log = createLogo()
 	defer log.Close()
 
-	if err := cli.Execute(); err != nil {
+	err := cli.Execute()
+	if dao.DB != nil {
+		dao.DB.Close()
+	}
+	if err != nil {
 		os.Exit(1)
 	}
 }

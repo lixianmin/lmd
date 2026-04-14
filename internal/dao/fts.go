@@ -1,4 +1,4 @@
-package store
+package dao
 
 import (
 	"database/sql"
@@ -18,9 +18,9 @@ type FTSSearchResult struct {
 var ftsSearchAll *sql.Stmt
 var ftsSearchByCollection *sql.Stmt
 
-func PrepareFTSStatements(db *sql.DB) error {
+func prepareFTSStatements() error {
 	var err error
-	ftsSearchAll, err = db.Prepare(`
+	ftsSearchAll, err = DB.db.Prepare(`
 		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score
 		FROM chunks_fts f
@@ -33,7 +33,7 @@ func PrepareFTSStatements(db *sql.DB) error {
 		return err
 	}
 
-	ftsSearchByCollection, err = db.Prepare(`
+	ftsSearchByCollection, err = DB.db.Prepare(`
 		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score
 		FROM chunks_fts f
@@ -45,7 +45,7 @@ func PrepareFTSStatements(db *sql.DB) error {
 	return err
 }
 
-func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSSearchResult, error) {
+func SearchFTS(tokenizedQuery, collection string, limit int) ([]FTSSearchResult, error) {
 	var rows *sql.Rows
 	var err error
 

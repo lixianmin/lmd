@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
@@ -38,18 +38,12 @@ var collectionAddCmd = &cobra.Command{
 			return fmt.Errorf("path does not exist: %s", absPath)
 		}
 
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		mask := collectionMask
 		if mask == "" {
 			mask = "**/*.md"
 		}
 
-		if err := store.AddCollection(db, collectionName, absPath, mask, nil); err != nil {
+		if err := dao.AddCollection(collectionName, absPath, mask, nil); err != nil {
 			return err
 		}
 
@@ -64,13 +58,7 @@ var collectionRemoveCmd = &cobra.Command{
 	Short: "Remove a collection",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		if err := store.RemoveCollection(db, args[0]); err != nil {
+		if err := dao.RemoveCollection(args[0]); err != nil {
 			return err
 		}
 
@@ -84,13 +72,7 @@ var collectionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all collections",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		cols, err := store.ListCollections(db)
+		cols, err := dao.ListCollections()
 		if err != nil {
 			return err
 		}
@@ -112,13 +94,7 @@ var collectionRenameCmd = &cobra.Command{
 	Short: "Rename a collection",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		if err := store.RenameCollection(db, args[0], args[1]); err != nil {
+		if err := dao.RenameCollection(args[0], args[1]); err != nil {
 			return err
 		}
 

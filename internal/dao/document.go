@@ -1,4 +1,4 @@
-package store
+package dao
 
 import (
 	"crypto/sha256"
@@ -36,17 +36,17 @@ func ShortDocId(docId string) string {
 	return docId
 }
 
-func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
+func UpsertDocument(doc *DocumentRecord) error {
 	doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
 
 	var existingID int64
-	err := db.QueryRow(
+	err := DB.db.QueryRow(
 		"SELECT id FROM documents WHERE collection=? AND path=?",
 		doc.Collection, doc.Path,
 	).Scan(&existingID)
 
 	if err == sql.ErrNoRows {
-		stmt, err := db.Prepare(
+		stmt, err := DB.db.Prepare(
 			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, modified_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
 		)
@@ -69,7 +69,7 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
 
 	doc.ID = existingID
 
-	updateStmt, err := db.Prepare(
+	updateStmt, err := DB.db.Prepare(
 		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
 	)
 	if err != nil {
@@ -81,10 +81,10 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
 	return err
 }
 
-func GetDocumentByDocId(db *sql.DB, docId string) (*DocumentRecord, error) {
+func GetDocumentByDocId(docId string) (*DocumentRecord, error) {
 	var doc DocumentRecord
 
-	stmt, err := db.Prepare("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?")
+	stmt, err := DB.db.Prepare("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func GetDocumentByDocId(db *sql.DB, docId string) (*DocumentRecord, error) {
 		return nil, err
 	}
 
-	countStmt, err := db.Prepare("SELECT COUNT(*) FROM documents WHERE docid LIKE ?")
+	countStmt, err := DB.db.Prepare("SELECT COUNT(*) FROM documents WHERE docid LIKE ?")
 	if err != nil {
 		return &doc, nil
 	}
@@ -114,17 +114,17 @@ func GetDocumentByDocId(db *sql.DB, docId string) (*DocumentRecord, error) {
 	return &doc, nil
 }
 
-func GetDocumentByPath(db *sql.DB, collection, path string) (*DocumentRecord, error) {
-	return getDocument(db, "WHERE collection=? AND path=?", collection, path)
+func GetDocumentByPath(collection, path string) (*DocumentRecord, error) {
+	return getDocument("WHERE collection=? AND path=?", collection, path)
 }
 
-func GetDocumentByID(db *sql.DB, id int64) (*DocumentRecord, error) {
-	return getDocument(db, "WHERE id=?", id)
+func GetDocumentByID(id int64) (*DocumentRecord, error) {
+	return getDocument("WHERE id=?", id)
 }
 
-func getDocument(db *sql.DB, whereClause string, args ...any) (*DocumentRecord, error) {
+func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
 	query := "SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents " + whereClause
-	stmt, err := db.Prepare(query)
+	stmt, err := DB.db.Prepare(query)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +142,8 @@ func getDocument(db *sql.DB, whereClause string, args ...any) (*DocumentRecord, 
 	return &doc, nil
 }
 
-func DeleteDocument(db *sql.DB, id int64) error {
-	stmt, err := db.Prepare("DELETE FROM documents WHERE id=?")
+func DeleteDocument(id int64) error {
+	stmt, err := DB.db.Prepare("DELETE FROM documents WHERE id=?")
 	if err != nil {
 		return err
 	}
@@ -152,8 +152,8 @@ func DeleteDocument(db *sql.DB, id int64) error {
 	return err
 }
 
-func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord, error) {
-	stmt, err := db.Prepare(
+func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
+	stmt, err := DB.db.Prepare(
 		"SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE collection=?",
 	)
 	if err != nil {
@@ -179,14 +179,14 @@ func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord,
 	return docs, rows.Err()
 }
 
-func CountDocuments(db *sql.DB) (int, error) {
+func CountDocuments() (int, error) {
 	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM documents").Scan(&count)
+	err := DB.db.QueryRow("SELECT COUNT(*) FROM documents").Scan(&count)
 	return count, err
 }
 
-func GetDocumentHash(db *sql.DB, collection, path string) (string, error) {
-	stmt, err := db.Prepare("SELECT hash FROM documents WHERE collection=? AND path=?")
+func GetDocumentHash(collection, path string) (string, error) {
+	stmt, err := DB.db.Prepare("SELECT hash FROM documents WHERE collection=? AND path=?")
 	if err != nil {
 		return "", err
 	}
@@ -200,8 +200,8 @@ func GetDocumentHash(db *sql.DB, collection, path string) (string, error) {
 	return hash, err
 }
 
-func SearchDocumentsByPath(db *sql.DB, pathPart string, limit int) ([]DocumentRecord, error) {
-	stmt, err := db.Prepare(
+func SearchDocumentsByPath(pathPart string, limit int) ([]DocumentRecord, error) {
+	stmt, err := DB.db.Prepare(
 		"SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE path LIKE ? ORDER BY path LIMIT ?",
 	)
 	if err != nil {

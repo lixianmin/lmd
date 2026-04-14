@@ -2,15 +2,14 @@ package cli
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
@@ -32,20 +31,20 @@ func newProvider() *embedding.GGUFProvider {
 	return embedding.NewGGUFProvider(embedding.DefaultModelPath())
 }
 
-func syncIndex(db *sql.DB) {
+func syncIndex() {
 	tok, err := tokenizer.NewGseTokenizer()
 	if err != nil {
 		logo.Error("syncIndex: tokenizer init failed: %s", err)
 		return
 	}
 
-	cols, err := store.ListCollections(db)
+	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Error("syncIndex: list collections failed: %s", err)
 		return
 	}
 
-	idx := service.NewIndexer(db, tok)
+	idx := service.NewIndexer(tok)
 	anyChange := false
 	for _, col := range cols {
 		result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
@@ -65,29 +64,31 @@ func syncIndex(db *sql.DB) {
 	}
 }
 
-func syncEmbeddings(db *sql.DB) {
-	var pending int
-	db.QueryRow("SELECT COUNT(*) FROM chunks").Scan(&pending)
-	var embedded int
-	db.QueryRow("SELECT COUNT(*) FROM chunks_vec_rowids").Scan(&embedded)
-	unembedded := pending - embedded
-	if unembedded == 0 || unembedded > 50 {
+func syncEmbeddings() {
+	unembeddedCount := dao.GetUnembeddedCount()
+	if unembeddedCount == 0 {
 		return
 	}
 
+	batchSize := 10
+	if unembeddedCount < batchSize {
+		batchSize = unembeddedCount
+	}
+
 	start := time.Now()
-	fmt.Fprintf(os.Stderr, "Embedding %d chunks...\n", unembedded)
+	fmt.Fprintf(os.Stderr, "Embedding %d/%d chunks...\n", batchSize, unembeddedCount)
 	provider := newProvider()
 	defer provider.Close()
-	embedder := service.NewEmbedder(db, provider)
-	result, err := embedder.EmbedAll(context.Background())
+	embedder := service.NewEmbedder(provider)
+	result, err := embedder.EmbedBatch(context.Background(), batchSize)
 	if err != nil {
 		logo.Error("syncEmbeddings failed: %s", err)
 		fmt.Fprintf(os.Stderr, "Warning: embed sync failed: %v\n", err)
 		return
 	}
 	if result.Embedded > 0 {
-		fmt.Fprintf(os.Stderr, "  Embedded %d chunks in %s\n", result.Embedded, time.Since(start).Round(time.Second))
+		fmt.Fprintf(os.Stderr, "  Embedded %d chunks in %s (%d remaining)\n",
+			result.Embedded, time.Since(start).Round(time.Second), unembeddedCount-result.Embedded)
 	}
 }
 
@@ -96,20 +97,14 @@ var searchCmd = &cobra.Command{
 	Short: "BM25 keyword search",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		syncIndex(db)
+		syncIndex()
 
 		tok, err := tokenizer.NewGseTokenizer()
 		if err != nil {
 			return fmt.Errorf("failed to initialize tokenizer: %w", err)
 		}
 
-		searcher := service.NewSearcher(db, tok)
+		searcher := service.NewSearcher(tok)
 		results, err := searcher.SearchLex(args[0], searchCollection, searchLimit, searchMinScore)
 		if err != nil {
 			return err
@@ -125,18 +120,12 @@ var vsearchCmd = &cobra.Command{
 	Short: "Vector semantic search",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		syncIndex(db)
-		syncEmbeddings(db)
+		syncIndex()
+		syncEmbeddings()
 
 		provider := newProvider()
 		defer provider.Close()
-		searcher := service.NewSearcher(db, nil)
+		searcher := service.NewSearcher(nil)
 
 		minScore := searchMinScore
 		if !cmd.Flags().Changed("min-score") {
@@ -158,14 +147,8 @@ var queryCmd = &cobra.Command{
 	Short: "Hybrid search (BM25 + vector with RRF fusion)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		syncIndex(db)
-		syncEmbeddings(db)
+		syncIndex()
+		syncEmbeddings()
 
 		tok, err := tokenizer.NewGseTokenizer()
 		if err != nil {
@@ -174,7 +157,7 @@ var queryCmd = &cobra.Command{
 
 		provider := newProvider()
 		defer provider.Close()
-		searcher := service.NewSearcher(db, tok)
+		searcher := service.NewSearcher(tok)
 		results, err := searcher.SearchHybrid(provider, args[0], searchCollection, searchLimit, searchMinScore)
 		if err != nil {
 			return err

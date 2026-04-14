@@ -19,8 +19,8 @@ LMD (Local Markdown Docs) is a Go-based local hybrid search engine for Markdown 
 ```
 cmd/lmd/          - CLI entry point
 internal/cli/     - Cobra command definitions
+internal/dao/     - Database access layer (global dao.DB, no db param passing)
 internal/service/ - Business logic layer
-internal/store/   - SQLite persistence (FTS5 + sqlite-vec)
 internal/tokenizer/ - Text segmentation (gse)
 internal/embedding/  - Vector embedding abstraction
 internal/chunker/    - Markdown-aware document chunking
@@ -50,7 +50,7 @@ test/fixtures/     - Test markdown documents (Chinese + English)
 - Logging: github.com/lixianmin/logo
 - Timezone: All timestamps in GMT+8 (CST)
 - SQLite mode: WAL for concurrent reads
-- DB operations: Prefer prepared statements for frequently used queries
+- DB operations: All SQL in `internal/dao/`, global `dao.DB` initialized once via `dao.Init()`, no db parameter passing
 - No migration system: single `CreateTables` function
 - **Naming convention**: prefer `docId` over `docID` (camelCase with lowercase 'd' for second word)
 

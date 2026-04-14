@@ -1,16 +1,15 @@
 package cli
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/mcp"
 	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/spf13/cobra"
 )
@@ -19,23 +18,17 @@ var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start MCP server (stdio)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db, err := openDB()
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
 		tok, err := tokenizer.NewGseTokenizer()
 		if err != nil {
 			return err
 		}
 
-		searcher := service.NewSearcher(db, tok)
+		searcher := service.NewSearcher(tok)
 		provider := newProvider()
 		defer provider.Close()
 
 		mcp.RegisterHandler(func(name string, params json.RawMessage) (interface{}, error) {
-			return handleToolCall(db, searcher, provider, name, params)
+			return handleToolCall(searcher, provider, name, params)
 		})
 
 		mcp.Serve(os.Stdin, os.Stdout)
@@ -43,7 +36,7 @@ var mcpCmd = &cobra.Command{
 	},
 }
 
-func handleToolCall(db *sql.DB, searcher *service.Searcher, provider embedding.EmbeddingProvider, name string, params json.RawMessage) (interface{}, error) {
+func handleToolCall(searcher *service.Searcher, provider embedding.EmbeddingProvider, name string, params json.RawMessage) (interface{}, error) {
 	switch name {
 	case "search":
 		var p struct {
@@ -87,26 +80,26 @@ func handleToolCall(db *sql.DB, searcher *service.Searcher, provider embedding.E
 			PathOrDocId string `json:"path_or_docid"`
 		}
 		json.Unmarshal(params, &p)
-		return getDocumentResult(db, p.PathOrDocId)
+		return getDocumentResult(p.PathOrDocId)
 
 	case "status":
-		return store.ListCollections(db)
+		return dao.ListCollections()
 
 	case "list_collections":
-		return store.ListCollections(db)
+		return dao.ListCollections()
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
 }
 
-func getDocumentResult(db *sql.DB, pathOrDocId string) (interface{}, error) {
+func getDocumentResult(pathOrDocId string) (interface{}, error) {
 	if len(pathOrDocId) > 0 && pathOrDocId[0] == '#' {
-		return store.GetDocumentByDocId(db, pathOrDocId[1:])
+		return dao.GetDocumentByDocId(pathOrDocId[1:])
 	}
 	parts := strings.SplitN(pathOrDocId, "/", 2)
 	if len(parts) == 2 {
-		return store.GetDocumentByPath(db, parts[0], parts[1])
+		return dao.GetDocumentByPath(parts[0], parts[1])
 	}
 	return nil, fmt.Errorf("invalid path format, use collection/path or #docid")
 }
