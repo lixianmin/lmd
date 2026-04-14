@@ -76,7 +76,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 			continue
 		}
 
-		doc, err := dao.GetDocumentByID(chunk.DocId)
+		doc, err := dao.GetDocumentById(chunk.DocId)
 		if err != nil {
 			continue
 		}

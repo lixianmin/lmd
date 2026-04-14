@@ -96,7 +96,7 @@ func GetDocumentByPath(collection, path string) (*DocumentRecord, error) {
 	return getDocument("WHERE collection=? AND path=?", collection, path)
 }
 
-func GetDocumentByID(id int64) (*DocumentRecord, error) {
+func GetDocumentById(id int64) (*DocumentRecord, error) {
 	return getDocument("WHERE id=?", id)
 }
 

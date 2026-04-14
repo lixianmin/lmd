@@ -11,13 +11,6 @@ func createTables() error {
 			created_at      DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			updated_at      DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 		)`,
-		`CREATE TABLE IF NOT EXISTS path_contexts (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			collection  TEXT NOT NULL,
-			path        TEXT NOT NULL DEFAULT '',
-			context     TEXT NOT NULL,
-			UNIQUE(collection, path)
-		)`,
 		`CREATE TABLE IF NOT EXISTS documents (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			docid       TEXT NOT NULL UNIQUE,
@@ -51,8 +44,8 @@ func createTables() error {
 			chunk_id INTEGER PRIMARY KEY,
 			embedding float[1024] distance_metric=cosine
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)`,
-		`CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
+		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.db.Exec(s); err != nil {
