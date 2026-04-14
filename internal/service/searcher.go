@@ -65,7 +65,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 }
 
 func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
-	queryVec, err := provider.Embed(nil, query)
+	queryVec, err := provider.EmbedQuery(nil, query)
 	if err != nil {
 		return nil, err
 	}

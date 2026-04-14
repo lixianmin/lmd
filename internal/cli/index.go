@@ -84,11 +84,24 @@ var statusCmd = &cobra.Command{
 			return nil
 		}
 
+		totalDocs := 0
 		for _, c := range cols {
 			fmt.Printf("  %s\n", c.Name)
 			fmt.Printf("    Path:  %s\n", c.Path)
 			fmt.Printf("    Glob:  %s\n", c.GlobPattern)
 			fmt.Printf("    Docs:  %d\n", c.DocCount)
+			totalDocs += c.DocCount
+		}
+
+		var chunkCount int
+		db.QueryRow("SELECT COUNT(*) FROM chunks").Scan(&chunkCount)
+
+		var embedCount int
+		db.QueryRow("SELECT COUNT(*) FROM embed_status").Scan(&embedCount)
+
+		fmt.Printf("\n  Total: %d documents, %d chunks, %d embedded\n", totalDocs, chunkCount, embedCount)
+		if chunkCount > 0 && embedCount < chunkCount {
+			fmt.Printf("  ⚠ %d chunks pending embedding\n", chunkCount-embedCount)
 		}
 		return nil
 	},

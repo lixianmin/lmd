@@ -161,6 +161,12 @@ func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord,
 	return docs, rows.Err()
 }
 
+func CountDocuments(db *sql.DB) (int, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM documents").Scan(&count)
+	return count, err
+}
+
 func GetDocumentHash(db *sql.DB, collection, path string) (string, error) {
 	stmt, err := db.Prepare("SELECT hash FROM documents WHERE collection=? AND path=?")
 	if err != nil {
@@ -174,4 +180,31 @@ func GetDocumentHash(db *sql.DB, collection, path string) (string, error) {
 		return "", errors.New("document not found")
 	}
 	return hash, err
+}
+
+func SearchDocumentsByPath(db *sql.DB, pathPart string, limit int) ([]DocumentRecord, error) {
+	stmt, err := db.Prepare(
+		"SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE path LIKE ? ORDER BY path LIMIT ?",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query("%"+pathPart+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []DocumentRecord
+	for rows.Next() {
+		var doc DocumentRecord
+		if err := rows.Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title,
+			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			return nil, err
+		}
+		docs = append(docs, doc)
+	}
+	return docs, rows.Err()
 }

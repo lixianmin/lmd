@@ -33,27 +33,41 @@ test/fixtures/     - Test markdown documents (Chinese + English)
 
 - Spec: `docs/superpowers/specs/2026-04-12-lmd-design.md`
 - Phase 1 Plan: `docs/superpowers/plans/2026-04-12-lmd-phase1-foundation.md`
+- Phase 2 Plan: `docs/superpowers/plans/2026-04-12-lmd-phase2-vector.md`
+- Phase 3 Plan: `docs/superpowers/plans/2026-04-13-lmd-phase3-hybrid.md`
+- Phase 4 Plan: `docs/superpowers/plans/2026-04-13-lmd-phase4-integration.md`
 
 ## Key Technical Decisions
 
-- Tokenizer: go-ego/gse (Chinese/English segmentation)
+- Tokenizer: go-ego/gse (Chinese/English segmentation) — use `seg.SkipLog = true` to suppress log noise
 - Keyword search: gse pre-tokenize + FTS5 with unicode61 tokenizer
-- Vector storage: sqlite-vec extension
-- Default embedding model: Qwen3-Embedding-0.6B (GGUF)
-- Fusion: RRF with MMR diversity re-ranking
+- Vector storage: sqlite-vec extension (asg017/sqlite-vec-go-bindings/cgo)
+- Embedding model: Qwen3-Embedding-0.6B-Q8_0 (GGUF, 610MB)
+- Embedding serving: llama-server HTTP API (port 61999, `--pooling mean --embedding`)
+- **Query embedding: no Instruct prefix** — documents are embedded as-is, queries must also be embedded as-is (prefix mismatch causes bad results)
+- Fusion: RRF (k=60) with optional MMR diversity re-ranking
 - CLI framework: cobra
 - Logging: github.com/lixianmin/logo
 - Timezone: All timestamps in GMT+8 (CST)
 - SQLite mode: WAL for concurrent reads
 - DB operations: Prefer prepared statements for frequently used queries
+- No migration system: single `CreateTables` function
 
 ## Build & Test
 
 ```bash
-go build ./cmd/lmd/          # Build CLI
-go test ./... -v              # Run all tests
-go vet ./...                  # Static analysis
+make build                    # Build CLI (tags: fts5)
+make test                     # Run all tests (tags: fts5)
+make vet                      # Static analysis
+./lmd vsearch "query"         # Quick smoke test
 ```
+
+## Reference Projects
+
+- **QMD** (reference implementation): `/Users/xmli/me/code/others/qmd` — GitHub: https://github.com/tobi/qmd
+  - TypeScript project with similar hybrid search architecture
+  - Key reference for: embedding model integration, GGUF loading, HyDE, output formatting
+  - Consult before making design decisions on embedding/LLM integration
 
 ## todo.md Processing Rules
 

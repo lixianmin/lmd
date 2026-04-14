@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/lixianmin/lmd/internal/store"
@@ -35,7 +36,29 @@ var getCmd = &cobra.Command{
 			if len(parts) == 2 {
 				doc, err = store.GetDocumentByPath(db, parts[0], parts[1])
 			} else {
+				matches, searchErr := store.SearchDocumentsByPath(db, input, 10)
+				if searchErr != nil {
+					return fmt.Errorf("invalid path format, use collection/path or #docid: %s", input)
+				}
+				if len(matches) > 0 {
+					fmt.Fprintf(os.Stderr, "No exact match. Similar files:\n")
+					for _, m := range matches {
+						fmt.Fprintf(os.Stderr, "  %s/%s\n", m.Collection, m.Path)
+					}
+					return nil
+				}
 				return fmt.Errorf("invalid path format, use collection/path or #docid: %s", input)
+			}
+
+			if err != nil {
+				matches, searchErr := store.SearchDocumentsByPath(db, parts[1], 10)
+				if searchErr == nil && len(matches) > 0 {
+					fmt.Fprintf(os.Stderr, "Document not found: %s\n\nSimilar files:\n", input)
+					for _, m := range matches {
+						fmt.Fprintf(os.Stderr, "  %s/%s\n", m.Collection, m.Path)
+					}
+					return nil
+				}
 			}
 		}
 

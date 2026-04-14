@@ -12,6 +12,7 @@ type GseTokenizer struct {
 
 func NewGseTokenizer() (*GseTokenizer, error) {
 	var seg gse.Segmenter
+	seg.SkipLog = true
 	if err := seg.LoadDict("zh"); err != nil {
 		return nil, err
 	}

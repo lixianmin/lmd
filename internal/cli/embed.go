@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 
-	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -20,10 +19,11 @@ var embedCmd = &cobra.Command{
 		}
 		defer db.Close()
 
-		provider := embedding.NewMockProvider(1024)
+		provider := newProvider()
+		defer provider.Close()
 		embedder := service.NewEmbedder(db, provider)
 
-		result, err := embedder.EmbedAll("mock", embedForce)
+		result, err := embedder.EmbedAll(provider.ModelName(), embedForce)
 		if err != nil {
 			return err
 		}

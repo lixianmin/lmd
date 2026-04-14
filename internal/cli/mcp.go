@@ -31,7 +31,8 @@ var mcpCmd = &cobra.Command{
 		}
 
 		searcher := service.NewSearcher(db, tok)
-		provider := embedding.NewMockProvider(1024)
+		provider := newProvider()
+		defer provider.Close()
 
 		mcp.RegisterHandler(func(name string, params json.RawMessage) (interface{}, error) {
 			return handleToolCall(db, searcher, provider, name, params)
