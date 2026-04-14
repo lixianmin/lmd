@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
@@ -285,12 +284,5 @@ func GetChunkByID(db *sql.DB, chunkID int64) (*ChunkRecord, error) {
 }
 
 func SimilarityToScore(distance float64) float64 {
-	return 1.0 / (1.0 + distance)
-}
-
-func NormalizeScore(score, maxScore float64) float64 {
-	if maxScore == 0 {
-		return 0
-	}
-	return math.Min(score/maxScore, 1.0)
+	return 1.0 - distance
 }

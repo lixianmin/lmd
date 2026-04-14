@@ -21,6 +21,7 @@ var (
 	searchLimit      int
 	searchFull       bool
 	searchMinScore   float64
+	outputJSON       bool
 	outputFormat     string
 )
 
@@ -125,7 +126,13 @@ var vsearchCmd = &cobra.Command{
 		provider := newProvider()
 		defer provider.Close()
 		searcher := service.NewSearcher(db, nil)
-		results, err := searcher.SearchVector(provider, args[0], searchCollection, searchLimit, searchMinScore)
+
+		minScore := searchMinScore
+		if !cmd.Flags().Changed("min-score") {
+			minScore = 0.3
+		}
+
+		results, err := searcher.SearchVector(provider, args[0], searchCollection, searchLimit, minScore)
 		if err != nil {
 			return err
 		}
@@ -168,9 +175,10 @@ var queryCmd = &cobra.Command{
 }
 
 func formatResults(w *os.File, hits []formatter.SearchHit) error {
-	switch outputFormat {
-	case "json":
+	if outputJSON {
 		return formatter.NewJSONFormatter().Format(w, hits)
+	}
+	switch outputFormat {
 	case "md", "markdown":
 		return formatter.NewMarkdownFormatter().Format(w, hits)
 	case "csv":
@@ -183,9 +191,10 @@ func formatResults(w *os.File, hits []formatter.SearchHit) error {
 func init() {
 	searchCmd.Flags().StringVarP(&searchCollection, "collection", "c", "", "search in specific collection")
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "n", 5, "number of results")
+	searchCmd.Flags().BoolVar(&outputJSON, "json", false, "output as JSON")
+	searchCmd.Flags().StringVar(&outputFormat, "format", "text", "output format: text, md, csv")
 	searchCmd.Flags().BoolVar(&searchFull, "full", false, "show full document content")
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "minimum score threshold")
-	searchCmd.Flags().StringVar(&outputFormat, "format", "text", "output format: text, json, md, csv")
 
 	vsearchCmd.Flags().AddFlagSet(searchCmd.Flags())
 	queryCmd.Flags().AddFlagSet(searchCmd.Flags())

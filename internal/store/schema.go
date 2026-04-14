@@ -51,7 +51,7 @@ func CreateTables(db *sql.DB) error {
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
 			chunk_id INTEGER PRIMARY KEY,
-			embedding float[1024]
+			embedding float[1024] distance_metric=cosine
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash)`,

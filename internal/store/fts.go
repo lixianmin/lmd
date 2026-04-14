@@ -65,14 +65,9 @@ func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSS
 		if err := rows.Scan(&r.ChunkID, &r.DocId, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score); err != nil {
 			return nil, err
 		}
+		abs := math.Abs(r.Score)
+		r.Score = abs / (1.0 + abs)
 		results = append(results, r)
-	}
-
-	if len(results) > 0 {
-		topScore := results[0].Score
-		for i := range results {
-			results[i].Score = math.Min(results[i].Score/topScore, 1.0)
-		}
 	}
 
 	return results, rows.Err()
