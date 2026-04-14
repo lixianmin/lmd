@@ -10,7 +10,7 @@ import (
 )
 
 type DocumentRecord struct {
-	ID         int64
+	Id         int64
 	DocId      string
 	Collection string
 	Path       string
@@ -59,7 +59,7 @@ func UpsertDocument(doc *DocumentRecord) error {
 		if err != nil {
 			return err
 		}
-		doc.ID, _ = res.LastInsertId()
+		doc.Id, _ = res.LastInsertId()
 		return nil
 	}
 
@@ -67,7 +67,7 @@ func UpsertDocument(doc *DocumentRecord) error {
 		return err
 	}
 
-	doc.ID = existingID
+	doc.Id = existingID
 
 	updateStmt, err := DB.db.Prepare(
 		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
@@ -90,7 +90,7 @@ func GetDocumentByDocId(docId string) (*DocumentRecord, error) {
 	}
 	defer stmt.Close()
 
-	err = stmt.QueryRow(docId+"%").Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+	err = stmt.QueryRow(docId+"%").Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
@@ -131,7 +131,7 @@ func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
 	defer stmt.Close()
 
 	var doc DocumentRecord
-	err = stmt.QueryRow(args...).Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+	err = stmt.QueryRow(args...).Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
@@ -170,7 +170,7 @@ func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
 	var docs []DocumentRecord
 	for rows.Next() {
 		var doc DocumentRecord
-		if err := rows.Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
 			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -218,7 +218,7 @@ func SearchDocumentsByPath(pathPart string, limit int) ([]DocumentRecord, error)
 	var docs []DocumentRecord
 	for rows.Next() {
 		var doc DocumentRecord
-		if err := rows.Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
 			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}

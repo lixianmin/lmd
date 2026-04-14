@@ -101,7 +101,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 		existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
 		if existingDoc != nil {
 			logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
-			dao.DeleteVectorsByDocId(existingDoc.ID)
+			dao.DeleteVectorsByDocId(existingDoc.Id)
 		}
 
 		doc := &dao.DocumentRecord{
@@ -117,7 +117,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			return err
 		}
 
-		return idx.createChunks(doc.ID, title, body, hash)
+		return idx.createChunks(doc.Id, title, body, hash)
 	})
 	if err != nil {
 		return nil, err
@@ -128,8 +128,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			doc, err := dao.GetDocumentByPath(collectionName, path)
 			if err == nil {
 				logo.Info("indexer: removing deleted file %s/%s", collectionName, path)
-				dao.DeleteVectorsByDocId(doc.ID)
-				dao.DeleteDocument(doc.ID)
+				dao.DeleteVectorsByDocId(doc.Id)
+				dao.DeleteDocument(doc.Id)
 				result.Removed++
 			}
 		}

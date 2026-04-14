@@ -27,3 +27,15 @@ func (s *Store) Close() error {
 	}
 	return nil
 }
+
+func WithTransaction(fn func(tx *sql.Tx) error) error {
+	tx, err := DB.db.Begin()
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}

@@ -45,7 +45,7 @@ func prepareFTSStatements() error {
 	return err
 }
 
-func SearchFTS(tokenizedQuery, collection string, limit int) ([]FTSSearchResult, error) {
+func SearchFTS(tokenizedQuery string, collection string, limit int) ([]FTSSearchResult, error) {
 	var rows *sql.Rows
 	var err error
 
