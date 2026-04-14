@@ -42,13 +42,24 @@ func padVector(vec []float32) []float32 {
 }
 
 func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
-	stmt, err := db.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	commit := false
+	defer func() {
+		if !commit {
+			tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
 
-	ftsStmt, err := db.Prepare("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)")
+	ftsStmt, err := tx.Prepare("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)")
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +77,9 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents
 		if tokenizedContents != nil && i < len(tokenizedContents) {
 			tokenized = tokenizedContents[i]
 		}
-		ftsStmt.Exec(id, tokenized)
+		if _, err := ftsStmt.Exec(id, tokenized); err != nil {
+			return nil, err
+		}
 
 		records = append(records, ChunkRecord{
 			ID: id, DocID: docID, Seq: i,
@@ -74,6 +87,11 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents
 			TokenCount: c.TokenCount, Hash: c.Hash,
 		})
 	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	commit = true
 	return records, nil
 }
 
@@ -92,7 +110,18 @@ func InsertVector(db *sql.DB, chunkID int64, embedding []float32) error {
 }
 
 func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
-	selectStmt, err := db.Prepare("SELECT id FROM chunks WHERE doc_id=?")
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	commit := false
+	defer func() {
+		if !commit {
+			tx.Rollback()
+		}
+	}()
+
+	selectStmt, err := tx.Prepare("SELECT id FROM chunks WHERE doc_id=?")
 	if err != nil {
 		return err
 	}
@@ -112,31 +141,42 @@ func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
 	}
 
 	if len(chunkIDs) > 0 {
-		delVecStmt, err := db.Prepare("DELETE FROM chunks_vec WHERE chunk_id=?")
+		delVecStmt, err := tx.Prepare("DELETE FROM chunks_vec WHERE chunk_id=?")
 		if err != nil {
 			return err
 		}
 		defer delVecStmt.Close()
 
-		delFtsStmt, err := db.Prepare("DELETE FROM chunks_fts WHERE rowid=?")
+		delFtsStmt, err := tx.Prepare("DELETE FROM chunks_fts WHERE rowid=?")
 		if err != nil {
 			return err
 		}
 		defer delFtsStmt.Close()
 
 		for _, id := range chunkIDs {
-			delVecStmt.Exec(id)
-			delFtsStmt.Exec(id)
+			if _, err := delVecStmt.Exec(id); err != nil {
+				return err
+			}
+			if _, err := delFtsStmt.Exec(id); err != nil {
+				return err
+			}
 		}
 	}
 
-	delChunksStmt, err := db.Prepare("DELETE FROM chunks WHERE doc_id=?")
+	delChunksStmt, err := tx.Prepare("DELETE FROM chunks WHERE doc_id=?")
 	if err != nil {
 		return err
 	}
 	defer delChunksStmt.Close()
-	_, err = delChunksStmt.Exec(docID)
-	return err
+	if _, err := delChunksStmt.Exec(docID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	commit = true
+	return nil
 }
 
 func QueryVectors(db *sql.DB, query []float32, limit int) ([]VectorSearchResult, error) {
