@@ -19,6 +19,7 @@ func main() {
 
 func createLogo() *logo.Logger {
 	var log = logo.NewLogger()
+	log.SetFuncCallDepth(5)
 	log.AddFlag(logo.LogAsyncWrite)
 
 	home, _ := os.UserHomeDir()

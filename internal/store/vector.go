@@ -95,7 +95,7 @@ func InsertChunks(db *sql.DB, docId int64, chunks []ChunkData, tokenizedContents
 	return records, nil
 }
 
-func InsertVector(db *sql.DB, chunkID int64, embedding []float32) error {
+func InsertVector(db *sql.DB, chunkId int64, embedding []float32) error {
 	vec, err := sqlite_vec.SerializeFloat32(padVector(embedding))
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func InsertVector(db *sql.DB, chunkID int64, embedding []float32) error {
 		return err
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(chunkID, vec)
+	_, err = stmt.Exec(chunkId, vec)
 	return err
 }
 

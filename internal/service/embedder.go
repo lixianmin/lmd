@@ -38,26 +38,48 @@ func (e *Embedder) EmbedAll(ctx context.Context) (*EmbedResult, error) {
 
 	logo.Info("EmbedAll: embedding %d chunks", len(chunks))
 
-	texts := make([]string, len(chunks))
-	for i, c := range chunks {
-		texts[i] = c.Content
-	}
+	const maxTokensPerBatch = 3500
 
-	vecs, err := e.provider.EmbedBatch(ctx, texts)
-	if err != nil {
-		logo.Error("EmbedAll: batch embedding failed: %s", err)
-		return nil, err
-	}
+	start := 0
+	for start < len(chunks) {
+		batchTokens := 0
+		end := start
+		for end < len(chunks) {
+			tokens := chunks[end].TokenCount
+			if tokens <= 0 {
+				tokens = len(chunks[end].Content) / 3
+			}
+			if end > start && batchTokens+tokens > maxTokensPerBatch {
+				break
+			}
+			batchTokens += tokens
+			end++
+		}
 
-	logo.Info("EmbedAll: received %d vectors from API", len(vecs))
+		batch := chunks[start:end]
+		texts := make([]string, len(batch))
+		for i, c := range batch {
+			texts[i] = c.Content
+		}
 
-	for i, vec := range vecs {
-		if err := store.InsertVector(e.db, chunks[i].ID, vec); err != nil {
-			result.Failed++
+		vecs, err := e.provider.EmbedBatch(ctx, texts)
+		if err != nil {
+			logo.Error("EmbedAll: batch [%d:%d] (%d tokens) failed: %s", start, end, batchTokens, err)
+			result.Failed += len(batch)
+			start = end
 			continue
 		}
-		result.Embedded++
+
+		for i, vec := range vecs {
+			if err := store.InsertVector(e.db, batch[i].ID, vec); err != nil {
+				result.Failed++
+				continue
+			}
+			result.Embedded++
+		}
+		start = end
 	}
 
+	logo.Info("EmbedAll: done embedded=%d failed=%d", result.Embedded, result.Failed)
 	return result, nil
 }

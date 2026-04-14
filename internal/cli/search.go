@@ -26,6 +26,9 @@ var (
 )
 
 func newProvider() *embedding.GGUFProvider {
+	if err := embedding.EnsureModel(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
 	return embedding.NewGGUFProvider(embedding.DefaultModelPath())
 }
 
@@ -63,7 +66,17 @@ func syncIndex(db *sql.DB) {
 }
 
 func syncEmbeddings(db *sql.DB) {
+	var pending int
+	db.QueryRow("SELECT COUNT(*) FROM chunks").Scan(&pending)
+	var embedded int
+	db.QueryRow("SELECT COUNT(*) FROM chunks_vec_rowids").Scan(&embedded)
+	unembedded := pending - embedded
+	if unembedded == 0 || unembedded > 50 {
+		return
+	}
+
 	start := time.Now()
+	fmt.Fprintf(os.Stderr, "Embedding %d chunks...\n", unembedded)
 	provider := newProvider()
 	defer provider.Close()
 	embedder := service.NewEmbedder(db, provider)
@@ -74,9 +87,7 @@ func syncEmbeddings(db *sql.DB) {
 		return
 	}
 	if result.Embedded > 0 {
-		elapsed := time.Since(start)
-		logo.Info("syncEmbeddings: embedded=%d failed=%d elapsed=%s", result.Embedded, result.Failed, elapsed)
-		fmt.Fprintf(os.Stderr, "Embedded %d new chunks\n", result.Embedded)
+		fmt.Fprintf(os.Stderr, "  Embedded %d chunks in %s\n", result.Embedded, time.Since(start).Round(time.Second))
 	}
 }
 
