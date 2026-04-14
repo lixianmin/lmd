@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/lixianmin/logo"
 )
 
 const defaultModelFilename = "Qwen3-Embedding-0.6B-Q8_0.gguf"
@@ -58,10 +60,15 @@ func (g *GGUFProvider) ensureServer() error {
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
 			g.started = true
+			logo.Info("llama-server already running on :61999")
 			return nil
+		}
+		if resp != nil {
+			resp.Body.Close()
 		}
 	}
 
+	logo.Info("starting llama-server with model: %s", filepath.Base(g.modelPath))
 	cmd := exec.Command("llama-server",
 		"-m", g.modelPath,
 		"--pooling", "mean",
@@ -77,6 +84,7 @@ func (g *GGUFProvider) ensureServer() error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
+		logo.Error("failed to start llama-server: %s", err)
 		return fmt.Errorf("failed to start llama-server: %w", err)
 	}
 	g.cmd = cmd
@@ -87,12 +95,14 @@ func (g *GGUFProvider) ensureServer() error {
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
 			g.started = true
+			logo.Info("llama-server ready on :61999")
 			return nil
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
 	}
+	logo.Error("llama-server failed to start within 30s")
 	return fmt.Errorf("llama-server failed to start within 30s")
 }
 
@@ -121,6 +131,7 @@ func (g *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
+		logo.Error("embedding API returned %d: %s", resp.StatusCode, string(b))
 		return nil, fmt.Errorf("embedding API returned %d: %s", resp.StatusCode, string(b))
 	}
 

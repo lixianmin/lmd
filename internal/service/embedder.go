@@ -6,6 +6,7 @@ import (
 
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/logo"
 )
 
 type EmbedResult struct {
@@ -34,6 +35,8 @@ func (e *Embedder) EmbedAll(ctx context.Context) (*EmbedResult, error) {
 	if len(chunks) == 0 {
 		return result, nil
 	}
+
+	logo.Info("EmbedAll: embedding %d chunks", len(chunks))
 
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {

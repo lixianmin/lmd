@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
+	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -27,14 +29,15 @@ func newProvider() *embedding.GGUFProvider {
 }
 
 func syncIndex(db *sql.DB) {
-	cols, err := store.ListCollections(db)
-	if err != nil || len(cols) == 0 {
+	tok, err := tokenizer.NewGseTokenizer()
+	if err != nil {
+		logo.Error("syncIndex: tokenizer init failed: %s", err)
 		return
 	}
 
-	tok, err := tokenizer.NewGseTokenizer()
+	cols, err := store.ListCollections(db)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: index sync skipped: %v\n", err)
+		logo.Error("syncIndex: list collections failed: %s", err)
 		return
 	}
 
@@ -43,6 +46,7 @@ func syncIndex(db *sql.DB) {
 	for _, col := range cols {
 		result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 		if err != nil {
+			logo.Error("syncIndex: %s failed: %s", col.Name, err)
 			fmt.Fprintf(os.Stderr, "Warning: index sync %s failed: %v\n", col.Name, err)
 			continue
 		}
@@ -52,20 +56,25 @@ func syncIndex(db *sql.DB) {
 				anyChange = true
 			}
 			fmt.Fprintf(os.Stderr, "  %s: +%d ~%d -%d\n", col.Name, result.Indexed, result.Updated, result.Removed)
+			logo.Info("syncIndex: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)
 		}
 	}
 }
 
 func syncEmbeddings(db *sql.DB) {
+	start := time.Now()
 	provider := newProvider()
 	defer provider.Close()
 	embedder := service.NewEmbedder(db, provider)
 	result, err := embedder.EmbedAll(context.Background())
 	if err != nil {
+		logo.Error("syncEmbeddings failed: %s", err)
 		fmt.Fprintf(os.Stderr, "Warning: embed sync failed: %v\n", err)
 		return
 	}
 	if result.Embedded > 0 {
+		elapsed := time.Since(start)
+		logo.Info("syncEmbeddings: embedded=%d failed=%d elapsed=%s", result.Embedded, result.Failed, elapsed)
 		fmt.Fprintf(os.Stderr, "Embedded %d new chunks\n", result.Embedded)
 	}
 }
