@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -42,6 +43,10 @@ func padVector(vec []float32) []float32 {
 }
 
 func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
+	if len(chunks) != len(tokenizedContents) {
+		return nil, fmt.Errorf("chunks (%d) and tokenizedContents (%d) must have same length", len(chunks), len(tokenizedContents))
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
@@ -73,11 +78,7 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents
 		}
 		id, _ := res.LastInsertId()
 
-		tokenized := c.Content
-		if tokenizedContents != nil && i < len(tokenizedContents) {
-			tokenized = tokenizedContents[i]
-		}
-		if _, err := ftsStmt.Exec(id, tokenized); err != nil {
+		if _, err := ftsStmt.Exec(id, tokenizedContents[i]); err != nil {
 			return nil, err
 		}
 
