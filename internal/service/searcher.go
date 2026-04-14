@@ -55,7 +55,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 		line := findLineNumber(doc.Body, query)
 
 		hits = append(hits, formatter.SearchHit{
-			DocID:      r.DocID,
+			DocID:      store.ShortDocID(r.DocID),
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
@@ -101,7 +101,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			DocID:      doc.DocID,
+			DocID:      store.ShortDocID(doc.DocID),
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,

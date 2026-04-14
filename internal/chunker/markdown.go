@@ -41,7 +41,21 @@ func (c *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
 
 		if !inCodeBlock && current.Len() > 0 {
 			score := c.breakScore(trimmed)
-			if score > 0 && estTokens > c.MaxTokens*2/3 {
+			forceFlush := estTokens > c.MaxTokens*2
+			softFlush := estTokens > c.MaxTokens*2/3 && score > 0
+			lineBreak := forceFlush && trimmed == ""
+
+			if softFlush || lineBreak {
+				content := current.String()
+				chunks = append(chunks, Chunk{
+					Content:    strings.TrimSpace(content),
+					Position:   currentStart,
+					TokenCount: estTokens,
+				})
+				current.Reset()
+				currentStart = i
+				estTokens = 0
+			} else if forceFlush {
 				content := current.String()
 				chunks = append(chunks, Chunk{
 					Content:    strings.TrimSpace(content),

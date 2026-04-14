@@ -66,7 +66,7 @@ var getCmd = &cobra.Command{
 			return fmt.Errorf("document not found: %s", input)
 		}
 
-		fmt.Printf("#%s %s\n", doc.DocID, doc.Title)
+		fmt.Printf("#%s %s\n", store.ShortDocID(doc.DocID), doc.Title)
 		fmt.Printf("Collection: %s\n", doc.Collection)
 		fmt.Printf("Path: %s\n", doc.Path)
 		fmt.Printf("Size: %d bytes\n", doc.FileSize)

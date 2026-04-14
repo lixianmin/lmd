@@ -41,22 +41,8 @@ func (e *Embedder) EmbedAll(modelName string, force bool) (*EmbedResult, error) 
 		return result, nil
 	}
 
-	const maxChars = 8000
-	var embeddable []store.ChunkRecord
-	for _, c := range chunks {
-		if len(c.Content) > maxChars {
-			result.Skipped++
-			continue
-		}
-		embeddable = append(embeddable, c)
-	}
-
-	if len(embeddable) == 0 {
-		return result, nil
-	}
-
-	texts := make([]string, len(embeddable))
-	for i, c := range embeddable {
+	texts := make([]string, len(chunks))
+	for i, c := range chunks {
 		texts[i] = c.Content
 	}
 
@@ -66,11 +52,11 @@ func (e *Embedder) EmbedAll(modelName string, force bool) (*EmbedResult, error) 
 	}
 
 	for i, vec := range vecs {
-		if err := store.InsertVector(e.db, embeddable[i].ID, vec); err != nil {
+		if err := store.InsertVector(e.db, chunks[i].ID, vec); err != nil {
 			result.Failed++
 			continue
 		}
-		if err := store.MarkEmbedded(e.db, embeddable[i].ID, modelName); err != nil {
+		if err := store.MarkEmbedded(e.db, chunks[i].ID, modelName); err != nil {
 			result.Failed++
 			continue
 		}

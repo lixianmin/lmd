@@ -26,7 +26,14 @@ type DocumentRecord struct {
 func generateDocID(collection, path, hash string) string {
 	raw := fmt.Sprintf("%s:%s:%s", collection, path, hash)
 	h := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(h[:4])
+	return hex.EncodeToString(h[:])
+}
+
+func ShortDocID(docID string) string {
+	if len(docID) > 8 {
+		return docID[:8]
+	}
+	return docID
 }
 
 func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTitle string) error {
@@ -93,7 +100,36 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 }
 
 func GetDocumentByDocID(db *sql.DB, docID string) (*DocumentRecord, error) {
-	return getDocument(db, "WHERE docid=?", docID)
+	var doc DocumentRecord
+
+	stmt, err := db.Prepare("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(docID+"%").Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("document not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	countStmt, err := db.Prepare("SELECT COUNT(*) FROM documents WHERE docid LIKE ?")
+	if err != nil {
+		return &doc, nil
+	}
+	defer countStmt.Close()
+
+	var count int
+	countStmt.QueryRow(docID + "%").Scan(&count)
+	if count > 1 {
+		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docID, count)
+	}
+
+	return &doc, nil
 }
 
 func GetDocumentByPath(db *sql.DB, collection, path string) (*DocumentRecord, error) {
