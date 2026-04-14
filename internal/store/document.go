@@ -26,7 +26,7 @@ type DocumentRecord struct {
 func generateDocID(collection, path, hash string) string {
 	raw := fmt.Sprintf("%s:%s:%s", collection, path, hash)
 	h := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(h[:3])
+	return hex.EncodeToString(h[:4])
 }
 
 func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTitle string) error {
