@@ -22,7 +22,11 @@ func NewSearcher(db *sql.DB, tok tokenizer.Tokenizer) *Searcher {
 func (s *Searcher) SearchLex(query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	var tokenized string
 	if s.tokenizer != nil {
-		tokenized = s.tokenizer.TokenizeToString(query)
+		tokens := s.tokenizer.Cut(query)
+		filtered := s.filterStopTokens(tokens)
+		if len(filtered) > 0 {
+			tokenized = strings.Join(filtered, " OR ")
+		}
 	} else {
 		tokenized = query
 	}
@@ -179,4 +183,27 @@ func findLineNumber(body, query string) int {
 		return 1
 	}
 	return strings.Count(body[:idx], "\n") + 1
+}
+
+var stopTokens = map[string]bool{
+	"的": true, "了": true, "在": true, "是": true, "我": true,
+	"有": true, "和": true, "就": true, "不": true, "人": true,
+	"都": true, "一": true, "一个": true, "上": true, "也": true,
+	"很": true, "到": true, "说": true, "要": true, "去": true,
+	"你": true, "会": true, "着": true, "没有": true, "看": true,
+	"好": true, "自己": true, "这": true,
+	"哪些": true, "什么": true, "怎么": true, "如何": true,
+	"哪": true, "几": true, "多少": true,
+	"吗": true, "呢": true, "吧": true, "啊": true, "呀": true,
+	"可以": true, "能": true,
+}
+
+func (s *Searcher) filterStopTokens(tokens []string) []string {
+	var filtered []string
+	for _, t := range tokens {
+		if !stopTokens[t] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }
