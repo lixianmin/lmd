@@ -90,12 +90,7 @@ func InsertVector(chunkId int64, embedding []float32) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := DB.db.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(chunkId, vec)
+	_, err = withExec("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)", chunkId, vec)
 	return err
 }
 
@@ -159,19 +154,13 @@ func QueryVectors(query []float32, limit int) ([]VectorSearchResult, error) {
 		return nil, err
 	}
 
-	stmt, err := DB.db.Prepare(`
+	rows, err := withQuery(`
 		SELECT chunk_id, distance
 		FROM chunks_vec
 		WHERE embedding MATCH ?
 		ORDER BY distance
 		LIMIT ?
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.Query(q, limit)
+	`, q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -201,13 +190,8 @@ func GetUnembeddedChunks(limit int) ([]ChunkRecord, error) {
 		query += " LIMIT ?"
 		args = append(args, limit)
 	}
-	stmt, err := DB.db.Prepare(query)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
 
-	rows, err := stmt.Query(args...)
+	rows, err := withQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -225,13 +209,7 @@ func GetUnembeddedChunks(limit int) ([]ChunkRecord, error) {
 }
 
 func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
-	stmt, err := DB.db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq")
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.Query(docId)
+	rows, err := withQuery("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq", docId)
 	if err != nil {
 		return nil, err
 	}
@@ -249,14 +227,8 @@ func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
 }
 
 func GetChunkById(chunkId int64) (*ChunkRecord, error) {
-	stmt, err := DB.db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?")
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
 	var c ChunkRecord
-	err = stmt.QueryRow(chunkId).Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
+	err := withQueryRow("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?", chunkId).Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("chunk not found")
 	}

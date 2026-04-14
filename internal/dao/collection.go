@@ -27,24 +27,13 @@ func AddCollection(name, path, globPattern string, ignorePatterns []string) erro
 		s := string(b)
 		ignoreJSON = &s
 	}
-
-	stmt, err := DB.db.Prepare("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(name, path, globPattern, ignoreJSON)
+	_, err := withExec("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)",
+		name, path, globPattern, ignoreJSON)
 	return err
 }
 
 func RemoveCollection(name string) error {
-	stmt, err := DB.db.Prepare("DELETE FROM collections WHERE name=?")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	res, err := stmt.Exec(name)
+	res, err := withExec("DELETE FROM collections WHERE name=?", name)
 	if err != nil {
 		return err
 	}
@@ -56,7 +45,7 @@ func RemoveCollection(name string) error {
 }
 
 func ListCollections() ([]CollectionRecord, error) {
-	stmt, err := DB.db.Prepare(`
+	rows, err := withQuery(`
 		SELECT c.id, c.name, c.path, c.glob_pattern, c.ignore_patterns,
 		       c.created_at, c.updated_at,
 		       COUNT(d.id) AS doc_count
@@ -65,12 +54,6 @@ func ListCollections() ([]CollectionRecord, error) {
 		GROUP BY c.id
 		ORDER BY c.name
 	`)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.Query()
 	if err != nil {
 		return nil, err
 	}
@@ -95,13 +78,8 @@ func ListCollections() ([]CollectionRecord, error) {
 }
 
 func RenameCollection(oldName, newName string) error {
-	stmt, err := DB.db.Prepare("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	res, err := stmt.Exec(newName, oldName)
+	res, err := withExec("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?",
+		newName, oldName)
 	if err != nil {
 		return err
 	}

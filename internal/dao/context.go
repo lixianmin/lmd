@@ -13,26 +13,13 @@ type ContextRecord struct {
 }
 
 func AddContext(collection, p, context string) error {
-	stmt, err := DB.db.Prepare(
-		"INSERT OR REPLACE INTO path_contexts (collection, path, context) VALUES (?, ?, ?)",
-	)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(collection, p, context)
+	_, err := withExec("INSERT OR REPLACE INTO path_contexts (collection, path, context) VALUES (?, ?, ?)", collection, p, context)
 	return err
 }
 
 func GetContext(collection, p string) (string, error) {
-	stmt, err := DB.db.Prepare("SELECT context FROM path_contexts WHERE collection=? AND path=?")
-	if err != nil {
-		return "", err
-	}
-	defer stmt.Close()
-
 	var ctx string
-	err = stmt.QueryRow(collection, p).Scan(&ctx)
+	err := withQueryRow("SELECT context FROM path_contexts WHERE collection=? AND path=?", collection, p).Scan(&ctx)
 	if err == sql.ErrNoRows {
 		return "", errors.New("context not found")
 	}
@@ -40,13 +27,7 @@ func GetContext(collection, p string) (string, error) {
 }
 
 func RemoveContext(collection, p string) error {
-	stmt, err := DB.db.Prepare("DELETE FROM path_contexts WHERE collection=? AND path=?")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	res, err := stmt.Exec(collection, p)
+	res, err := withExec("DELETE FROM path_contexts WHERE collection=? AND path=?", collection, p)
 	if err != nil {
 		return err
 	}
@@ -58,15 +39,7 @@ func RemoveContext(collection, p string) error {
 }
 
 func ListContexts(collection string) ([]ContextRecord, error) {
-	stmt, err := DB.db.Prepare(
-		"SELECT collection, path, context FROM path_contexts WHERE collection=? ORDER BY path",
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.Query(collection)
+	rows, err := withQuery("SELECT collection, path, context FROM path_contexts WHERE collection=? ORDER BY path", collection)
 	if err != nil {
 		return nil, err
 	}

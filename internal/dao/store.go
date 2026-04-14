@@ -39,3 +39,30 @@ func WithTransaction(fn func(tx *sql.Tx) error) error {
 	}
 	return tx.Commit()
 }
+
+func withExec(query string, args ...interface{}) (sql.Result, error) {
+	stmt, err := DB.db.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	return stmt.Exec(args...)
+}
+
+func withQuery(query string, args ...interface{}) (*sql.Rows, error) {
+	stmt, err := DB.db.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	return stmt.Query(args...)
+}
+
+func withQueryRow(query string, args ...interface{}) *sql.Row {
+	stmt, err := DB.db.Prepare(query)
+	if err != nil {
+		return DB.db.QueryRow(query, args...)
+	}
+	defer stmt.Close()
+	return stmt.QueryRow(args...)
+}
