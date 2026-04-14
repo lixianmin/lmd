@@ -6,11 +6,12 @@ import (
 )
 
 type FTSSearchResult struct {
-	ID         int64
+	ChunkID    int64
 	DocID      string
 	Collection string
 	Path       string
 	Title      string
+	Content    string
 	Score      float64
 }
 
@@ -20,11 +21,12 @@ var ftsSearchByCollection *sql.Stmt
 func PrepareFTSStatements(db *sql.DB) error {
 	var err error
 	ftsSearchAll, err = db.Prepare(`
-		SELECT d.id, d.docid, d.collection, d.path, d.title,
+		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score
-		FROM documents_fts f
-		JOIN documents d ON d.id = f.rowid
-		WHERE f.tokens MATCH ?
+		FROM chunks_fts f
+		JOIN chunks c ON c.id = f.rowid
+		JOIN documents d ON d.id = c.doc_id
+		WHERE f.content MATCH ?
 		ORDER BY rank LIMIT ?
 	`)
 	if err != nil {
@@ -32,11 +34,12 @@ func PrepareFTSStatements(db *sql.DB) error {
 	}
 
 	ftsSearchByCollection, err = db.Prepare(`
-		SELECT d.id, d.docid, d.collection, d.path, d.title,
+		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score
-		FROM documents_fts f
-		JOIN documents d ON d.id = f.rowid
-		WHERE f.tokens MATCH ? AND d.collection = ?
+		FROM chunks_fts f
+		JOIN chunks c ON c.id = f.rowid
+		JOIN documents d ON d.id = c.doc_id
+		WHERE f.content MATCH ? AND d.collection = ?
 		ORDER BY rank LIMIT ?
 	`)
 	return err
@@ -59,7 +62,7 @@ func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSS
 	var results []FTSSearchResult
 	for rows.Next() {
 		var r FTSSearchResult
-		if err := rows.Scan(&r.ID, &r.DocID, &r.Collection, &r.Path, &r.Title, &r.Score); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.DocID, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

@@ -19,12 +19,12 @@ func TestStoreAndQueryVectors(t *testing.T) {
 	defer db.Close()
 
 	doc := &DocumentRecord{Collection: "test", Path: "a.md", Title: "Test", Body: "hello", Hash: "h1"}
-	_ = UpsertDocument(db, doc, "hello", "test")
+	_ = UpsertDocument(db, doc)
 
 	chunks, err := InsertChunks(db, doc.ID, []ChunkData{
 		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "c1"},
 		{Content: "chunk two", Position: 10, TokenCount: 2, Hash: "c2"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("InsertChunks failed: %v", err)
 	}
@@ -62,12 +62,12 @@ func TestGetUnembeddedChunks(t *testing.T) {
 	defer db.Close()
 
 	doc := &DocumentRecord{Collection: "test", Path: "a.md", Title: "Test", Body: "hello", Hash: "h1"}
-	_ = UpsertDocument(db, doc, "hello", "test")
+	_ = UpsertDocument(db, doc)
 
 	_, _ = InsertChunks(db, doc.ID, []ChunkData{
 		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "c1"},
 		{Content: "chunk two", Position: 10, TokenCount: 2, Hash: "c2"},
-	})
+	}, nil)
 
 	unembedded, err := GetUnembeddedChunks(db, "test-model")
 	if err != nil {
@@ -90,11 +90,11 @@ func TestGetChunkByID(t *testing.T) {
 	defer db.Close()
 
 	doc := &DocumentRecord{Collection: "test", Path: "a.md", Title: "Test", Body: "hello", Hash: "h1"}
-	_ = UpsertDocument(db, doc, "hello", "test")
+	_ = UpsertDocument(db, doc)
 
 	chunks, _ := InsertChunks(db, doc.ID, []ChunkData{
 		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "c1"},
-	})
+	}, nil)
 
 	got, err := GetChunkByID(db, chunks[0].ID)
 	if err != nil {
@@ -110,11 +110,11 @@ func TestDeleteVectorsByDocID(t *testing.T) {
 	defer db.Close()
 
 	doc := &DocumentRecord{Collection: "test", Path: "a.md", Title: "Test", Body: "hello", Hash: "h1"}
-	_ = UpsertDocument(db, doc, "hello", "test")
+	_ = UpsertDocument(db, doc)
 
 	chunks, _ := InsertChunks(db, doc.ID, []ChunkData{
 		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "c1"},
-	})
+	}, nil)
 	_ = InsertVector(db, chunks[0].ID, makeTestVec(0.1))
 
 	err := DeleteVectorsByDocID(db, doc.ID)

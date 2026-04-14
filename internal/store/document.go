@@ -36,7 +36,7 @@ func ShortDocID(docID string) string {
 	return docID
 }
 
-func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTitle string) error {
+func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
 	doc.DocID = generateDocID(doc.Collection, doc.Path, doc.Hash)
 
 	var existingID int64
@@ -60,14 +60,7 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 			return err
 		}
 		doc.ID, _ = res.LastInsertId()
-
-		ftsStmt, err := db.Prepare("INSERT INTO documents_fts (rowid, tokens, title_tokens) VALUES (?, ?, ?)")
-		if err != nil {
-			return err
-		}
-		defer ftsStmt.Close()
-		_, err = ftsStmt.Exec(doc.ID, tokenizedBody, tokenizedTitle)
-		return err
+		return nil
 	}
 
 	if err != nil {
@@ -85,17 +78,6 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord, tokenizedBody, tokenizedTit
 	defer updateStmt.Close()
 
 	_, err = updateStmt.Exec(doc.DocID, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID)
-	if err != nil {
-		return err
-	}
-
-	ftsUpdateStmt, err := db.Prepare("UPDATE documents_fts SET tokens=?, title_tokens=? WHERE rowid=?")
-	if err != nil {
-		return err
-	}
-	defer ftsUpdateStmt.Close()
-
-	_, err = ftsUpdateStmt.Exec(tokenizedBody, tokenizedTitle, existingID)
 	return err
 }
 

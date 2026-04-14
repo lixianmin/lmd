@@ -99,8 +99,6 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 
 		title := extractTitle(string(content), relPath)
 		body := string(content)
-		tokenizedBody := idx.tokenizer.TokenizeToString(body)
-		tokenizedTitle := idx.tokenizer.TokenizeToString(title)
 
 		existingDoc, _ := store.GetDocumentByPath(idx.db, collectionName, relPath)
 		if existingDoc != nil {
@@ -116,7 +114,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			FileSize:   int64(len(content)),
 		}
 
-		if err := store.UpsertDocument(idx.db, doc, tokenizedBody, tokenizedTitle); err != nil {
+		if err := store.UpsertDocument(idx.db, doc); err != nil {
 			return err
 		}
 
@@ -150,6 +148,7 @@ func (idx *Indexer) createChunks(docID int64, title, body, hash string) error {
 	}
 
 	data := make([]store.ChunkData, len(chunks))
+	tokenized := make([]string, len(chunks))
 	for i, c := range chunks {
 		data[i] = store.ChunkData{
 			Content:    c.Content,
@@ -157,8 +156,9 @@ func (idx *Indexer) createChunks(docID int64, title, body, hash string) error {
 			TokenCount: c.TokenCount,
 			Hash:       hash,
 		}
+		tokenized[i] = idx.tokenizer.TokenizeToString(c.Content)
 	}
-	_, err = store.InsertChunks(idx.db, docID, data)
+	_, err = store.InsertChunks(idx.db, docID, data, tokenized)
 	return err
 }
 

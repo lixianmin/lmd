@@ -18,7 +18,7 @@ func TestUpsertDocument(t *testing.T) {
 		Hash:       "abc123",
 		FileSize:   100,
 	}
-	err := UpsertDocument(db, &doc, "hello world", "test document")
+	err := UpsertDocument(db, &doc)
 	if err != nil {
 		t.Fatalf("UpsertDocument failed: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestUpsertDocumentUpdate(t *testing.T) {
 		Hash:       "hash1",
 		FileSize:   10,
 	}
-	_ = UpsertDocument(db, &doc1, "body v1", "v1")
+	_ = UpsertDocument(db, &doc1)
 
 	doc2 := DocumentRecord{
 		Collection: "notes",
@@ -55,7 +55,7 @@ func TestUpsertDocumentUpdate(t *testing.T) {
 		Hash:       "hash2",
 		FileSize:   20,
 	}
-	_ = UpsertDocument(db, &doc2, "body v2", "v2")
+	_ = UpsertDocument(db, &doc2)
 
 	docs, _ := ListDocumentsByCollection(db, "notes")
 	if len(docs) != 1 {
@@ -79,7 +79,7 @@ func TestGetDocumentByDocID(t *testing.T) {
 		Body:       "content",
 		Hash:       "hash1",
 	}
-	_ = UpsertDocument(db, &doc, "content", "test")
+	_ = UpsertDocument(db, &doc)
 
 	got, err := GetDocumentByDocID(db, doc.DocID)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestGetDocumentByPath(t *testing.T) {
 		Body:       "content",
 		Hash:       "hash1",
 	}
-	_ = UpsertDocument(db, &doc, "content", "test")
+	_ = UpsertDocument(db, &doc)
 
 	got, err := GetDocumentByPath(db, "notes", "sub/test.md")
 	if err != nil {
@@ -127,7 +127,7 @@ func TestDeleteDocument(t *testing.T) {
 		Body:       "content",
 		Hash:       "hash1",
 	}
-	_ = UpsertDocument(db, &doc, "content", "test")
+	_ = UpsertDocument(db, &doc)
 
 	if err := DeleteDocument(db, doc.ID); err != nil {
 		t.Fatalf("DeleteDocument failed: %v", err)
@@ -152,7 +152,7 @@ func TestGetDocumentHashByPath(t *testing.T) {
 		Body:       "content",
 		Hash:       "hash1",
 	}
-	_ = UpsertDocument(db, &doc, "content", "test")
+	_ = UpsertDocument(db, &doc)
 
 	hash, err := GetDocumentHash(db, "notes", "test.md")
 	if err != nil {
@@ -170,17 +170,18 @@ func TestSearchFTS(t *testing.T) {
 	_ = AddCollection(db, "notes", "/notes", "**/*.md", nil)
 
 	docs := []struct {
-		path   string
-		title  string
-		tokens string
+		path    string
+		title   string
+		content string
 	}{
 		{"go.md", "Go Language", "go golang 并发 编程 语言"},
 		{"python.md", "Python Notes", "python 编程 数据 科学"},
 		{"rust.md", "Rust Guide", "rust 系统 编程 安全 内存"},
 	}
 	for _, d := range docs {
-		doc := DocumentRecord{Collection: "notes", Path: d.path, Title: d.title, Body: "body", Hash: d.path}
-		_ = UpsertDocument(db, &doc, d.tokens, d.title)
+		doc := DocumentRecord{Collection: "notes", Path: d.path, Title: d.title, Body: d.content, Hash: d.path}
+		_ = UpsertDocument(db, &doc)
+		InsertChunks(db, doc.ID, []ChunkData{{Content: d.content, Hash: d.path}}, []string{d.content})
 	}
 
 	results, err := SearchFTS(db, "编程 语言", "", 10)
@@ -207,11 +208,13 @@ func TestSearchFTSWithCollection(t *testing.T) {
 	_ = AddCollection(db, "notes", "/notes", "**/*.md", nil)
 	_ = AddCollection(db, "docs", "/docs", "**/*.md", nil)
 
-	doc1 := DocumentRecord{Collection: "notes", Path: "test.md", Title: "搜索测试", Body: "body", Hash: "h1"}
-	_ = UpsertDocument(db, &doc1, "搜索 测试 中文", "搜索 测试")
+	doc1 := DocumentRecord{Collection: "notes", Path: "test.md", Title: "搜索测试", Body: "搜索 测试 中文", Hash: "h1"}
+	_ = UpsertDocument(db, &doc1)
+	InsertChunks(db, doc1.ID, []ChunkData{{Content: "搜索 测试 中文", Hash: "h1"}}, []string{"搜索 测试 中文"})
 
-	doc2 := DocumentRecord{Collection: "docs", Path: "test.md", Title: "搜索文档", Body: "body", Hash: "h2"}
-	_ = UpsertDocument(db, &doc2, "搜索 文档", "搜索 文档")
+	doc2 := DocumentRecord{Collection: "docs", Path: "test.md", Title: "搜索文档", Body: "搜索 文档", Hash: "h2"}
+	_ = UpsertDocument(db, &doc2)
+	InsertChunks(db, doc2.ID, []ChunkData{{Content: "搜索 文档", Hash: "h2"}}, []string{"搜索 文档"})
 
 	results, _ := SearchFTS(db, "搜索", "notes", 10)
 	for _, r := range results {

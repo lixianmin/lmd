@@ -26,9 +26,15 @@ func TestCreateTablesCreatesAllTables(t *testing.T) {
 	}
 
 	var vecName string
-	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_vectors'").Scan(&vecName)
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_vec'").Scan(&vecName)
 	if err != nil {
-		t.Errorf("virtual table chunk_vectors not found: %v", err)
+		t.Errorf("virtual table chunks_vec not found: %v", err)
+	}
+
+	var ftsName string
+	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_fts'").Scan(&ftsName)
+	if err != nil {
+		t.Errorf("virtual table chunks_fts not found: %v", err)
 	}
 }
 

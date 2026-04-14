@@ -41,12 +41,18 @@ func padVector(vec []float32) []float32 {
 	return padded
 }
 
-func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData) ([]ChunkRecord, error) {
+func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
 	stmt, err := db.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
+
+	ftsStmt, err := db.Prepare("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)")
+	if err != nil {
+		return nil, err
+	}
+	defer ftsStmt.Close()
 
 	var records []ChunkRecord
 	for i, c := range chunks {
@@ -55,6 +61,13 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData) ([]ChunkRecord, e
 			return nil, err
 		}
 		id, _ := res.LastInsertId()
+
+		tokenized := c.Content
+		if tokenizedContents != nil && i < len(tokenizedContents) {
+			tokenized = tokenizedContents[i]
+		}
+		ftsStmt.Exec(id, tokenized)
+
 		records = append(records, ChunkRecord{
 			ID: id, DocID: docID, Seq: i,
 			Content: c.Content, Position: c.Position,
@@ -69,7 +82,7 @@ func InsertVector(db *sql.DB, chunkID int64, embedding []float32) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := db.Prepare("INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)")
+	stmt, err := db.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
 	if err != nil {
 		return err
 	}
@@ -99,13 +112,21 @@ func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
 	}
 
 	if len(chunkIDs) > 0 {
-		delVecStmt, err := db.Prepare("DELETE FROM chunk_vectors WHERE chunk_id=?")
+		delVecStmt, err := db.Prepare("DELETE FROM chunks_vec WHERE chunk_id=?")
 		if err != nil {
 			return err
 		}
 		defer delVecStmt.Close()
+
+		delFtsStmt, err := db.Prepare("DELETE FROM chunks_fts WHERE rowid=?")
+		if err != nil {
+			return err
+		}
+		defer delFtsStmt.Close()
+
 		for _, id := range chunkIDs {
 			delVecStmt.Exec(id)
+			delFtsStmt.Exec(id)
 		}
 	}
 
@@ -126,7 +147,7 @@ func QueryVectors(db *sql.DB, query []float32, limit int) ([]VectorSearchResult,
 
 	stmt, err := db.Prepare(`
 		SELECT chunk_id, distance
-		FROM chunk_vectors
+		FROM chunks_vec
 		WHERE embedding MATCH ?
 		ORDER BY distance
 		LIMIT ?

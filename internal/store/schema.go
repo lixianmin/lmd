@@ -33,12 +33,10 @@ func CreateTables(db *sql.DB) error {
 			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-			tokens,
-			title_tokens,
-			content='documents',
-			content_rowid='id',
-			tokenize='unicode61'
+		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+			content,
+			content='chunks',
+			content_rowid='id'
 		)`,
 		`CREATE TABLE IF NOT EXISTS chunks (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,16 +48,16 @@ func CreateTables(db *sql.DB) error {
 			hash        TEXT NOT NULL,
 			UNIQUE(doc_id, seq)
 		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
+			chunk_id INTEGER PRIMARY KEY,
+			embedding float[1024]
+		)`,
 		`CREATE TABLE IF NOT EXISTS embed_status (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			chunk_id    INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
 			model_name  TEXT NOT NULL,
 			embedded_at DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			UNIQUE(chunk_id, model_name)
-		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
-			chunk_id INTEGER PRIMARY KEY,
-			embedding float[1024]
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash)`,

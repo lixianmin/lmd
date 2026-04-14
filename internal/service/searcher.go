@@ -46,22 +46,14 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 			continue
 		}
 
-		doc, err := store.GetDocumentByDocID(s.db, r.DocID)
-		if err != nil {
-			continue
-		}
-
-		snippet := extractSnippet(doc.Body, query, 200)
-		line := findLineNumber(doc.Body, query)
-
 		hits = append(hits, formatter.SearchHit{
 			DocID:      store.ShortDocID(r.DocID),
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
 			Score:      r.Score,
-			Snippet:    snippet,
-			Line:       line,
+			Snippet:    r.Content,
+			Line:       1,
 		})
 	}
 
@@ -147,42 +139,6 @@ func (s *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, col
 	}
 
 	return results, nil
-}
-
-func extractSnippet(body, query string, maxLen int) string {
-	idx := strings.Index(strings.ToLower(body), strings.ToLower(query))
-	if idx == -1 {
-		if len(body) > maxLen {
-			return body[:maxLen] + "..."
-		}
-		return body
-	}
-
-	start := idx - maxLen/3
-	if start < 0 {
-		start = 0
-	}
-	end := start + maxLen
-	if end > len(body) {
-		end = len(body)
-	}
-
-	snippet := body[start:end]
-	if start > 0 {
-		snippet = "..." + snippet
-	}
-	if end < len(body) {
-		snippet = snippet + "..."
-	}
-	return snippet
-}
-
-func findLineNumber(body, query string) int {
-	idx := strings.Index(strings.ToLower(body), strings.ToLower(query))
-	if idx == -1 {
-		return 1
-	}
-	return strings.Count(body[:idx], "\n") + 1
 }
 
 var stopTokens = map[string]bool{
