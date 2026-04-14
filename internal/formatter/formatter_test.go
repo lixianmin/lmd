@@ -8,8 +8,8 @@ import (
 
 func TestTextFormatter(t *testing.T) {
 	hits := []SearchHit{
-		{DocID: "abc", Collection: "notes", Path: "go.md", Title: "Go并发", Score: 0.95, Snippet: "goroutine...", Line: 42},
-		{DocID: "def", Collection: "notes", Path: "python.md", Title: "Python", Score: 0.80, Snippet: "pandas...", Line: 10},
+		{DocId: "abc", Collection: "notes", Path: "go.md", Title: "Go并发", Score: 0.95, Snippet: "goroutine...", Line: 42},
+		{DocId: "def", Collection: "notes", Path: "python.md", Title: "Python", Score: 0.80, Snippet: "pandas...", Line: 10},
 	}
 	f := NewTextFormatter(TextConfig{Full: false})
 	var buf bytes.Buffer
@@ -28,7 +28,7 @@ func TestTextFormatter(t *testing.T) {
 
 func TestTextFormatterFull(t *testing.T) {
 	hits := []SearchHit{
-		{DocID: "abc", Path: "go.md", Title: "Go", Score: 0.9, Snippet: "hello world", Line: 1},
+		{DocId: "abc", Path: "go.md", Title: "Go", Score: 0.9, Snippet: "hello world", Line: 1},
 	}
 	f := NewTextFormatter(TextConfig{Full: true})
 	var buf bytes.Buffer
@@ -53,7 +53,7 @@ func TestTextFormatterEmpty(t *testing.T) {
 
 func TestJSONFormatter(t *testing.T) {
 	hits := []SearchHit{
-		{DocID: "abc", Path: "go.md", Title: "Go", Score: 0.9, Snippet: "hello", Line: 1},
+		{DocId: "abc", Path: "go.md", Title: "Go", Score: 0.9, Snippet: "hello", Line: 1},
 	}
 	f := NewJSONFormatter()
 	var buf bytes.Buffer

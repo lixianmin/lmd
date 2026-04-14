@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,7 @@ var getCmd = &cobra.Command{
 		var doc *store.DocumentRecord
 
 		if strings.HasPrefix(input, "#") {
-			doc, err = store.GetDocumentByDocID(db, input[1:])
+			doc, err = store.GetDocumentByDocId(db, input[1:])
 		} else {
 			parts := strings.SplitN(input, "/", 2)
 			if len(parts) == 2 {
@@ -66,7 +67,9 @@ var getCmd = &cobra.Command{
 			return fmt.Errorf("document not found: %s", input)
 		}
 
-		fmt.Printf("#%s %s\n", store.ShortDocID(doc.DocID), doc.Title)
+		logo.Info("get: input=%s docId=%s path=%s/%s", input, store.ShortDocId(doc.DocId), doc.Collection, doc.Path)
+
+		fmt.Printf("#%s %s\n", store.ShortDocId(doc.DocId), doc.Title)
 		fmt.Printf("Collection: %s\n", doc.Collection)
 		fmt.Printf("Path: %s\n", doc.Path)
 		fmt.Printf("Size: %d bytes\n", doc.FileSize)

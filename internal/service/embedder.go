@@ -45,8 +45,11 @@ func (e *Embedder) EmbedAll(ctx context.Context) (*EmbedResult, error) {
 
 	vecs, err := e.provider.EmbedBatch(ctx, texts)
 	if err != nil {
+		logo.Error("EmbedAll: batch embedding failed: %s", err)
 		return nil, err
 	}
+
+	logo.Info("EmbedAll: received %d vectors from API", len(vecs))
 
 	for i, vec := range vecs {
 		if err := store.InsertVector(e.db, chunks[i].ID, vec); err != nil {

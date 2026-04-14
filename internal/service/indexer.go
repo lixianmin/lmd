@@ -13,6 +13,7 @@ import (
 	"github.com/lixianmin/lmd/internal/chunker"
 	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
+	"github.com/lixianmin/logo"
 )
 
 type UpdateResult struct {
@@ -102,7 +103,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 
 		existingDoc, _ := store.GetDocumentByPath(idx.db, collectionName, relPath)
 		if existingDoc != nil {
-			store.DeleteVectorsByDocID(idx.db, existingDoc.ID)
+			logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
+			store.DeleteVectorsByDocId(idx.db, existingDoc.ID)
 		}
 
 		doc := &store.DocumentRecord{
@@ -128,7 +130,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 		if !foundPaths[path] {
 			doc, err := store.GetDocumentByPath(idx.db, collectionName, path)
 			if err == nil {
-				store.DeleteVectorsByDocID(idx.db, doc.ID)
+				logo.Info("indexer: removing deleted file %s/%s", collectionName, path)
+				store.DeleteVectorsByDocId(idx.db, doc.ID)
 				store.DeleteDocument(idx.db, doc.ID)
 				result.Removed++
 			}
@@ -138,7 +141,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 	return result, nil
 }
 
-func (idx *Indexer) createChunks(docID int64, title, body, hash string) error {
+func (idx *Indexer) createChunks(docId int64, title, body, hash string) error {
 	chunks, err := idx.chunker.Chunk(title, body)
 	if err != nil {
 		return err
@@ -158,7 +161,7 @@ func (idx *Indexer) createChunks(docID int64, title, body, hash string) error {
 		}
 		tokenized[i] = idx.tokenizer.TokenizeToString(c.Content)
 	}
-	_, err = store.InsertChunks(idx.db, docID, data, tokenized)
+	_, err = store.InsertChunks(idx.db, docId, data, tokenized)
 	return err
 }
 

@@ -29,7 +29,7 @@ func (f *MarkdownFormatter) Format(w io.Writer, hits []SearchHit) error {
 		fmt.Fprintf(w, "### %d. %s\n", i+1, title)
 		fmt.Fprintf(w, "- **Path**: `%s`\n", r.Path)
 		fmt.Fprintf(w, "- **Score**: %.0f%%\n", r.Score*100)
-		fmt.Fprintf(w, "- **ID**: #%s\n", r.DocID)
+		fmt.Fprintf(w, "- **ID**: #%s\n", r.DocId)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "```")
 		snippet := r.Snippet

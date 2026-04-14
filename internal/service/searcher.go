@@ -9,6 +9,7 @@ import (
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
+	"github.com/lixianmin/logo"
 )
 
 type Searcher struct {
@@ -48,7 +49,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			DocID:      store.ShortDocID(r.DocID),
+			DocId:      store.ShortDocId(r.DocId),
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
@@ -62,6 +63,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 }
 
 func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+	logo.Info("SearchVector: query=%q collection=%s limit=%d", query, collection, limit)
 	queryVec, err := provider.EmbedQuery(context.Background(), query)
 	if err != nil {
 		return nil, err
@@ -84,7 +86,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 			continue
 		}
 
-		doc, err := store.GetDocumentByID(s.db, chunk.DocID)
+		doc, err := store.GetDocumentByID(s.db, chunk.DocId)
 		if err != nil {
 			continue
 		}
@@ -94,7 +96,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			DocID:      store.ShortDocID(doc.DocID),
+			DocId:      store.ShortDocId(doc.DocId),
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,
@@ -115,6 +117,7 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 }
 
 func (s *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+	logo.Info("SearchHybrid: query=%q collection=%s limit=%d", query, collection, limit)
 	lexHits, err := s.SearchLex(query, collection, limit*3, 0)
 	if err != nil {
 		return nil, err

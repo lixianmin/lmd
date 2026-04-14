@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,7 @@ var collectionAddCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("collection add: name=%s path=%s mask=%s", collectionName, absPath, mask)
 		fmt.Printf("Collection '%s' added: %s\n", collectionName, absPath)
 		return nil
 	},
@@ -72,6 +74,7 @@ var collectionRemoveCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("collection remove: name=%s", args[0])
 		fmt.Printf("Collection '%s' removed\n", args[0])
 		return nil
 	},
@@ -119,6 +122,7 @@ var collectionRenameCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("collection rename: %s -> %s", args[0], args[1])
 		fmt.Printf("Collection renamed: %s -> %s\n", args[0], args[1])
 		return nil
 	},

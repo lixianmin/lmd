@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/store"
 	"github.com/lixianmin/lmd/internal/tokenizer"
+	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +19,9 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Scan filesystem and update index",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		start := time.Now()
+		logo.Info("update: starting")
+
 		db, err := openDB()
 		if err != nil {
 			return err
@@ -47,10 +52,12 @@ var updateCmd = &cobra.Command{
 
 			result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 			if err != nil {
+				logo.Error("update: %s failed: %s", col.Name, err)
 				fmt.Printf("Error indexing %s: %v\n", col.Name, err)
 				continue
 			}
 
+			logo.Info("update: %s +%d ~%d =%d -%d", col.Name, result.Indexed, result.Updated, result.Unchanged, result.Removed)
 			fmt.Printf("%s: indexed=%d updated=%d unchanged=%d removed=%d\n",
 				col.Name, result.Indexed, result.Updated, result.Unchanged, result.Removed)
 			totalIndexed += result.Indexed
@@ -61,6 +68,8 @@ var updateCmd = &cobra.Command{
 
 		fmt.Printf("\nTotal: indexed=%d updated=%d unchanged=%d removed=%d\n",
 			totalIndexed, totalUpdated, totalUnchanged, totalRemoved)
+		logo.Info("update: done indexed=%d updated=%d unchanged=%d removed=%d elapsed=%s",
+			totalIndexed, totalUpdated, totalUnchanged, totalRemoved, time.Since(start))
 		return nil
 	},
 }
@@ -102,6 +111,7 @@ var statusCmd = &cobra.Command{
 		db.QueryRow("SELECT COUNT(*) FROM chunks_vec_rowids").Scan(&embedCount)
 
 		fmt.Printf("\n  Total: %d documents, %d chunks, %d embedded\n", totalDocs, chunkCount, embedCount)
+		logo.Info("status: docs=%d chunks=%d embedded=%d", totalDocs, chunkCount, embedCount)
 		if chunkCount > 0 && embedCount < chunkCount {
 			fmt.Printf("  ⚠ %d chunks pending embedding\n", chunkCount-embedCount)
 		}
@@ -113,6 +123,9 @@ var rebuildCmd = &cobra.Command{
 	Use:   "rebuild",
 	Short: "Drop all data and rebuild index from scratch (keeps collections)",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		start := time.Now()
+		logo.Info("rebuild: starting")
+
 		db, err := openDB()
 		if err != nil {
 			return err
@@ -176,6 +189,7 @@ var rebuildCmd = &cobra.Command{
 			return fmt.Errorf("embedding failed: %w", err)
 		}
 		fmt.Printf("\nEmbedded %d chunks, skipped %d\n", embedResult.Embedded, embedResult.Skipped)
+		logo.Info("rebuild: done embedded=%d skipped=%d elapsed=%s", embedResult.Embedded, embedResult.Skipped, time.Since(start))
 		return nil
 	},
 }

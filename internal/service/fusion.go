@@ -15,21 +15,21 @@ func FuseRRF(lexHits, vecHits []formatter.SearchHit, k int, origWeight float64) 
 	docs := make(map[string]*scored)
 
 	for rank, h := range lexHits {
-		if _, exists := docs[h.DocID]; !exists {
-			docs[h.DocID] = &scored{hit: h}
+		if _, exists := docs[h.DocId]; !exists {
+			docs[h.DocId] = &scored{hit: h}
 		}
-		docs[h.DocID].rrfScore += origWeight / float64(k+rank+1)
+		docs[h.DocId].rrfScore += origWeight / float64(k+rank+1)
 	}
 
 	for rank, h := range vecHits {
-		if existing, exists := docs[h.DocID]; exists {
+		if existing, exists := docs[h.DocId]; exists {
 			existing.rrfScore += origWeight / float64(k+rank+1)
 			if h.Snippet != "" && existing.hit.Snippet == "" {
 				existing.hit.Snippet = h.Snippet
 			}
 		} else {
-			docs[h.DocID] = &scored{hit: h}
-			docs[h.DocID].rrfScore += origWeight / float64(k+rank+1)
+			docs[h.DocId] = &scored{hit: h}
+			docs[h.DocId].rrfScore += origWeight / float64(k+rank+1)
 		}
 	}
 

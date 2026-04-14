@@ -26,7 +26,7 @@ func (f *CSVFormatter) Format(w io.Writer, hits []SearchHit) error {
 		cw.Write([]string{
 			r.Path,
 			fmt.Sprintf("%d", r.Line),
-			r.DocID,
+			r.DocId,
 			r.Title,
 			fmt.Sprintf("%.2f", r.Score*100),
 			snippet,

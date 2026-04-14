@@ -7,7 +7,7 @@ import (
 
 type FTSSearchResult struct {
 	ChunkID    int64
-	DocID      string
+	DocId      string
 	Collection string
 	Path       string
 	Title      string
@@ -62,7 +62,7 @@ func SearchFTS(db *sql.DB, tokenizedQuery, collection string, limit int) ([]FTSS
 	var results []FTSSearchResult
 	for rows.Next() {
 		var r FTSSearchResult
-		if err := rows.Scan(&r.ChunkID, &r.DocID, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.DocId, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

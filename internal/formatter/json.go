@@ -6,7 +6,7 @@ import (
 )
 
 type jsonHit struct {
-	DocID      string  `json:"doc_id"`
+	DocId      string  `json:"doc_id"`
 	Collection string  `json:"collection,omitempty"`
 	Path       string  `json:"path"`
 	Title      string  `json:"title"`
@@ -28,7 +28,7 @@ func (f *JSONFormatter) Format(w io.Writer, hits []SearchHit) error {
 	out := make([]jsonHit, len(hits))
 	for i, h := range hits {
 		out[i] = jsonHit{
-			DocID:      h.DocID,
+			DocId:      h.DocId,
 			Collection: h.Collection,
 			Path:       h.Path,
 			Title:      h.Title,

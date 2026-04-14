@@ -9,15 +9,15 @@ import (
 )
 
 func main() {
-	initLogo()
-	defer logo.GetLogger().(*logo.Logger).Close()
+	var log = createLogo()
+	defer log.Close()
 
 	if err := cli.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func initLogo() {
+func createLogo() *logo.Logger {
 	var log = logo.NewLogger()
 	log.AddFlag(logo.LogAsyncWrite)
 
@@ -27,10 +27,11 @@ func initLogo() {
 	const flag = logo.FlagDate | logo.FlagTime | logo.FlagShortFile | logo.FlagLevel
 	var rollingFile = logo.NewRollingFileHook(
 		logo.WithDirName(logDir),
-		logo.WithFileNamePrefix("lmd"),
+		logo.WithFileNamePrefix(""),
 		logo.WithHookFlag(flag),
 	)
 	log.AddHook(rollingFile)
 
 	logo.SetLogger(log)
+	return log
 }

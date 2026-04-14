@@ -8,14 +8,14 @@ import (
 
 func TestRRFFusionBasic(t *testing.T) {
 	lexHits := []formatter.SearchHit{
-		{DocID: "a", Score: 1.0},
-		{DocID: "b", Score: 0.8},
-		{DocID: "c", Score: 0.5},
+		{DocId: "a", Score: 1.0},
+		{DocId: "b", Score: 0.8},
+		{DocId: "c", Score: 0.5},
 	}
 	vecHits := []formatter.SearchHit{
-		{DocID: "c", Score: 1.0},
-		{DocID: "a", Score: 0.9},
-		{DocID: "d", Score: 0.6},
+		{DocId: "c", Score: 1.0},
+		{DocId: "a", Score: 0.9},
+		{DocId: "d", Score: 0.6},
 	}
 
 	result := FuseRRF(lexHits, vecHits, 60, 1.0)
@@ -26,29 +26,29 @@ func TestRRFFusionBasic(t *testing.T) {
 
 	firstIDs := make(map[string]bool)
 	for _, h := range result[:2] {
-		firstIDs[h.DocID] = true
+		firstIDs[h.DocId] = true
 	}
 	if !firstIDs["a"] || !firstIDs["c"] {
-		t.Fatalf("expected 'a' and 'c' to rank highest, got top 2: %s and %s", result[0].DocID, result[1].DocID)
+		t.Fatalf("expected 'a' and 'c' to rank highest, got top 2: %s and %s", result[0].DocId, result[1].DocId)
 	}
 }
 
 func TestRRFFusionEmptyLex(t *testing.T) {
 	vecHits := []formatter.SearchHit{
-		{DocID: "a", Score: 1.0},
+		{DocId: "a", Score: 1.0},
 	}
 	result := FuseRRF(nil, vecHits, 60, 1.0)
-	if len(result) != 1 || result[0].DocID != "a" {
+	if len(result) != 1 || result[0].DocId != "a" {
 		t.Fatal("expected vector-only results when lex is empty")
 	}
 }
 
 func TestRRFFusionEmptyVec(t *testing.T) {
 	lexHits := []formatter.SearchHit{
-		{DocID: "b", Score: 1.0},
+		{DocId: "b", Score: 1.0},
 	}
 	result := FuseRRF(lexHits, nil, 60, 1.0)
-	if len(result) != 1 || result[0].DocID != "b" {
+	if len(result) != 1 || result[0].DocId != "b" {
 		t.Fatal("expected lex-only results when vec is empty")
 	}
 }
@@ -62,17 +62,17 @@ func TestRRFFusionBothEmpty(t *testing.T) {
 
 func TestRRFDeduplication(t *testing.T) {
 	lexHits := []formatter.SearchHit{
-		{DocID: "a", Score: 1.0},
-		{DocID: "b", Score: 0.5},
+		{DocId: "a", Score: 1.0},
+		{DocId: "b", Score: 0.5},
 	}
 	vecHits := []formatter.SearchHit{
-		{DocID: "a", Score: 1.0},
-		{DocID: "b", Score: 0.8},
+		{DocId: "a", Score: 1.0},
+		{DocId: "b", Score: 0.8},
 	}
 	result := FuseRRF(lexHits, vecHits, 60, 1.0)
 	seen := map[string]int{}
 	for _, h := range result {
-		seen[h.DocID]++
+		seen[h.DocId]++
 	}
 	for id, count := range seen {
 		if count > 1 {
@@ -83,14 +83,14 @@ func TestRRFDeduplication(t *testing.T) {
 
 func TestRRFScoreOrdering(t *testing.T) {
 	lexHits := []formatter.SearchHit{
-		{DocID: "a", Score: 1.0},
-		{DocID: "b", Score: 0.8},
-		{DocID: "e", Score: 0.3},
+		{DocId: "a", Score: 1.0},
+		{DocId: "b", Score: 0.8},
+		{DocId: "e", Score: 0.3},
 	}
 	vecHits := []formatter.SearchHit{
-		{DocID: "c", Score: 1.0},
-		{DocID: "a", Score: 0.9},
-		{DocID: "d", Score: 0.7},
+		{DocId: "c", Score: 1.0},
+		{DocId: "a", Score: 0.9},
+		{DocId: "d", Score: 0.7},
 	}
 	result := FuseRRF(lexHits, vecHits, 60, 1.0)
 	for i := 1; i < len(result); i++ {

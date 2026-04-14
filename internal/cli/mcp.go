@@ -84,10 +84,10 @@ func handleToolCall(db *sql.DB, searcher *service.Searcher, provider embedding.E
 
 	case "get":
 		var p struct {
-			PathOrDocID string `json:"path_or_docid"`
+			PathOrDocId string `json:"path_or_docid"`
 		}
 		json.Unmarshal(params, &p)
-		return getDocumentResult(db, p.PathOrDocID)
+		return getDocumentResult(db, p.PathOrDocId)
 
 	case "status":
 		return store.ListCollections(db)
@@ -100,11 +100,11 @@ func handleToolCall(db *sql.DB, searcher *service.Searcher, provider embedding.E
 	}
 }
 
-func getDocumentResult(db *sql.DB, pathOrDocID string) (interface{}, error) {
-	if len(pathOrDocID) > 0 && pathOrDocID[0] == '#' {
-		return store.GetDocumentByDocID(db, pathOrDocID[1:])
+func getDocumentResult(db *sql.DB, pathOrDocId string) (interface{}, error) {
+	if len(pathOrDocId) > 0 && pathOrDocId[0] == '#' {
+		return store.GetDocumentByDocId(db, pathOrDocId[1:])
 	}
-	parts := strings.SplitN(pathOrDocID, "/", 2)
+	parts := strings.SplitN(pathOrDocId, "/", 2)
 	if len(parts) == 2 {
 		return store.GetDocumentByPath(db, parts[0], parts[1])
 	}

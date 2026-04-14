@@ -103,6 +103,7 @@ var searchCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("search: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
 		return formatResults(os.Stdout, results)
 	},
 }
@@ -129,6 +130,7 @@ var vsearchCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("vsearch: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
 		return formatResults(os.Stdout, results)
 	},
 }
@@ -160,6 +162,7 @@ var queryCmd = &cobra.Command{
 			return err
 		}
 
+		logo.Info("query: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
 		return formatResults(os.Stdout, results)
 	},
 }

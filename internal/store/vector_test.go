@@ -105,7 +105,7 @@ func TestGetChunkByID(t *testing.T) {
 	}
 }
 
-func TestDeleteVectorsByDocID(t *testing.T) {
+func TestDeleteVectorsByDocId(t *testing.T) {
 	db := openMigratedDB(t)
 	defer db.Close()
 
@@ -117,9 +117,9 @@ func TestDeleteVectorsByDocID(t *testing.T) {
 	}, []string{"chunk one"})
 	_ = InsertVector(db, chunks[0].ID, makeTestVec(0.1))
 
-	err := DeleteVectorsByDocID(db, doc.ID)
+	err := DeleteVectorsByDocId(db, doc.ID)
 	if err != nil {
-		t.Fatalf("DeleteVectorsByDocID failed: %v", err)
+		t.Fatalf("DeleteVectorsByDocId failed: %v", err)
 	}
 
 	_, err = GetChunkByID(db, chunks[0].ID)

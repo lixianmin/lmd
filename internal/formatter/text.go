@@ -24,7 +24,7 @@ func (f *TextFormatter) Format(w io.Writer, hits []SearchHit) error {
 	}
 
 	for _, r := range hits {
-		fmt.Fprintf(w, "%s:%d #%s\n", r.Path, r.Line, r.DocID)
+		fmt.Fprintf(w, "%s:%d #%s\n", r.Path, r.Line, r.DocId)
 		fmt.Fprintf(w, "Title: %s\n", r.Title)
 		fmt.Fprintf(w, "Score: %.0f%%\n", r.Score*100)
 		if f.config.Full {

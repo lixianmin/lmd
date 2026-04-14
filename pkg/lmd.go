@@ -41,7 +41,7 @@ type LexOptions struct {
 }
 
 type SearchResult struct {
-	DocID      string
+	DocId      string
 	Collection string
 	Path       string
 	Title      string
@@ -51,7 +51,7 @@ type SearchResult struct {
 }
 
 type Document struct {
-	DocID      string
+	DocId      string
 	Collection string
 	Path       string
 	Title      string
@@ -161,7 +161,7 @@ func (s *LmdStore) SearchLex(query string, opts LexOptions) ([]SearchResult, err
 	results := make([]SearchResult, len(hits))
 	for i, h := range hits {
 		results[i] = SearchResult{
-			DocID:      h.DocID,
+			DocId:      h.DocId,
 			Collection: h.Collection,
 			Path:       h.Path,
 			Title:      h.Title,
@@ -173,14 +173,14 @@ func (s *LmdStore) SearchLex(query string, opts LexOptions) ([]SearchResult, err
 	return results, nil
 }
 
-func (s *LmdStore) Get(pathOrDocID string) (*Document, error) {
+func (s *LmdStore) Get(pathOrDocId string) (*Document, error) {
 	var doc *store.DocumentRecord
 	var err error
 
-	if len(pathOrDocID) > 0 && pathOrDocID[0] == '#' {
-		doc, err = store.GetDocumentByDocID(s.db, pathOrDocID[1:])
+	if len(pathOrDocId) > 0 && pathOrDocId[0] == '#' {
+		doc, err = store.GetDocumentByDocId(s.db, pathOrDocId[1:])
 	} else {
-		parts := splitPath(pathOrDocID)
+		parts := splitPath(pathOrDocId)
 		if len(parts) == 2 {
 			doc, err = store.GetDocumentByPath(s.db, parts[0], parts[1])
 		} else {
@@ -192,7 +192,7 @@ func (s *LmdStore) Get(pathOrDocID string) (*Document, error) {
 	}
 
 	return &Document{
-		DocID:      doc.DocID,
+		DocId:      doc.DocId,
 		Collection: doc.Collection,
 		Path:       doc.Path,
 		Title:      doc.Title,

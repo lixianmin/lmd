@@ -20,7 +20,7 @@ type ChunkData struct {
 
 type ChunkRecord struct {
 	ID         int64
-	DocID      int64
+	DocId      int64
 	Seq        int
 	Content    string
 	Position   int
@@ -42,7 +42,7 @@ func padVector(vec []float32) []float32 {
 	return padded
 }
 
-func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
+func InsertChunks(db *sql.DB, docId int64, chunks []ChunkData, tokenizedContents []string) ([]ChunkRecord, error) {
 	if len(chunks) != len(tokenizedContents) {
 		return nil, fmt.Errorf("chunks (%d) and tokenizedContents (%d) must have same length", len(chunks), len(tokenizedContents))
 	}
@@ -72,7 +72,7 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents
 
 	var records []ChunkRecord
 	for i, c := range chunks {
-		res, err := stmt.Exec(docID, i, c.Content, c.Position, c.TokenCount, c.Hash)
+		res, err := stmt.Exec(docId, i, c.Content, c.Position, c.TokenCount, c.Hash)
 		if err != nil {
 			return nil, err
 		}
@@ -83,7 +83,7 @@ func InsertChunks(db *sql.DB, docID int64, chunks []ChunkData, tokenizedContents
 		}
 
 		records = append(records, ChunkRecord{
-			ID: id, DocID: docID, Seq: i,
+			ID: id, DocId: docId, Seq: i,
 			Content: c.Content, Position: c.Position,
 			TokenCount: c.TokenCount, Hash: c.Hash,
 		})
@@ -110,7 +110,7 @@ func InsertVector(db *sql.DB, chunkID int64, embedding []float32) error {
 	return err
 }
 
-func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
+func DeleteVectorsByDocId(db *sql.DB, docId int64) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
 	}
 	defer selectStmt.Close()
 
-	rows, err := selectStmt.Query(docID)
+	rows, err := selectStmt.Query(docId)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func DeleteVectorsByDocID(db *sql.DB, docID int64) error {
 		return err
 	}
 	defer delChunksStmt.Close()
-	if _, err := delChunksStmt.Exec(docID); err != nil {
+	if _, err := delChunksStmt.Exec(docId); err != nil {
 		return err
 	}
 
@@ -237,7 +237,7 @@ func GetUnembeddedChunks(db *sql.DB) ([]ChunkRecord, error) {
 	var chunks []ChunkRecord
 	for rows.Next() {
 		var c ChunkRecord
-		if err := rows.Scan(&c.ID, &c.DocID, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, c)
@@ -245,14 +245,14 @@ func GetUnembeddedChunks(db *sql.DB) ([]ChunkRecord, error) {
 	return chunks, rows.Err()
 }
 
-func GetChunksByDocID(db *sql.DB, docID int64) ([]ChunkRecord, error) {
+func GetChunksByDocId(db *sql.DB, docId int64) ([]ChunkRecord, error) {
 	stmt, err := db.Prepare("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq")
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query(docID)
+	rows, err := stmt.Query(docId)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func GetChunksByDocID(db *sql.DB, docID int64) ([]ChunkRecord, error) {
 	var chunks []ChunkRecord
 	for rows.Next() {
 		var c ChunkRecord
-		if err := rows.Scan(&c.ID, &c.DocID, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, c)
@@ -277,7 +277,7 @@ func GetChunkByID(db *sql.DB, chunkID int64) (*ChunkRecord, error) {
 	defer stmt.Close()
 
 	var c ChunkRecord
-	err = stmt.QueryRow(chunkID).Scan(&c.ID, &c.DocID, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
+	err = stmt.QueryRow(chunkID).Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("chunk not found")
 	}

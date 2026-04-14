@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lixianmin/lmd/internal/store"
+	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ var contextAddCmd = &cobra.Command{
 		defer db.Close()
 
 		collection, p := parseContextPath(args[0])
+		logo.Info("context add: %s/%s", collection, p)
 		return store.AddContext(db, collection, p, args[1])
 	},
 }
@@ -41,6 +43,7 @@ var contextRemoveCmd = &cobra.Command{
 		defer db.Close()
 
 		collection, p := parseContextPath(args[0])
+		logo.Info("context remove: %s/%s", collection, p)
 		return store.RemoveContext(db, collection, p)
 	},
 }

@@ -11,7 +11,7 @@ import (
 
 type DocumentRecord struct {
 	ID         int64
-	DocID      string
+	DocId      string
 	Collection string
 	Path       string
 	Title      string
@@ -23,21 +23,21 @@ type DocumentRecord struct {
 	UpdatedAt  time.Time
 }
 
-func generateDocID(collection, path, hash string) string {
+func generateDocId(collection, path, hash string) string {
 	raw := fmt.Sprintf("%s:%s:%s", collection, path, hash)
 	h := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(h[:])
 }
 
-func ShortDocID(docID string) string {
-	if len(docID) > 8 {
-		return docID[:8]
+func ShortDocId(docId string) string {
+	if len(docId) > 8 {
+		return docId[:8]
 	}
-	return docID
+	return docId
 }
 
 func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
-	doc.DocID = generateDocID(doc.Collection, doc.Path, doc.Hash)
+	doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
 
 	var existingID int64
 	err := db.QueryRow(
@@ -55,7 +55,7 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
 		}
 		defer stmt.Close()
 
-		res, err := stmt.Exec(doc.DocID, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize)
+		res, err := stmt.Exec(doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize)
 		if err != nil {
 			return err
 		}
@@ -77,11 +77,11 @@ func UpsertDocument(db *sql.DB, doc *DocumentRecord) error {
 	}
 	defer updateStmt.Close()
 
-	_, err = updateStmt.Exec(doc.DocID, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID)
+	_, err = updateStmt.Exec(doc.DocId, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID)
 	return err
 }
 
-func GetDocumentByDocID(db *sql.DB, docID string) (*DocumentRecord, error) {
+func GetDocumentByDocId(db *sql.DB, docId string) (*DocumentRecord, error) {
 	var doc DocumentRecord
 
 	stmt, err := db.Prepare("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?")
@@ -90,7 +90,7 @@ func GetDocumentByDocID(db *sql.DB, docID string) (*DocumentRecord, error) {
 	}
 	defer stmt.Close()
 
-	err = stmt.QueryRow(docID+"%").Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+	err = stmt.QueryRow(docId+"%").Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
@@ -106,9 +106,9 @@ func GetDocumentByDocID(db *sql.DB, docID string) (*DocumentRecord, error) {
 	defer countStmt.Close()
 
 	var count int
-	countStmt.QueryRow(docID + "%").Scan(&count)
+	countStmt.QueryRow(docId + "%").Scan(&count)
 	if count > 1 {
-		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docID, count)
+		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docId, count)
 	}
 
 	return &doc, nil
@@ -131,7 +131,7 @@ func getDocument(db *sql.DB, whereClause string, args ...any) (*DocumentRecord, 
 	defer stmt.Close()
 
 	var doc DocumentRecord
-	err = stmt.QueryRow(args...).Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+	err = stmt.QueryRow(args...).Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
@@ -170,7 +170,7 @@ func ListDocumentsByCollection(db *sql.DB, collection string) ([]DocumentRecord,
 	var docs []DocumentRecord
 	for rows.Next() {
 		var doc DocumentRecord
-		if err := rows.Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title,
+		if err := rows.Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
 			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -218,7 +218,7 @@ func SearchDocumentsByPath(db *sql.DB, pathPart string, limit int) ([]DocumentRe
 	var docs []DocumentRecord
 	for rows.Next() {
 		var doc DocumentRecord
-		if err := rows.Scan(&doc.ID, &doc.DocID, &doc.Collection, &doc.Path, &doc.Title,
+		if err := rows.Scan(&doc.ID, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
 			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}

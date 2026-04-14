@@ -23,7 +23,7 @@ func TestUpsertDocument(t *testing.T) {
 		t.Fatalf("UpsertDocument failed: %v", err)
 	}
 
-	if doc.DocID == "" {
+	if doc.DocId == "" {
 		t.Fatal("docid should be set")
 	}
 	if doc.ID == 0 {
@@ -66,7 +66,7 @@ func TestUpsertDocumentUpdate(t *testing.T) {
 	}
 }
 
-func TestGetDocumentByDocID(t *testing.T) {
+func TestGetDocumentByDocId(t *testing.T) {
 	db := openMigratedDB(t)
 	defer db.Close()
 
@@ -81,9 +81,9 @@ func TestGetDocumentByDocID(t *testing.T) {
 	}
 	_ = UpsertDocument(db, &doc)
 
-	got, err := GetDocumentByDocID(db, doc.DocID)
+	got, err := GetDocumentByDocId(db, doc.DocId)
 	if err != nil {
-		t.Fatalf("GetDocumentByDocID failed: %v", err)
+		t.Fatalf("GetDocumentByDocId failed: %v", err)
 	}
 	if got.Path != "test.md" {
 		t.Fatalf("expected path test.md, got %s", got.Path)
@@ -109,8 +109,8 @@ func TestGetDocumentByPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDocumentByPath failed: %v", err)
 	}
-	if got.DocID != doc.DocID {
-		t.Fatalf("expected docid %s, got %s", doc.DocID, got.DocID)
+	if got.DocId != doc.DocId {
+		t.Fatalf("expected docid %s, got %s", doc.DocId, got.DocId)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestDeleteDocument(t *testing.T) {
 		t.Fatalf("DeleteDocument failed: %v", err)
 	}
 
-	_, err := GetDocumentByDocID(db, doc.DocID)
+	_, err := GetDocumentByDocId(db, doc.DocId)
 	if err == nil {
 		t.Fatal("expected error for deleted document")
 	}

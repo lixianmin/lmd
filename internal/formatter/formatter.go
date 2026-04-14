@@ -3,7 +3,7 @@ package formatter
 import "io"
 
 type SearchHit struct {
-	DocID      string
+	DocId      string
 	Collection string
 	Path       string
 	Title      string
