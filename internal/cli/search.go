@@ -28,7 +28,11 @@ func newProvider() *embedding.GGUFProvider {
 	if err := embedding.EnsureModel(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 	}
-	return embedding.NewGGUFProvider(embedding.DefaultModelPath())
+	p := embedding.NewGGUFProvider(embedding.DefaultModelPath())
+	if err := p.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+	return p
 }
 
 func syncIndex() {

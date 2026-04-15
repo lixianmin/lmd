@@ -18,10 +18,10 @@ func NewSearcher(tok tokenizer.Tokenizer) *Searcher {
 	return &Searcher{tokenizer: tok}
 }
 
-func (s *Searcher) SearchLex(query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+func (my *Searcher) SearchLex(query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	ftsQuery := query
-	if s.tokenizer != nil {
-		ftsQuery = s.tokenizer.TokenizeToString(query)
+	if my.tokenizer != nil {
+		ftsQuery = my.tokenizer.TokenizeToString(query)
 		if ftsQuery == "" {
 			ftsQuery = query
 		}
@@ -52,7 +52,7 @@ func (s *Searcher) SearchLex(query, collection string, limit int, minScore float
 	return hits, nil
 }
 
-func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	logo.Info("SearchVector: query=%q collection=%s limit=%d", query, collection, limit)
 	queryVec, err := provider.EmbedQuery(context.Background(), query)
 	if err != nil {
@@ -99,19 +99,19 @@ func (s *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, col
 	return hits, nil
 }
 
-func (s *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+func (my *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	logo.Info("SearchHybrid: query=%q collection=%s limit=%d", query, collection, limit)
-	lexHits, err := s.SearchLex(query, collection, limit*3, 0)
+	lexHits, err := my.SearchLex(query, collection, limit*3, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	vecHits, err := s.SearchVector(provider, query, collection, limit*3, 0)
+	vecHits, err := my.SearchVector(provider, query, collection, limit*3, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	fused := FuseRRF(lexHits, vecHits, 60, 1.0)
+	fused := ReciprocalRankFusion(lexHits, vecHits, 60, 1.0)
 
 	var results []formatter.SearchHit
 	for _, h := range fused {

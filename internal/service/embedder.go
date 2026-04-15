@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -25,7 +26,7 @@ func NewEmbedder(provider embedding.EmbeddingProvider) *Embedder {
 	return &Embedder{provider: provider}
 }
 
-func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, error) {
+func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, error) {
 	result := &EmbedResult{}
 
 	chunks, err := dao.GetUnembeddedChunks(limit)
@@ -34,6 +35,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 	}
 
 	if len(chunks) == 0 {
+		fmt.Fprintf(os.Stderr, "  No chunks to embed (all up to date).\n")
 		return result, nil
 	}
 
@@ -42,48 +44,61 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 	totalChunks, embeddedCount := dao.GetChunkCounts()
 	alreadyDone := embeddedCount
 
-	const maxTokensPerBatch = 3500
+	fmt.Fprintf(os.Stderr, "  Embedding %d chunks (est. %d min)...\n", len(chunks), len(chunks)*4/8/60)
+	printProgress(os.Stderr, alreadyDone, totalChunks)
+
+	const maxChunksPerBatch = 8
 
 	start := 0
 	for start < len(chunks) {
-		batchTokens := 0
-		end := start
-		for end < len(chunks) {
-			tokens := chunks[end].TokenCount
-			if tokens <= 0 {
-				tokens = len(chunks[end].Content) / 3
-			}
-			if end > start && batchTokens+tokens > maxTokensPerBatch {
-				break
-			}
-			batchTokens += tokens
-			end++
+		end := start + maxChunksPerBatch
+		if end > len(chunks) {
+			end = len(chunks)
 		}
 
 		batch := chunks[start:end]
 		texts := make([]string, len(batch))
 		for i, c := range batch {
-			texts[i] = c.Content
+			t := c.Content
+			if len(t) > 4096 {
+				t = t[:4096]
+			}
+			texts[i] = t
 		}
 
-		vecs, err := e.provider.EmbedBatch(ctx, texts)
+		t0 := time.Now()
+		vecs, err := my.provider.EmbedBatch(ctx, texts)
+		embedDur := time.Since(t0)
+		batchDur := time.Since(t0)
 		if err != nil {
-			logo.Error("EmbedAll: batch [%d:%d] (%d tokens) failed: %s", start, end, batchTokens, err)
+			logo.Error("EmbedAll: batch [%d:%d] (%d chunks) failed embed in %s: %s", start, end, len(batch), embedDur, err)
 			result.Failed += len(batch)
 			start = end
 			continue
 		}
 
+		items := make([]struct {
+			ChunkId   int64
+			Embedding []float32
+		}, len(vecs))
 		for i, vec := range vecs {
-			if err := dao.InsertVector(batch[i].ID, vec); err != nil {
-				result.Failed++
-				continue
-			}
-			result.Embedded++
+			items[i].ChunkId = batch[i].ID
+			items[i].Embedding = vec
 		}
+
+		t1 := time.Now()
+		if err := dao.InsertVectors(items); err != nil {
+			logo.Error("EmbedAll: batch [%d:%d] insert failed: %s", start, end, err)
+			result.Failed += len(batch)
+			start = end
+			continue
+		}
+		insertDur := time.Since(t1)
+		result.Embedded += len(vecs)
 
 		done := alreadyDone + result.Embedded + result.Failed
 		printProgress(os.Stderr, done, totalChunks)
+		logo.Info("EmbedAll: batch [%d:%d] %d chunks embed=%s insert=%s total=%s", start, end, len(batch), embedDur, insertDur, batchDur)
 
 		start = end
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/lixianmin/lmd/internal/formatter"
 )
 
-func FuseRRF(lexHits, vecHits []formatter.SearchHit, k int, origWeight float64) []formatter.SearchHit {
+func ReciprocalRankFusion(lexHits, vecHits []formatter.SearchHit, k int, origWeight float64) []formatter.SearchHit {
 	type scored struct {
 		hit      formatter.SearchHit
 		rrfScore float64

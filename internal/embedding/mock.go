@@ -16,28 +16,28 @@ func NewMockProvider(dim int) *MockProvider {
 	return &MockProvider{dim: dim}
 }
 
-func (m *MockProvider) Embed(ctx context.Context, text string) ([]float32, error) {
-	return m.textToVector(text), nil
+func (my *MockProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	return my.textToVector(text), nil
 }
 
-func (m *MockProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+func (my *MockProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	vecs := make([][]float32, len(texts))
 	for i, t := range texts {
-		vecs[i] = m.textToVector(t)
+		vecs[i] = my.textToVector(t)
 	}
 	return vecs, nil
 }
 
-func (m *MockProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return m.Embed(ctx, query)
+func (my *MockProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	return my.Embed(ctx, query)
 }
 
-func (m *MockProvider) Dimension() int    { return m.dim }
-func (m *MockProvider) ModelName() string { return "mock" }
-func (m *MockProvider) Close() error      { return nil }
+func (my *MockProvider) Dimension() int    { return my.dim }
+func (my *MockProvider) ModelName() string { return "mock" }
+func (my *MockProvider) Close() error      { return nil }
 
-func (m *MockProvider) textToVector(text string) []float32 {
-	vec := make([]float32, m.dim)
+func (my *MockProvider) textToVector(text string) []float32 {
+	vec := make([]float32, my.dim)
 
 	tokens := tokenizeForMock(text)
 	if len(tokens) == 0 {
@@ -45,17 +45,17 @@ func (m *MockProvider) textToVector(text string) []float32 {
 	}
 
 	slotSize := 8
-	numSlots := m.dim / slotSize
+	numSlots := my.dim / slotSize
 	if numSlots < 1 {
 		numSlots = 1
-		slotSize = m.dim
+		slotSize = my.dim
 	}
 
 	for _, token := range tokens {
 		h := sha256.Sum256([]byte(token))
 		slot := int(h[0]) % numSlots
 		base := slot * slotSize
-		for j := 0; j < slotSize && base+j < m.dim; j++ {
+		for j := 0; j < slotSize && base+j < my.dim; j++ {
 			vec[base+j] += float32(h[j%32]) + 1.0
 		}
 	}

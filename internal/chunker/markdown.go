@@ -19,11 +19,14 @@ func NewMarkdownChunker(maxTokens int) *MarkdownChunker {
 var headingRe = regexp.MustCompile(`^(#{1,6})\s+`)
 var codeFenceRe = regexp.MustCompile("^```")
 var hrRe = regexp.MustCompile(`^(-{3,}|\*{3,}|_{3,})$`)
+var base64ImgRe = regexp.MustCompile(`!\[.*?\]\(data:image/`)
 
-func (c *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
+func (my *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
 	if body == "" {
 		return nil, nil
 	}
+
+	body = my.stripBase64Images(body)
 
 	lines := strings.Split(body, "\n")
 	var chunks []Chunk
@@ -39,23 +42,14 @@ func (c *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
 			inCodeBlock = !inCodeBlock
 		}
 
-		if !inCodeBlock && current.Len() > 0 {
-			score := c.breakScore(trimmed)
-			forceFlush := estTokens > c.MaxTokens*2
-			softFlush := estTokens > c.MaxTokens*2/3 && score > 0
-			lineBreak := forceFlush && trimmed == ""
+		lineTokens := estimateTokens(line)
 
-			if softFlush || lineBreak {
-				content := current.String()
-				chunks = append(chunks, Chunk{
-					Content:    strings.TrimSpace(content),
-					Position:   currentStart,
-					TokenCount: estTokens,
-				})
-				current.Reset()
-				currentStart = i
-				estTokens = 0
-			} else if forceFlush {
+		if current.Len() > 0 {
+			hardLimit := estTokens+lineTokens > my.MaxTokens*2
+			score := my.breakScore(trimmed)
+			softLimit := score >= 80 && estTokens > 0
+
+			if hardLimit || softLimit {
 				content := current.String()
 				chunks = append(chunks, Chunk{
 					Content:    strings.TrimSpace(content),
@@ -72,7 +66,7 @@ func (c *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
 			current.WriteString("\n")
 		}
 		current.WriteString(line)
-		estTokens += estimateTokens(line)
+		estTokens += lineTokens
 	}
 
 	if current.Len() > 0 {
@@ -87,7 +81,7 @@ func (c *MarkdownChunker) Chunk(title string, body string) ([]Chunk, error) {
 	return chunks, nil
 }
 
-func (c *MarkdownChunker) breakScore(line string) int {
+func (my *MarkdownChunker) breakScore(line string) int {
 	if headingRe.MatchString(line) {
 		level := len(regexp.MustCompile(`^#+`).FindString(line))
 		switch {
@@ -111,5 +105,24 @@ func (c *MarkdownChunker) breakScore(line string) int {
 }
 
 func estimateTokens(text string) int {
-	return len(text) / 2
+	ascii := 0
+	cjk := 0
+	for _, r := range text {
+		if r < 128 {
+			ascii++
+		} else {
+			cjk++
+		}
+	}
+	return ascii/4 + cjk*2
+}
+
+func (my *MarkdownChunker) stripBase64Images(body string) string {
+	return base64ImgRe.ReplaceAllStringFunc(body, func(match string) string {
+		idx := strings.Index(match, ";base64,")
+		if idx < 0 {
+			return match
+		}
+		return match[:idx+len(";base64,")] + "...(truncated)"
+	})
 }

@@ -42,9 +42,9 @@ func Init(dbPath string) error {
 	return prepareFTSStatements()
 }
 
-func (s *Store) Close() error {
-	if s.db != nil {
-		return s.db.Close()
+func (my *Store) Close() error {
+	if my.db != nil {
+		return my.db.Close()
 	}
 	return nil
 }

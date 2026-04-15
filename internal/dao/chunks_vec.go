@@ -94,6 +94,32 @@ func InsertVector(chunkId int64, embedding []float32) error {
 	return err
 }
 
+func InsertVectors(items []struct {
+	ChunkId   int64
+	Embedding []float32
+}) error {
+	if len(items) == 0 {
+		return nil
+	}
+	return withTransaction(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, item := range items {
+			vec, err := sqlite_vec.SerializeFloat32(padVector(item.Embedding))
+			if err != nil {
+				return err
+			}
+			if _, err := stmt.Exec(item.ChunkId, vec); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func DeleteVectorsByDocId(docId int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
 		selectStmt, err := tx.Prepare("SELECT id FROM chunks WHERE doc_id=?")

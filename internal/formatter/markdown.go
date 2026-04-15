@@ -12,7 +12,7 @@ func NewMarkdownFormatter() *MarkdownFormatter {
 	return &MarkdownFormatter{}
 }
 
-func (f *MarkdownFormatter) Format(w io.Writer, hits []SearchHit) error {
+func (my *MarkdownFormatter) Format(w io.Writer, hits []SearchHit) error {
 	if len(hits) == 0 {
 		fmt.Fprintln(w, "No results found.")
 		return nil

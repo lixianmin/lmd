@@ -19,22 +19,22 @@ func NewGseTokenizer() (*GseTokenizer, error) {
 	return &GseTokenizer{seg: &seg}, nil
 }
 
-func (t *GseTokenizer) Cut(text string) []string {
+func (my *GseTokenizer) Cut(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return t.seg.Cut(text)
+	return my.seg.Cut(text)
 }
 
-func (t *GseTokenizer) CutForSearch(text string) []string {
+func (my *GseTokenizer) CutForSearch(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return t.seg.CutSearch(text)
+	return my.seg.CutSearch(text)
 }
 
-func (t *GseTokenizer) TokenizeToString(text string) string {
-	tokens := t.Cut(text)
+func (my *GseTokenizer) TokenizeToString(text string) string {
+	tokens := my.Cut(text)
 	if len(tokens) == 0 {
 		return ""
 	}

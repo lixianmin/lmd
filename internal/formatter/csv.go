@@ -12,7 +12,7 @@ func NewCSVFormatter() *CSVFormatter {
 	return &CSVFormatter{}
 }
 
-func (f *CSVFormatter) Format(w io.Writer, hits []SearchHit) error {
+func (my *CSVFormatter) Format(w io.Writer, hits []SearchHit) error {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 

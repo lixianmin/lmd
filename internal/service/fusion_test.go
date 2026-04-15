@@ -18,7 +18,7 @@ func TestRRFFusionBasic(t *testing.T) {
 		{DocId: "d", Score: 0.6},
 	}
 
-	result := FuseRRF(lexHits, vecHits, 60, 1.0)
+	result := ReciprocalRankFusion(lexHits, vecHits, 60, 1.0)
 
 	if len(result) == 0 {
 		t.Fatal("expected fused results")
@@ -37,7 +37,7 @@ func TestRRFFusionEmptyLex(t *testing.T) {
 	vecHits := []formatter.SearchHit{
 		{DocId: "a", Score: 1.0},
 	}
-	result := FuseRRF(nil, vecHits, 60, 1.0)
+	result := ReciprocalRankFusion(nil, vecHits, 60, 1.0)
 	if len(result) != 1 || result[0].DocId != "a" {
 		t.Fatal("expected vector-only results when lex is empty")
 	}
@@ -47,14 +47,14 @@ func TestRRFFusionEmptyVec(t *testing.T) {
 	lexHits := []formatter.SearchHit{
 		{DocId: "b", Score: 1.0},
 	}
-	result := FuseRRF(lexHits, nil, 60, 1.0)
+	result := ReciprocalRankFusion(lexHits, nil, 60, 1.0)
 	if len(result) != 1 || result[0].DocId != "b" {
 		t.Fatal("expected lex-only results when vec is empty")
 	}
 }
 
 func TestRRFFusionBothEmpty(t *testing.T) {
-	result := FuseRRF(nil, nil, 60, 1.0)
+	result := ReciprocalRankFusion(nil, nil, 60, 1.0)
 	if len(result) != 0 {
 		t.Fatal("expected empty result for empty inputs")
 	}
@@ -69,7 +69,7 @@ func TestRRFDeduplication(t *testing.T) {
 		{DocId: "a", Score: 1.0},
 		{DocId: "b", Score: 0.8},
 	}
-	result := FuseRRF(lexHits, vecHits, 60, 1.0)
+	result := ReciprocalRankFusion(lexHits, vecHits, 60, 1.0)
 	seen := map[string]int{}
 	for _, h := range result {
 		seen[h.DocId]++
@@ -92,7 +92,7 @@ func TestRRFScoreOrdering(t *testing.T) {
 		{DocId: "a", Score: 0.9},
 		{DocId: "d", Score: 0.7},
 	}
-	result := FuseRRF(lexHits, vecHits, 60, 1.0)
+	result := ReciprocalRankFusion(lexHits, vecHits, 60, 1.0)
 	for i := 1; i < len(result); i++ {
 		if result[i].Score > result[i-1].Score {
 			t.Fatalf("results not sorted by score: [%d]=%.4f > [%d]=%.4f",

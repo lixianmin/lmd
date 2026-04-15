@@ -16,8 +16,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/logo"
 )
+
+const defaultOllamaModel = "qwen3-embedding:0.6b-q8_0"
+const defaultOllamaURL = "http://localhost:11434"
 
 const defaultModelFilename = "Qwen3-Embedding-0.6B-Q8_0.gguf"
 
@@ -80,10 +84,10 @@ func killServerByPidFile() {
 	proc, _ := os.FindProcess(pid)
 	proc.Signal(os.Interrupt)
 	done := make(chan error, 1)
-	go func() {
+	loom.Go(func(later loom.Later) {
 		_, _ = proc.Wait()
 		done <- nil
-	}()
+	})
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -132,6 +136,9 @@ type GGUFProvider struct {
 	baseURL   string
 	mu        sync.Mutex
 	started   bool
+	useOllama bool
+	ollamaURL string
+	ollamaMod string
 }
 
 func NewGGUFProvider(modelPath string) *GGUFProvider {
@@ -140,6 +147,174 @@ func NewGGUFProvider(modelPath string) *GGUFProvider {
 		dim:       1024,
 		baseURL:   "http://127.0.0.1:61999",
 	}
+}
+
+func ollamaAvailable() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(defaultOllamaURL + "/api/tags")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+func ollamaModelExists(model string) bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(defaultOllamaURL + "/api/tags")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false
+	}
+	for _, m := range result.Models {
+		if m.Name == model || strings.HasPrefix(m.Name, model+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func ollamaPull(model string) error {
+	fmt.Printf("Pulling embedding model via Ollama: %s (~639MB)...\n", model)
+	body, _ := json.Marshal(map[string]string{"name": model, "stream": "false"})
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Post(defaultOllamaURL+"/api/pull", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("ollama pull failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ollama pull returned %d: %s", resp.StatusCode, string(b))
+	}
+	fmt.Printf("Model %s pulled successfully.\n", model)
+	return nil
+}
+
+func (my *GGUFProvider) Init() error {
+	my.mu.Lock()
+	defer my.mu.Unlock()
+
+	if my.started {
+		return nil
+	}
+
+	if ollamaAvailable() {
+		if !ollamaModelExists(defaultOllamaModel) {
+			if err := ollamaPull(defaultOllamaModel); err != nil {
+				logo.Warn("ollama pull failed: %s, falling back to llama-server", err)
+			} else {
+				my.useOllama = true
+				my.ollamaURL = defaultOllamaURL
+				my.ollamaMod = defaultOllamaModel
+				my.started = true
+				fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (warming up...)\n", my.ollamaMod)
+				my.warmup()
+				return nil
+			}
+		} else {
+			my.useOllama = true
+			my.ollamaURL = defaultOllamaURL
+			my.ollamaMod = defaultOllamaModel
+			my.started = true
+			fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (warming up...)\n", my.ollamaMod)
+			my.warmup()
+			return nil
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "  Embedding: llama-server (fallback)\n")
+	return my.startLLamaServer()
+}
+
+func (my *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
+	if !my.started {
+		if err := my.Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	if my.useOllama {
+		return my.callOllamaEmbed(input)
+	}
+	return my.callLlamaEmbed(input)
+}
+
+func (my *GGUFProvider) startLLamaServer() error {
+	pid, pidErr := readPid()
+	if pidErr == nil && isProcessAlive(pid) {
+		data, err := os.ReadFile(lastActiveFilePath())
+		if err == nil {
+			ts, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+			if time.Since(time.Unix(ts, 0)) > serverIdleTimeout {
+				logo.Info("llama-server idle for %v, restarting", serverIdleTimeout)
+				killServerByPidFile()
+			} else {
+				resp, err := http.Get(my.baseURL + "/health")
+				if err == nil && resp.StatusCode == http.StatusOK {
+					resp.Body.Close()
+					my.started = true
+					touchLastActive()
+					logo.Info("reusing llama-server on :61999 (pid %d)", pid)
+					return nil
+				}
+				if resp != nil {
+					resp.Body.Close()
+				}
+			}
+		}
+	} else if pidErr == nil {
+		cleanupServerFiles()
+	}
+
+	logo.Info("starting llama-server with model: %s", filepath.Base(my.modelPath))
+	cmd := exec.Command("llama-server",
+		"-m", my.modelPath,
+		"--pooling", "mean",
+		"-ngl", "99",
+		"-t", "4",
+		"--port", "61999",
+		"--host", "127.0.0.1",
+		"--embedding",
+		"--log-disable",
+		"-b", "4096",
+		"--ubatch-size", "4096",
+	)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		logo.Error("failed to start llama-server: %s", err)
+		return fmt.Errorf("failed to start llama-server: %w", err)
+	}
+
+	writePid(cmd.Process.Pid)
+
+	for i := 0; i < 60; i++ {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := http.Get(my.baseURL + "/health")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			my.started = true
+			touchLastActive()
+			startWatchdog(cmd.Process.Pid)
+			logo.Info("llama-server ready on :61999 (pid %d)", cmd.Process.Pid)
+			return nil
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+	logo.Error("llama-server failed to start within 30s")
+	return fmt.Errorf("llama-server failed to start within 30s")
 }
 
 func DefaultModelPath() string {
@@ -156,12 +331,21 @@ func ModelExists() bool {
 }
 
 func EnsureModel() error {
+	if ollamaAvailable() {
+		if !ollamaModelExists(defaultOllamaModel) {
+			if err := ollamaPull(defaultOllamaModel); err != nil {
+				return fmt.Errorf("ollama pull failed: %w", err)
+			}
+		}
+		return nil
+	}
+
 	if ModelExists() {
 		return nil
 	}
 
 	modelPath := DefaultModelPath()
-	fmt.Printf("Embedding model not found: %s\n", modelPath)
+	fmt.Printf("Ollama not found. Embedding model not found: %s\n", modelPath)
 	fmt.Printf("Need to download %s (~610MB). Download? [Y/n] ", defaultModelFilename)
 
 	reader := bufio.NewReader(os.Stdin)
@@ -172,6 +356,10 @@ func EnsureModel() error {
 	}
 
 	return downloadModel(modelPath)
+}
+
+func IsOllamaMode() bool {
+	return ollamaAvailable()
 }
 
 func downloadModel(modelPath string) error {
@@ -249,80 +437,8 @@ func downloadFile(url, dest string) error {
 	return os.Rename(tmpPath, dest)
 }
 
-func (g *GGUFProvider) ensureServer() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	if g.started {
-		touchLastActive()
-		return nil
-	}
-
-	pid, pidErr := readPid()
-	if pidErr == nil && isProcessAlive(pid) {
-		data, err := os.ReadFile(lastActiveFilePath())
-		if err == nil {
-			ts, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-			if time.Since(time.Unix(ts, 0)) > serverIdleTimeout {
-				logo.Info("llama-server idle for %v, restarting", serverIdleTimeout)
-				killServerByPidFile()
-			} else {
-				resp, err := http.Get(g.baseURL + "/health")
-				if err == nil && resp.StatusCode == http.StatusOK {
-					resp.Body.Close()
-					g.started = true
-					touchLastActive()
-					logo.Info("reusing llama-server on :61999 (pid %d)", pid)
-					return nil
-				}
-				if resp != nil {
-					resp.Body.Close()
-				}
-			}
-		}
-	} else if pidErr == nil {
-		cleanupServerFiles()
-	}
-
-	logo.Info("starting llama-server with model: %s", filepath.Base(g.modelPath))
-	cmd := exec.Command("llama-server",
-		"-m", g.modelPath,
-		"--pooling", "mean",
-		"-ngl", "99",
-		"-t", "4",
-		"--port", "61999",
-		"--host", "127.0.0.1",
-		"--embedding",
-		"--log-disable",
-		"-b", "4096",
-		"--ubatch-size", "4096",
-	)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Start(); err != nil {
-		logo.Error("failed to start llama-server: %s", err)
-		return fmt.Errorf("failed to start llama-server: %w", err)
-	}
-
-	writePid(cmd.Process.Pid)
-
-	for i := 0; i < 60; i++ {
-		time.Sleep(500 * time.Millisecond)
-		resp, err := http.Get(g.baseURL + "/health")
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			g.started = true
-			touchLastActive()
-			startWatchdog(cmd.Process.Pid)
-			logo.Info("llama-server ready on :61999 (pid %d)", cmd.Process.Pid)
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-	}
-	logo.Error("llama-server failed to start within 30s")
-	return fmt.Errorf("llama-server failed to start within 30s")
+type ollamaEmbedResponse struct {
+	Embeddings [][]float32 `json:"embeddings"`
 }
 
 type embeddingRequest struct {
@@ -335,14 +451,52 @@ type embeddingItem struct {
 	Embedding [][]float32 `json:"embedding"`
 }
 
-func (g *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
-	if err := g.ensureServer(); err != nil {
-		return nil, err
+type llamaEmbedResponse []embeddingItem
+
+func (my *GGUFProvider) warmup() {
+	body, _ := json.Marshal(map[string]interface{}{"model": my.ollamaMod, "input": "warmup"})
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Post(my.ollamaURL+"/api/embed", "application/json", bytes.NewReader(body))
+	if err != nil {
+		logo.Warn("ollama warmup failed: %s", err)
+		return
+	}
+	resp.Body.Close()
+
+	keepBody, _ := json.Marshal(map[string]interface{}{"model": my.ollamaMod, "keep_alive": "30m"})
+	keepResp, err := client.Post(my.ollamaURL+"/api/generate", "application/json", bytes.NewReader(keepBody))
+	if err == nil {
+		keepResp.Body.Close()
+	}
+	fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (ready)\n", my.ollamaMod)
+}
+
+var ollamaHTTPClient = &http.Client{Timeout: 120 * time.Second}
+
+func (my *GGUFProvider) callOllamaEmbed(input interface{}) ([][]float32, error) {
+	body, _ := json.Marshal(map[string]interface{}{"model": my.ollamaMod, "input": input})
+	resp, err := ollamaHTTPClient.Post(my.ollamaURL+"/api/embed", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("ollama embed API call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ollama embed API returned %d: %s", resp.StatusCode, string(b))
 	}
 
+	var result ollamaEmbedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode ollama response: %w", err)
+	}
+	return result.Embeddings, nil
+}
+
+func (my *GGUFProvider) callLlamaEmbed(input interface{}) ([][]float32, error) {
 	body, _ := json.Marshal(embeddingRequest{Input: input, Model: "default"})
 	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Post(g.baseURL+"/embeddings", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(my.baseURL+"/embeddings", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("embedding API call failed: %w", err)
 	}
@@ -354,7 +508,7 @@ func (g *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
 		return nil, fmt.Errorf("embedding API returned %d: %s", resp.StatusCode, string(b))
 	}
 
-	var items []embeddingItem
+	var items llamaEmbedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return nil, fmt.Errorf("failed to decode embedding response: %w", err)
 	}
@@ -370,24 +524,29 @@ func (g *GGUFProvider) callEmbedAPI(input interface{}) ([][]float32, error) {
 	return vecs, nil
 }
 
-func (g *GGUFProvider) Embed(ctx context.Context, text string) ([]float32, error) {
-	vecs, err := g.callEmbedAPI(text)
+func (my *GGUFProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	vecs, err := my.callEmbedAPI(text)
 	if err != nil {
 		return nil, err
 	}
 	return vecs[0], nil
 }
 
-func (g *GGUFProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	return g.callEmbedAPI(texts)
+func (my *GGUFProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	return my.callEmbedAPI(texts)
 }
 
-func (g *GGUFProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return g.Embed(ctx, query)
+func (my *GGUFProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	return my.Embed(ctx, query)
 }
 
-func (g *GGUFProvider) Dimension() int    { return g.dim }
-func (g *GGUFProvider) ModelName() string { return "Qwen3-Embedding-0.6B-Q8_0" }
-func (g *GGUFProvider) Close() error {
+func (my *GGUFProvider) Dimension() int { return my.dim }
+func (my *GGUFProvider) ModelName() string {
+	if my.useOllama {
+		return my.ollamaMod
+	}
+	return "Qwen3-Embedding-0.6B-Q8_0"
+}
+func (my *GGUFProvider) Close() error {
 	return nil
 }

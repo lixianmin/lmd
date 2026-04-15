@@ -21,7 +21,7 @@ func NewJSONFormatter() *JSONFormatter {
 	return &JSONFormatter{}
 }
 
-func (f *JSONFormatter) Format(w io.Writer, hits []SearchHit) error {
+func (my *JSONFormatter) Format(w io.Writer, hits []SearchHit) error {
 	if hits == nil {
 		hits = []SearchHit{}
 	}
