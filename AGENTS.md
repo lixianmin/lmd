@@ -42,38 +42,20 @@
 - TDD：测试优先，在完成单元测试之间，禁止编写任何实现代码。测试覆盖率: 核心包 ≥ 80%
 - 优先使用标准库，第三方库需有充足理由
 - 单个方法不超过 40 行
-
-```
-The Zen of Python, by Tim Peters
-
-Beautiful is better than ugly.
-Explicit is better than implicit.
-Simple is better than complex.
-Complex is better than complicated.
-Flat is better than nested.
-Sparse is better than dense.
-Readability counts.
-Special cases aren't special enough to break the rules.
-Although practicality beats purity.
-Errors should never pass silently.
-Unless explicitly silenced.
-In the face of ambiguity, refuse the temptation to guess.
-There should be one-- and preferably only one --obvious way to do it.
-Although that way may not be obvious at first unless you're Dutch.
-Now is better than never.
-Although never is often better than *right* now.
-If the implementation is hard to explain, it's a bad idea.
-If the implementation is easy to explain, it may be a good idea.
-Namespaces are one honking great idea -- let's do more of those!
-```
-
+- 参考 The Zen of Python (import this)
 
 
 ---
 
-## 二：golang
+## 二：编码风格
 
-### 1 编码风格
+### 1 数据库
+
+1. redis相关代码位于rdb目录下
+2. 其它所有db相关的代码在dao目录下
+3. 禁止其它目录出现sql语句
+
+### 2 golang
 
 1. 项目使用vendor，但在.gitignore中将vendor目录加入例外
 
@@ -99,9 +81,3 @@ loom.Go(func(later loom.Later) {
 logo.Info("连接 %s:%d 成功", host, port)	// Printf 风格（包含 % 格式化动词时自动格式化）
 logo.JsonI("sessionId", id, "elapsed", time.Since(start))	// JSON 结构化日志（交替传入 key-value 对）
 ```
-
-### 2 数据库
-
-1. redis相关代码位于rdb目录下
-2. 其它所有db相关的代码在dao目录下
-3. 禁止其它目录出现sql语句

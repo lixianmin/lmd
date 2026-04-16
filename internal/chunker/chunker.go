@@ -2,10 +2,11 @@ package chunker
 
 type Chunk struct {
 	Content    string
-	Position   int
+	StartLine  int
+	EndLine    int
 	TokenCount int
 }
 
 type Chunker interface {
-	Chunk(title string, body string) ([]Chunk, error)
+	Chunk(body string) ([]Chunk, error)
 }

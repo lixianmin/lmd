@@ -111,7 +111,7 @@ func (my *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, co
 		return nil, err
 	}
 
-	fused := ReciprocalRankFusion(lexHits, vecHits, 60, 1.0)
+	fused := FuseResults(lexHits, vecHits, 0.7)
 
 	var results []formatter.SearchHit
 	for _, h := range fused {

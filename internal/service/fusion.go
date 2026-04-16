@@ -6,36 +6,37 @@ import (
 	"github.com/lixianmin/lmd/internal/formatter"
 )
 
-func ReciprocalRankFusion(lexHits, vecHits []formatter.SearchHit, k int, origWeight float64) []formatter.SearchHit {
+func FuseResults(lexHits, vecHits []formatter.SearchHit, vectorWeight float64) []formatter.SearchHit {
+	textWeight := 1.0 - vectorWeight
+
+	lexBest := dedupBest(lexHits)
+	vecBest := dedupBest(vecHits)
+
 	type scored struct {
-		hit      formatter.SearchHit
-		rrfScore float64
+		hit   formatter.SearchHit
+		score float64
 	}
 
 	docs := make(map[string]*scored)
 
-	for rank, h := range lexHits {
-		if _, exists := docs[h.DocId]; !exists {
-			docs[h.DocId] = &scored{hit: h}
-		}
-		docs[h.DocId].rrfScore += origWeight / float64(k+rank+1)
+	for _, h := range lexBest {
+		docs[h.DocId] = &scored{hit: h, score: textWeight * h.Score}
 	}
 
-	for rank, h := range vecHits {
+	for _, h := range vecBest {
 		if existing, exists := docs[h.DocId]; exists {
-			existing.rrfScore += origWeight / float64(k+rank+1)
+			existing.score += vectorWeight * h.Score
 			if h.Snippet != "" && existing.hit.Snippet == "" {
 				existing.hit.Snippet = h.Snippet
 			}
 		} else {
-			docs[h.DocId] = &scored{hit: h}
-			docs[h.DocId].rrfScore += origWeight / float64(k+rank+1)
+			docs[h.DocId] = &scored{hit: h, score: vectorWeight * h.Score}
 		}
 	}
 
 	results := make([]formatter.SearchHit, 0, len(docs))
 	for _, s := range docs {
-		s.hit.Score = s.rrfScore
+		s.hit.Score = s.score
 		results = append(results, s.hit)
 	}
 
@@ -43,12 +44,19 @@ func ReciprocalRankFusion(lexHits, vecHits []formatter.SearchHit, k int, origWei
 		return results[i].Score > results[j].Score
 	})
 
-	if len(results) > 0 {
-		topScore := results[0].Score
-		for i := range results {
-			results[i].Score = results[i].Score / topScore
+	return results
+}
+
+func dedupBest(hits []formatter.SearchHit) []formatter.SearchHit {
+	best := make(map[string]formatter.SearchHit)
+	for _, h := range hits {
+		if existing, ok := best[h.DocId]; !ok || h.Score > existing.Score {
+			best[h.DocId] = h
 		}
 	}
-
-	return results
+	result := make([]formatter.SearchHit, 0, len(best))
+	for _, h := range best {
+		result = append(result, h)
+	}
+	return result
 }

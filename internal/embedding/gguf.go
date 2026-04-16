@@ -217,7 +217,7 @@ func (my *GGUFProvider) Init() error {
 				my.ollamaURL = defaultOllamaURL
 				my.ollamaMod = defaultOllamaModel
 				my.started = true
-				fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (warming up...)\n", my.ollamaMod)
+				logo.Info("embedding: Ollama %s (warming up)", my.ollamaMod)
 				my.warmup()
 				return nil
 			}
@@ -226,13 +226,13 @@ func (my *GGUFProvider) Init() error {
 			my.ollamaURL = defaultOllamaURL
 			my.ollamaMod = defaultOllamaModel
 			my.started = true
-			fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (warming up...)\n", my.ollamaMod)
+			logo.Info("embedding: Ollama %s (warming up)", my.ollamaMod)
 			my.warmup()
 			return nil
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "  Embedding: llama-server (fallback)\n")
+	logo.Info("embedding: llama-server (fallback)")
 	return my.startLLamaServer()
 }
 
@@ -468,7 +468,7 @@ func (my *GGUFProvider) warmup() {
 	if err == nil {
 		keepResp.Body.Close()
 	}
-	fmt.Fprintf(os.Stderr, "  Embedding: Ollama %s (ready)\n", my.ollamaMod)
+	logo.Info("embedding: Ollama %s (ready)", my.ollamaMod)
 }
 
 var ollamaHTTPClient = &http.Client{Timeout: 120 * time.Second}

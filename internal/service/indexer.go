@@ -30,7 +30,7 @@ type Indexer struct {
 func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	return &Indexer{
 		tokenizer: tok,
-		chunker:   chunker.NewMarkdownChunker(900),
+		chunker:   chunker.NewMarkdownChunker(800),
 	}
 }
 
@@ -117,7 +117,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			return err
 		}
 
-		return idx.createChunks(doc.Id, title, body, hash)
+		return idx.createChunks(doc.Id, body, hash)
 	})
 	if err != nil {
 		return nil, err
@@ -138,8 +138,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 	return result, nil
 }
 
-func (idx *Indexer) createChunks(docId int64, title, body, hash string) error {
-	chunks, err := idx.chunker.Chunk(title, body)
+func (idx *Indexer) createChunks(docId int64, body, hash string) error {
+	chunks, err := idx.chunker.Chunk(body)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (idx *Indexer) createChunks(docId int64, title, body, hash string) error {
 	for i, c := range chunks {
 		data[i] = dao.ChunkData{
 			Content:    c.Content,
-			Position:   c.Position,
+			Position:   c.StartLine,
 			TokenCount: c.TokenCount,
 			Hash:       hash,
 		}

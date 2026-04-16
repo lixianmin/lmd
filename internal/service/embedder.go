@@ -44,7 +44,7 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 	totalChunks, embeddedCount := dao.GetChunkCounts()
 	alreadyDone := embeddedCount
 
-	fmt.Fprintf(os.Stderr, "  Embedding %d chunks (est. %d min)...\n", len(chunks), len(chunks)*4/8/60)
+	fmt.Fprintf(os.Stderr, "  Embedding %d chunks (est. %d min)...\n", len(chunks), len(chunks)*2/8/60+1)
 	printProgress(os.Stderr, alreadyDone, totalChunks)
 
 	const maxChunksPerBatch = 8
@@ -60,8 +60,9 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 		texts := make([]string, len(batch))
 		for i, c := range batch {
 			t := c.Content
-			if len(t) > 4096 {
-				t = t[:4096]
+			runes := []rune(t)
+			if len(runes) > 800 {
+				t = string(runes[:800])
 			}
 			texts[i] = t
 		}
