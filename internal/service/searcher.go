@@ -39,13 +39,14 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 		}
 
 		hits = append(hits, formatter.SearchHit{
+			ChunkId:    r.ChunkID,
 			DocId:      dao.ShortDocId(r.DocId),
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
 			Score:      r.Score,
 			Snippet:    r.Content,
-			Line:       1,
+			Line:       r.Line,
 		})
 	}
 
@@ -86,13 +87,14 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 		}
 
 		hits = append(hits, formatter.SearchHit{
+			ChunkId:    r.ChunkID,
 			DocId:      dao.ShortDocId(doc.DocId),
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,
 			Score:      score,
 			Snippet:    chunk.Content,
-			Line:       1,
+			Line:       chunk.Position,
 		})
 	}
 

@@ -13,6 +13,7 @@ type FTSSearchResult struct {
 	Title      string
 	Content    string
 	Score      float64
+	Line       int
 }
 
 var ftsSearchAll *sql.Stmt
@@ -22,7 +23,7 @@ func prepareFTSStatements() error {
 	var err error
 	ftsSearchAll, err = DB.db.Prepare(`
 		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
-			   abs(rank) as raw_score
+			   abs(rank) as raw_score, c.position
 		FROM chunks_fts f
 		JOIN chunks c ON c.id = f.rowid
 		JOIN documents d ON d.id = c.doc_id
@@ -35,7 +36,7 @@ func prepareFTSStatements() error {
 
 	ftsSearchByCollection, err = DB.db.Prepare(`
 		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
-			   abs(rank) as raw_score
+			   abs(rank) as raw_score, c.position
 		FROM chunks_fts f
 		JOIN chunks c ON c.id = f.rowid
 		JOIN documents d ON d.id = c.doc_id
@@ -62,7 +63,7 @@ func SearchFTS(tokenizedQuery string, collection string, limit int) ([]FTSSearch
 	var results []FTSSearchResult
 	for rows.Next() {
 		var r FTSSearchResult
-		if err := rows.Scan(&r.ChunkID, &r.DocId, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.DocId, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score, &r.Line); err != nil {
 			return nil, err
 		}
 		abs := math.Abs(r.Score)

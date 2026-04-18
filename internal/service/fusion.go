@@ -9,33 +9,33 @@ import (
 func FuseResults(lexHits, vecHits []formatter.SearchHit, vectorWeight float64) []formatter.SearchHit {
 	textWeight := 1.0 - vectorWeight
 
-	lexBest := dedupBest(lexHits)
-	vecBest := dedupBest(vecHits)
-
 	type scored struct {
-		hit   formatter.SearchHit
-		score float64
+		hit       formatter.SearchHit
+		score     float64
+		hasText   bool
+		hasVector bool
 	}
 
-	docs := make(map[string]*scored)
+	chunks := make(map[int64]*scored)
 
-	for _, h := range lexBest {
-		docs[h.DocId] = &scored{hit: h, score: textWeight * h.Score}
+	for _, h := range lexHits {
+		chunks[h.ChunkId] = &scored{hit: h, score: textWeight * h.Score, hasText: true}
 	}
 
-	for _, h := range vecBest {
-		if existing, exists := docs[h.DocId]; exists {
+	for _, h := range vecHits {
+		if existing, exists := chunks[h.ChunkId]; exists {
 			existing.score += vectorWeight * h.Score
+			existing.hasVector = true
 			if h.Snippet != "" && existing.hit.Snippet == "" {
 				existing.hit.Snippet = h.Snippet
 			}
 		} else {
-			docs[h.DocId] = &scored{hit: h, score: vectorWeight * h.Score}
+			chunks[h.ChunkId] = &scored{hit: h, score: vectorWeight * h.Score, hasVector: true}
 		}
 	}
 
-	results := make([]formatter.SearchHit, 0, len(docs))
-	for _, s := range docs {
+	results := make([]formatter.SearchHit, 0, len(chunks))
+	for _, s := range chunks {
 		s.hit.Score = s.score
 		results = append(results, s.hit)
 	}
@@ -45,18 +45,4 @@ func FuseResults(lexHits, vecHits []formatter.SearchHit, vectorWeight float64) [
 	})
 
 	return results
-}
-
-func dedupBest(hits []formatter.SearchHit) []formatter.SearchHit {
-	best := make(map[string]formatter.SearchHit)
-	for _, h := range hits {
-		if existing, ok := best[h.DocId]; !ok || h.Score > existing.Score {
-			best[h.DocId] = h
-		}
-	}
-	result := make([]formatter.SearchHit, 0, len(best))
-	for _, h := range best {
-		result = append(result, h)
-	}
-	return result
 }

@@ -3,6 +3,7 @@ package formatter
 import "io"
 
 type SearchHit struct {
+	ChunkId    int64
 	DocId      string
 	Collection string
 	Path       string

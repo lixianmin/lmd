@@ -1,4 +1,4 @@
-.PHONY: build install test vet clean tidy fmt lint e2e
+.PHONY: build install test vet clean tidy fmt lint e2e integration integration-basic integration-vector
 
 BINARY  = lmd
 PKG     = github.com/lixianmin/lmd
@@ -46,4 +46,12 @@ e2e: build
 	@./$(BINARY) --index /tmp/lmd-e2e/test.sqlite status
 	@rm -rf /tmp/lmd-e2e
 
-all: lint test build
+integration-basic: install
+	bash tests/test_basic.sh
+
+integration-vector: install
+	bash tests/test_vector.sh
+
+integration: integration-basic
+
+all: lint test integration-basic
