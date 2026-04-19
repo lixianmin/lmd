@@ -1,0 +1,459 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/service"
+	"github.com/lixianmin/logo"
+)
+
+func (my *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query      string  `json:"query"`
+		Collection string  `json:"collection"`
+		Limit      int     `json:"limit"`
+		MinScore   float64 `json:"min_score"`
+		Format     string  `json:"format"`
+		JSON       bool    `json:"json"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.Limit <= 0 {
+		req.Limit = 5
+	}
+
+	my.syncIndex()
+	results, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleSearch: query=%q collection=%s results=%d", req.Query, req.Collection, len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
+}
+
+func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query      string  `json:"query"`
+		Collection string  `json:"collection"`
+		Limit      int     `json:"limit"`
+		MinScore   float64 `json:"min_score"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.Limit <= 0 {
+		req.Limit = 5
+	}
+	if req.MinScore == 0 {
+		req.MinScore = 0.3
+	}
+
+	searcher := service.NewSearcher(nil)
+	results, err := searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleVsearch: query=%q collection=%s results=%d", req.Query, req.Collection, len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
+}
+
+func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query      string  `json:"query"`
+		Collection string  `json:"collection"`
+		Limit      int     `json:"limit"`
+		MinScore   float64 `json:"min_score"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.Limit <= 0 {
+		req.Limit = 5
+	}
+
+	results, err := my.searcher.SearchHybrid(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleQuery: query=%q collection=%s results=%d", req.Query, req.Collection, len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
+}
+
+func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path  string `json:"path"`
+		Full  bool   `json:"full"`
+		From  int    `json:"from"`
+		Lines int    `json:"lines"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	input := req.Path
+	var doc *dao.DocumentRecord
+	var err error
+
+	if strings.HasPrefix(input, "#") {
+		doc, err = dao.GetDocumentByDocId(input[1:])
+	} else {
+		parts := strings.SplitN(input, "/", 2)
+		if len(parts) == 2 {
+			doc, err = dao.GetDocumentByPath(parts[0], parts[1])
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "use collection/path or #docid format"})
+			return
+		}
+	}
+
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	body := doc.Body
+	if !req.Full {
+		if len(body) > 500 {
+			body = body[:500] + "..."
+		}
+	}
+	if req.From > 0 {
+		lines := strings.Split(body, "\n")
+		if req.From <= len(lines) {
+			body = strings.Join(lines[req.From-1:], "\n")
+		}
+	}
+	if req.Lines > 0 {
+		lines := strings.Split(body, "\n")
+		if req.Lines < len(lines) {
+			body = strings.Join(lines[:req.Lines], "\n")
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"doc_id":     dao.ShortDocId(doc.DocId),
+		"title":      doc.Title,
+		"collection": doc.Collection,
+		"path":       doc.Path,
+		"file_size":  doc.FileSize,
+		"body":       body,
+	})
+}
+
+func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
+	cols, err := dao.ListCollections()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	totalDocs := 0
+	collections := make([]map[string]interface{}, len(cols))
+	for i, c := range cols {
+		collections[i] = map[string]interface{}{
+			"name":       c.Name,
+			"path":       c.Path,
+			"glob":       c.GlobPattern,
+			"doc_count":  c.DocCount,
+			"ignore":     c.IgnorePatterns,
+			"created_at": c.CreatedAt,
+		}
+		totalDocs += c.DocCount
+	}
+
+	chunkCount, embedCount := dao.GetChunkCounts()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"database":    my.cfg.Database.Path,
+		"documents":   totalDocs,
+		"chunks":      chunkCount,
+		"embedded":    embedCount,
+		"pending":     chunkCount - embedCount,
+		"collections": collections,
+	})
+}
+
+func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		Mask string `json:"mask"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+
+	absPath := req.Path
+	if !filepath.IsAbs(absPath) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path must be absolute"})
+		return
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path does not exist"})
+		return
+	}
+
+	mask := req.Mask
+	if mask == "" {
+		mask = "**/*.md"
+	}
+
+	if err := dao.AddCollection(req.Name, absPath, mask, nil); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var indexed int
+	if my.indexer != nil {
+		result, err := my.indexer.UpdateCollection(req.Name, absPath, mask, nil)
+		if err == nil {
+			indexed = result.Indexed + result.Updated
+			logo.Info("handleCollectionAdd: indexed %s +%d ~%d", req.Name, result.Indexed, result.Updated)
+		}
+	}
+
+	logo.Info("handleCollectionAdd: name=%s path=%s mask=%s indexed=%d", req.Name, absPath, mask, indexed)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":    req.Name,
+		"path":    absPath,
+		"mask":    mask,
+		"indexed": indexed,
+	})
+}
+
+func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := dao.RemoveCollection(req.Name); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleCollectionRemove: name=%s", req.Name)
+	writeJSON(w, http.StatusOK, map[string]string{"name": req.Name, "status": "removed"})
+}
+
+func (my *Daemon) handleCollectionList(w http.ResponseWriter, r *http.Request) {
+	cols, err := dao.ListCollections()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	type colInfo struct {
+		Name     string   `json:"name"`
+		Path     string   `json:"path"`
+		Glob     string   `json:"glob"`
+		DocCount int      `json:"doc_count"`
+		Ignore   []string `json:"ignore,omitempty"`
+	}
+
+	result := make([]colInfo, len(cols))
+	for i, c := range cols {
+		result[i] = colInfo{
+			Name:     c.Name,
+			Path:     c.Path,
+			Glob:     c.GlobPattern,
+			DocCount: c.DocCount,
+			Ignore:   c.IgnorePatterns,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Old string `json:"old"`
+		New string `json:"new"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := dao.RenameCollection(req.Old, req.New); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleCollectionRename: %s -> %s", req.Old, req.New)
+	writeJSON(w, http.StatusOK, map[string]string{"old": req.Old, "new": req.New, "status": "renamed"})
+}
+
+func (my *Daemon) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Collection string `json:"collection"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	start := time.Now()
+	logo.Info("handleUpdate: starting")
+
+	cols, err := dao.ListCollections()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	type colResult struct {
+		Name      string `json:"name"`
+		Indexed   int    `json:"indexed"`
+		Updated   int    `json:"updated"`
+		Unchanged int    `json:"unchanged"`
+		Removed   int    `json:"removed"`
+	}
+
+	var results []colResult
+	totalIndexed := 0
+	totalUpdated := 0
+	totalUnchanged := 0
+	totalRemoved := 0
+
+	for _, col := range cols {
+		if req.Collection != "" && col.Name != req.Collection {
+			continue
+		}
+
+		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		if err != nil {
+			logo.Error("handleUpdate: %s failed: %s", col.Name, err)
+			continue
+		}
+
+		results = append(results, colResult{
+			Name:      col.Name,
+			Indexed:   result.Indexed,
+			Updated:   result.Updated,
+			Unchanged: result.Unchanged,
+			Removed:   result.Removed,
+		})
+		totalIndexed += result.Indexed
+		totalUpdated += result.Updated
+		totalUnchanged += result.Unchanged
+		totalRemoved += result.Removed
+	}
+
+	logo.Info("handleUpdate: done indexed=%d updated=%d unchanged=%d removed=%d elapsed=%s",
+		totalIndexed, totalUpdated, totalUnchanged, totalRemoved, time.Since(start))
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"collections": results,
+		"totals": map[string]int{
+			"indexed":   totalIndexed,
+			"updated":   totalUpdated,
+			"unchanged": totalUnchanged,
+			"removed":   totalRemoved,
+		},
+		"elapsed": time.Since(start).String(),
+	})
+}
+
+func (my *Daemon) handleEmbed(w http.ResponseWriter, r *http.Request) {
+	result, err := my.embedder.EmbedBatch(context.Background(), 0)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"embedded": result.Embedded,
+		"skipped":  result.Skipped,
+		"failed":   result.Failed,
+	})
+}
+
+func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	logo.Info("handleRebuild: starting")
+
+	cols, err := dao.ListCollections()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(cols) == 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "no collections"})
+		return
+	}
+
+	dao.DB.Close()
+
+	dbPath := my.cfg.Database.Path
+	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := dao.Init(dbPath); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	for _, col := range cols {
+		if err := dao.AddCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns); err != nil {
+			logo.Error("handleRebuild: restore collection %s failed: %s", col.Name, err)
+		}
+	}
+
+	for _, col := range cols {
+		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		if err != nil {
+			logo.Error("handleRebuild: index %s failed: %s", col.Name, err)
+			continue
+		}
+		logo.Info("handleRebuild: %s indexed=%d updated=%d unchanged=%d removed=%d",
+			col.Name, result.Indexed, result.Updated, result.Unchanged, result.Removed)
+	}
+
+	embedResult, err := my.embedder.EmbedBatch(context.Background(), 0)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleRebuild: done embedded=%d elapsed=%s", embedResult.Embedded, time.Since(start))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"indexed": embedResult.Embedded,
+		"skipped": embedResult.Skipped,
+		"elapsed": time.Since(start).String(),
+	})
+}
