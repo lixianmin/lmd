@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lixianmin/lmd/internal/dao"
-	"github.com/lixianmin/logo"
+	"github.com/lixianmin/lmd/internal/config"
+	"github.com/lixianmin/lmd/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -43,12 +43,13 @@ var collectionAddCmd = &cobra.Command{
 			mask = "**/*.md"
 		}
 
-		if err := dao.AddCollection(collectionName, absPath, mask, nil); err != nil {
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.CollectionAdd(absPath, collectionName, mask)
+		if err != nil {
 			return err
 		}
 
-		logo.Info("collection add: name=%s path=%s mask=%s", collectionName, absPath, mask)
-		fmt.Printf("Collection '%s' added: %s\n", collectionName, absPath)
+		fmt.Print(string(body))
 		return nil
 	},
 }
@@ -58,12 +59,13 @@ var collectionRemoveCmd = &cobra.Command{
 	Short: "Remove a collection",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := dao.RemoveCollection(args[0]); err != nil {
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.CollectionRemove(args[0])
+		if err != nil {
 			return err
 		}
 
-		logo.Info("collection remove: name=%s", args[0])
-		fmt.Printf("Collection '%s' removed\n", args[0])
+		fmt.Print(string(body))
 		return nil
 	},
 }
@@ -72,19 +74,13 @@ var collectionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all collections",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cols, err := dao.ListCollections()
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.CollectionList()
 		if err != nil {
 			return err
 		}
 
-		if len(cols) == 0 {
-			fmt.Println("No collections found.")
-			return nil
-		}
-
-		for _, c := range cols {
-			fmt.Printf("%s\t%s\t(%d docs)\t%s\n", c.Name, c.Path, c.DocCount, c.GlobPattern)
-		}
+		fmt.Print(string(body))
 		return nil
 	},
 }
@@ -94,12 +90,13 @@ var collectionRenameCmd = &cobra.Command{
 	Short: "Rename a collection",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := dao.RenameCollection(args[0], args[1]); err != nil {
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.CollectionRename(args[0], args[1])
+		if err != nil {
 			return err
 		}
 
-		logo.Info("collection rename: %s -> %s", args[0], args[1])
-		fmt.Printf("Collection renamed: %s -> %s\n", args[0], args[1])
+		fmt.Print(string(body))
 		return nil
 	},
 }

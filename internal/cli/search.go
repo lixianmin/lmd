@@ -1,18 +1,13 @@
 package cli
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/lixianmin/lmd/internal/config"
-	"github.com/lixianmin/lmd/internal/dao"
-	"github.com/lixianmin/lmd/internal/embedding"
+	"github.com/lixianmin/lmd/internal/daemon"
 	"github.com/lixianmin/lmd/internal/formatter"
-	"github.com/lixianmin/lmd/internal/service"
-	"github.com/lixianmin/lmd/internal/tokenizer"
-	"github.com/lixianmin/logo"
 	"github.com/spf13/cobra"
 )
 
@@ -25,96 +20,23 @@ var (
 	outputFormat     string
 )
 
-func newProvider() *embedding.OllamaProvider {
-	cfg := config.Cfg
-	if cfg == nil {
-		fmt.Fprintf(os.Stderr, "Warning: config not loaded\n")
-		return embedding.NewOllamaProvider("http://localhost:11434", "qwen3-embedding:0.6b-q8_0")
-	}
-	return embedding.NewOllamaProvider(cfg.Embedding.Ollama.URL, cfg.Embedding.Ollama.Model)
-}
-
-func syncIndex() {
-	tok, err := tokenizer.NewGseTokenizer()
-	if err != nil {
-		logo.Error("syncIndex: tokenizer init failed: %s", err)
-		return
-	}
-
-	cols, err := dao.ListCollections()
-	if err != nil {
-		logo.Error("syncIndex: list collections failed: %s", err)
-		return
-	}
-
-	idx := service.NewIndexer(tok)
-	anyChange := false
-	for _, col := range cols {
-		result, err := idx.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Error("syncIndex: %s failed: %s", col.Name, err)
-			fmt.Fprintf(os.Stderr, "Warning: index sync %s failed: %v\n", col.Name, err)
-			continue
-		}
-		if result.Indexed > 0 || result.Updated > 0 || result.Removed > 0 {
-			if !anyChange {
-				fmt.Fprintf(os.Stderr, "Syncing index...\n")
-				anyChange = true
-			}
-			fmt.Fprintf(os.Stderr, "  %s: +%d ~%d -%d\n", col.Name, result.Indexed, result.Updated, result.Removed)
-			logo.Info("syncIndex: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)
-		}
-	}
-}
-
-func syncEmbeddings() {
-	unembeddedCount := dao.GetUnembeddedCount()
-	if unembeddedCount == 0 {
-		return
-	}
-
-	batchSize := 10
-	if unembeddedCount < batchSize {
-		batchSize = unembeddedCount
-	}
-
-	start := time.Now()
-	fmt.Fprintf(os.Stderr, "Embedding %d/%d chunks...\n", batchSize, unembeddedCount)
-	provider := newProvider()
-	defer provider.Close()
-	embedder := service.NewEmbedder(provider)
-	result, err := embedder.EmbedBatch(context.Background(), batchSize)
-	if err != nil {
-		logo.Error("syncEmbeddings failed: %s", err)
-		fmt.Fprintf(os.Stderr, "Warning: embed sync failed: %v\n", err)
-		return
-	}
-	if result.Embedded > 0 {
-		fmt.Fprintf(os.Stderr, "  Embedded %d chunks in %s (%d remaining)\n",
-			result.Embedded, time.Since(start).Round(time.Second), unembeddedCount-result.Embedded)
-	}
-}
-
 var searchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "BM25 keyword search",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		syncIndex()
-
-		tok, err := tokenizer.NewGseTokenizer()
-		if err != nil {
-			return fmt.Errorf("failed to initialize tokenizer: %w", err)
-		}
-
-		searcher := service.NewSearcher(tok)
-		results, err := searcher.SearchLex(args[0], searchCollection, searchLimit, searchMinScore)
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.Search(args[0], searchCollection, searchLimit, searchMinScore, outputFormat, outputJSON)
 		if err != nil {
 			return err
 		}
 
-		logo.Info("search: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
-		return formatResults(os.Stdout, results)
+		if outputJSON {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		return formatResponse(body)
 	},
 }
 
@@ -123,25 +45,23 @@ var vsearchCmd = &cobra.Command{
 	Short: "Vector semantic search",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		syncIndex()
-		syncEmbeddings()
-
-		provider := newProvider()
-		defer provider.Close()
-		searcher := service.NewSearcher(nil)
-
 		minScore := searchMinScore
 		if !cmd.Flags().Changed("min-score") {
 			minScore = 0.3
 		}
 
-		results, err := searcher.SearchVector(provider, args[0], searchCollection, searchLimit, minScore)
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.VSearch(args[0], searchCollection, searchLimit, minScore)
 		if err != nil {
 			return err
 		}
 
-		logo.Info("vsearch: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
-		return formatResults(os.Stdout, results)
+		if outputJSON {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		return formatResponse(body)
 	},
 }
 
@@ -150,25 +70,30 @@ var queryCmd = &cobra.Command{
 	Short: "Hybrid search (BM25 + vector with weighted fusion)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		syncIndex()
-		syncEmbeddings()
-
-		tok, err := tokenizer.NewGseTokenizer()
-		if err != nil {
-			return fmt.Errorf("failed to initialize tokenizer: %w", err)
-		}
-
-		provider := newProvider()
-		defer provider.Close()
-		searcher := service.NewSearcher(tok)
-		results, err := searcher.SearchHybrid(provider, args[0], searchCollection, searchLimit, searchMinScore)
+		client := daemon.NewClient(config.Cfg.Daemon.Port)
+		body, err := client.Query(args[0], searchCollection, searchLimit, searchMinScore)
 		if err != nil {
 			return err
 		}
 
-		logo.Info("query: query=%q collection=%s limit=%d results=%d", args[0], searchCollection, searchLimit, len(results))
-		return formatResults(os.Stdout, results)
+		if outputJSON {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		return formatResponse(body)
 	},
+}
+
+func formatResponse(body []byte) error {
+	var resp struct {
+		Hits []formatter.SearchHit `json:"hits"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return err
+	}
+
+	return formatResults(os.Stdout, resp.Hits)
 }
 
 func formatResults(w *os.File, hits []formatter.SearchHit) error {
