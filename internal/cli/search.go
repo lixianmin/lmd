@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/formatter"
@@ -24,15 +25,13 @@ var (
 	outputFormat     string
 )
 
-func newProvider() *embedding.GGUFProvider {
-	if err := embedding.EnsureModel(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+func newProvider() *embedding.OllamaProvider {
+	cfg := config.Cfg
+	if cfg == nil {
+		fmt.Fprintf(os.Stderr, "Warning: config not loaded\n")
+		return embedding.NewOllamaProvider("http://localhost:11434", "qwen3-embedding:0.6b-q8_0")
 	}
-	p := embedding.NewGGUFProvider(embedding.DefaultModelPath())
-	if err := p.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-	}
-	return p
+	return embedding.NewOllamaProvider(cfg.Embedding.Ollama.URL, cfg.Embedding.Ollama.Model)
 }
 
 func syncIndex() {
@@ -148,7 +147,7 @@ var vsearchCmd = &cobra.Command{
 
 var queryCmd = &cobra.Command{
 	Use:   "query <query>",
-	Short: "Hybrid search (BM25 + vector with RRF fusion)",
+	Short: "Hybrid search (BM25 + vector with weighted fusion)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		syncIndex()

@@ -23,14 +23,14 @@ The design is inspired by [QMD](https://github.com/tobi/qmd) but addresses three
 | Tokenizer | go-ego/gse | Go-native jieba implementation, excellent Chinese support |
 | Vector storage | sqlite-vec | C-optimized SIMD, low Go memory footprint |
 | Keyword search | gse pre-tokenize + FTS5 unicode61 | Splits on whitespace after gse pre-tokenization, leverages mature FTS5 BM25 |
-| Embedding model | Qwen3-Embedding-0.6B (GGUF) | 119 languages including CJK, MTEB top-ranked |
-| Fusion strategy | RRF priority + optional reranking | Fast by default, quality when needed |
-| Query expansion | Optional | User-controlled complexity |
+| Embedding model | Ollama HTTP API (sole provider) | No CGo dependency, leverages running Ollama instance |
+| Fusion strategy | RRF (Reciprocal Rank Fusion, k=60, 2x weight for primary lists, top-rank bonus) | Rank-based, no score normalization needed between sources |
+| Query expansion | HyDE (Hypothetical Document Embedding) via Ollama | Generates hypothetical doc, embeds it as additional search list |
 | CLI framework | cobra | Subcommand support, auto-help, shell completion |
 | Agent integration | MCP Server + CLI JSON output | Dual access for maximum compatibility |
 | Document chunking | Markdown-aware | Respects heading/code block boundaries |
 | Collection storage | Single SQLite DB | Convenient cross-collection search |
-| Architecture | Layered pipeline (CLI → Service → Store) | Clear separation, testable, extensible |
+| Architecture | Client-server daemon (CLI → HTTP → Daemon → Service → DAO) | Background indexing/embedding, persistent process |
 | MMR diversity | Applied after fusion | Reduces redundant similar results |
 | Timezone | GMT+8 (CST) for all timestamps | User in East Asia, avoid UTC confusion |
 
@@ -44,44 +44,50 @@ lmd/
 │   └── lmd/
 │       └── main.go                # CLI entry point
 ├── internal/
-│   ├── cli/                       # CLI subcommand definitions
+│   ├── cli/                       # Thin HTTP client wrappers
 │   │   ├── root.go
 │   │   ├── collection.go          # collection add/remove/list/rename
-│   │   ├── index.go               # update / embed / status
 │   │   ├── search.go              # search / vsearch / query
 │   │   ├── get.go                 # get
-│   │   ├── context.go             # context add/remove/list
-│   │   └── mcp.go                 # MCP server
+│   │   ├── daemon.go              # daemon [--detach]
+│   │   └── memory.go              # memory add/search
+│   ├── daemon/                    # Daemon server
+│   │   ├── daemon.go              # Lifecycle (start, stop, background goroutines)
+│   │   ├── server.go              # HTTP API server
+│   │   ├── routes.go              # Route handlers
+│   │   └── client.go              # CLI client that talks to daemon
+│   ├── config/                    # Configuration
+│   │   └── config.go              # YAML loading, defaults, save
+│   ├── dao/                       # Data persistence layer
+│   │   ├── db.go                  # SQLite connection management
+│   │   ├── schema.go              # Schema definition
+│   │   ├── document.go            # Document CRUD
+│   │   ├── chunks_fts.go          # FTS5 operations
+│   │   ├── chunks_vec.go          # sqlite-vec operations
+│   │   ├── collection.go          # Collection persistence
+│   │   ├── stats.go               # Count queries
+│   │   └── memory.go              # Memory CRUD
 │   ├── service/                   # Business logic layer
-│   │   ├── collection.go          # Collection management
-│   │   ├── indexer.go             # Document indexing (scan + tokenize + FTS5)
-│   │   ├── embedder.go            # Vector embedding orchestration
+│   │   ├── indexer.go             # Document indexing
+│   │   ├── embedder.go            # Vector embedding
 │   │   ├── searcher.go            # Search (BM25 / vector / hybrid)
 │   │   ├── fusion.go              # RRF fusion
-│   │   └── reranker.go            # Optional reranking
-│   ├── store/                     # Data persistence layer
-│   │   ├── db.go                  # SQLite connection management
-│   │   ├── schema.go              # Schema definition & migration
-│   │   ├── document.go            # Document CRUD
-│   │   ├── fts.go                 # FTS5 operations
-│   │   ├── vector.go              # sqlite-vec operations
-│   │   └── collection.go          # Collection persistence
-│   ├── tokenizer/                 # Tokenizer abstraction
-│   │   ├── tokenizer.go           # Tokenizer interface
+│   │   └── memory.go              # Memory operations
+│   ├── tokenizer/                 # Tokenizer
 │   │   └── gse.go                 # gse implementation
-│   ├── embedding/                 # Embedding model abstraction
+│   ├── embedding/                 # Embedding
 │   │   ├── provider.go            # EmbeddingProvider interface
-│   │   ├── gguf.go                # GGUF local model
-│   │   └── model.go               # Model download management
+│   │   └── ollama.go              # Ollama HTTP provider
 │   ├── chunker/                   # Document chunking
 │   │   ├── chunker.go             # Chunker interface
-│   │   └── markdown.go            # Markdown-aware chunking
-│   └── formatter/                 # Output formatting
-│       ├── formatter.go           # Formatter interface
-│       ├── text.go                # Colorized terminal
-│       ├── json.go
-│       ├── markdown.go
-│       └── csv.go
+│   │   └── markdown.go            # Sliding window chunker
+│   ├── formatter/                 # Output formatting
+│   │   ├── formatter.go           # Formatter interface + SearchHit
+│   │   ├── text.go
+│   │   ├── json.go
+│   │   ├── markdown.go
+│   │   └── csv.go
+│   └── mcp/                       # MCP protocol handler (served by daemon)
 ├── pkg/                           # Public API for external use
 │   └── lmd.go                     # Public Store interface and factory
 ├── test/                          # Integration tests
@@ -92,20 +98,17 @@ lmd/
 ### Layer Dependencies
 
 ```
-cmd → internal/cli → internal/service → internal/store
-                        ↓
-              internal/tokenizer (interface)
-              internal/embedding (interface)
-              internal/chunker (interface)
-                        ↓
-                     internal/formatter
+CLI → HTTP JSON → Daemon → Service → DAO
+MCP agent → HTTP/stdio → Daemon → Service → DAO
 ```
 
 Rules:
 - `cmd` depends on `internal/cli` only
-- `cli` depends on `service` and `formatter`
-- `service` depends on `store`, `tokenizer`, `embedding`, `chunker` interfaces
-- `store` depends only on SQLite (mattn/go-sqlite3 + sqlite-vec)
+- `cli` depends on `daemon/client` for HTTP communication
+- `daemon` depends on `service`, `config`, and `mcp`
+- `service` depends on `dao`, `tokenizer`, `embedding`, `chunker` interfaces
+- `dao` depends only on SQLite (mattn/go-sqlite3 + sqlite-vec)
+- `config` is loaded by `daemon` and `cli` (for daemon address)
 - `pkg/` exports a thin public API that delegates to `service`
 
 ## Data Model
@@ -119,16 +122,8 @@ CREATE TABLE collections (
     path            TEXT NOT NULL,
     glob_pattern    TEXT DEFAULT '**/*.md',
     ignore_patterns TEXT,
-    created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
-    updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
-);
-
-CREATE TABLE path_contexts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection  TEXT NOT NULL,
-    path        TEXT NOT NULL DEFAULT '',
-    context     TEXT NOT NULL,
-    UNIQUE(collection, path)
+    created_at      DATETIME DEFAULT (DATETIME('now', '+8 hours')),
+    updated_at      DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 );
 
 CREATE TABLE documents (
@@ -145,14 +140,6 @@ CREATE TABLE documents (
     updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
 );
 
-CREATE VIRTUAL TABLE documents_fts USING fts5(
-    tokens,
-    title_tokens,
-    content='documents',
-    content_rowid='id',
-    tokenize='unicode61'
-);
-
 CREATE TABLE chunks (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     doc_id      INTEGER NOT NULL REFERENCES documents(id),
@@ -164,22 +151,28 @@ CREATE TABLE chunks (
     UNIQUE(doc_id, seq)
 );
 
-CREATE VIRTUAL TABLE chunk_vectors USING vec0(
-    chunk_id  INTEGER PRIMARY KEY,
-    embedding float[1024]
+CREATE VIRTUAL TABLE chunks_fts USING fts5(
+    content,
+    content='chunks',
+    content_rowid='id',
+    tokenize='porter unicode61'
 );
 
-CREATE TABLE embed_status (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    chunk_id    INTEGER NOT NULL REFERENCES chunks(id),
-    model_name  TEXT NOT NULL,
-    embedded_at DATETIME DEFAULT (DATETIME('now', '+8 hours')),
-    UNIQUE(chunk_id, model_name)
+CREATE VIRTUAL TABLE chunks_vec USING vec0(
+    chunk_id  INTEGER PRIMARY KEY,
+    embedding float[1024] distance_metric=cosine
 );
 ```
 
+> **Planned tables (not yet implemented):**
+> - `embed_status` — track which chunks have been embedded and by which model
+> - `path_contexts` — descriptive metadata for collections/paths
+> - `_meta` — schema version tracking for migrations
+
 Key design notes:
-- FTS5 uses external content mode referencing `documents` table to avoid data duplication
+- FTS5 uses external content mode referencing `chunks` table (chunk-level, not document-level)
+- `chunks_fts` uses `porter unicode61` tokenizer; gse pre-tokenizes Chinese before insertion
+- `chunks_vec` uses cosine distance metric via sqlite-vec
 - Vectors are separated from text chunks, linked by `chunk_id`
 - Content hashing enables incremental updates
 - `docid` is a 6-character hash for quick document reference
@@ -201,12 +194,15 @@ type Tokenizer interface {
 ```go
 type EmbeddingProvider interface {
     Embed(ctx context.Context, text string) ([]float32, error)
+    EmbedQuery(ctx context.Context, text string) ([]float32, error)
     EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
     Dimension() int
     ModelName() string
     Close() error
 }
 ```
+
+> Note: `EmbedQuery` currently delegates to `Embed` (no Instruct prefix).
 
 ### Chunker
 
@@ -222,29 +218,18 @@ type Chunk struct {
 }
 ```
 
-### SearchResult
+### SearchHit
 
 ```go
-type SearchResult struct {
-    DocID      string
+type SearchHit struct {
+    ChunkId    int64
+    DocId      string
     Collection string
     Path       string
     Title      string
     Score      float64
     Snippet    string
-    Context    string
     Line       int
-    Sources    []string
-}
-
-type SearchOptions struct {
-    Query       string
-    Collection  string
-    Limit       int
-    MinScore    float64
-    Mode        SearchMode
-    Rerank      bool
-    ExpandQuery bool
 }
 ```
 
@@ -340,15 +325,8 @@ type Document struct {
     Path       string
     Title      string
     Body       string
-    Context    string
     FileSize   int64
     ModifiedAt time.Time
-}
-
-type ContextInfo struct {
-    Collection string
-    Path       string
-    Context    string
 }
 
 type Store interface {
@@ -359,15 +337,11 @@ type Store interface {
     Update(ctx context.Context, opts UpdateOptions) (*UpdateResult, error)
     Embed(ctx context.Context, opts EmbedOptions) (*EmbedResult, error)
 
-    Search(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
-    SearchLex(query string, opts LexOptions) ([]SearchResult, error)
-    SearchVector(ctx context.Context, query string, opts VecOptions) ([]SearchResult, error)
+    Search(ctx context.Context, query string, collection string, limit int) ([]SearchHit, error)
+    SearchLex(query string, opts LexOptions) ([]SearchHit, error)
+    SearchVector(ctx context.Context, query string, opts VecOptions) ([]SearchHit, error)
 
     Get(pathOrDocID string) (*Document, error)
-
-    AddContext(collection, path, context string) error
-    RemoveContext(collection, path string) error
-    ListContexts() ([]ContextInfo, error)
 
     Close() error
 }
@@ -381,12 +355,14 @@ func CreateStore(opts StoreOptions) (Store, error)
 lmd [global options] <command> [args]
 
 Global options:
-  --index <path>     Database file path (default: ~/.cache/lmd/index.sqlite)
   --verbose          Enable debug-level logging
   --help, -h         Show help
   --version          Show version
 
 Commands:
+
+  Daemon:
+    daemon [--detach]                  Start daemon (foreground, or --detach for background)
 
   Collection management:
     collection add <path> --name <name> [--mask <glob>]
@@ -394,37 +370,33 @@ Commands:
     collection list
     collection rename <old> <new>
 
-  Indexing:
-    update [--collection <name>]
-    embed [--force] [--model <name>]
-    status
-
   Search:
     search <query> [-c <collection>] [-n <num>]
     vsearch <query> [-c <collection>] [-n <num>]
-    query <query> [-c <collection>] [-n <num>] [--rerank] [--expand]
+    query <query> [-c <collection>] [-n <num>]
 
   Document retrieval:
     get <path-or-docid> [--full] [-l <num>] [--from <n>]
 
-  Context:
-    context add <lmd://collection/path> <description>
-    context remove <lmd://collection/path>
-    context list
+  Memory (agent):
+    memory add <content> [--type fact|episode|relation]
+    memory search <query> [--type <type>] [-n <num>]
 
-  Agent:
-    mcp [--http] [--port <num>]
+  Advanced (daemon background tasks):
+    update [--collection <name>]
+    embed [--force]
+    rebuild [--collection <name>]
+    status
 
   Output format options (all search commands):
     --json            JSON output
     --md              Markdown output
     --csv             CSV output
     --full            Show full document content
-    --line-numbers    Show line numbers
-    --explain         Show score breakdown
-    --all             Return all matches
     --min-score <n>   Minimum score threshold
 ```
+
+> **Note**: `update`, `embed`, and `rebuild` are advanced commands for manual triggers. The daemon handles indexing and embedding automatically in the background. MCP is served by the daemon, not as a separate CLI command.
 
 Default output example:
 
@@ -439,29 +411,32 @@ This section covers goroutine and channel concurrency patterns...
 
 ## MCP Server
 
-LMD exposes an MCP (Model Context Protocol) server for agent integration, speaking stdio by default with optional HTTP transport.
+LMD exposes an MCP (Model Context Protocol) server for agent integration, speaking stdio.
 
-### Transport Modes
+### Transport Mode
 
-- **stdio** (default): Launched as subprocess by MCP client, communicates via stdin/stdout
-- **HTTP**: Long-lived server at `http://localhost:8181/mcp` (Streamable HTTP, stateless JSON responses)
+- **stdio** (default and only): Launched as subprocess by MCP client, communicates via stdin/stdout
 
 ### MCP Tools Exposed
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `search` | Hybrid search (BM25 + vector + optional rerank) | `query` (string), `collection` (optional string), `limit` (int, default 5), `min_score` (float), `rerank` (bool), `expand` (bool) |
-| `search_lex` | BM25 keyword search only | `query` (string), `collection` (optional string), `limit` (int) |
-| `search_vector` | Semantic vector search only | `query` (string), `collection` (optional string), `limit` (int) |
+| `search` | BM25 keyword search | `query` (string), `collection` (optional string), `limit` (int, default 5) |
+| `search_vector` | Vector semantic search | `query` (string), `collection` (optional string), `limit` (int) |
+| `query` | Hybrid search (BM25 + vector + optional HyDE) | `query` (string), `collection` (optional string), `limit` (int, default 5) |
+| `memory_add` | Add agent memory | `content` (string), `type` ("fact"\|"episode"\|"relation", default "episode") |
+| `memory_search` | Search agent memories | `query` (string), `limit` (int, default 10), `type` (optional string) |
 | `get` | Retrieve document by path or docid | `path_or_docid` (string), `full` (bool, default false) |
 | `status` | Index health and collection info | (none) |
 | `list_collections` | List all collections with stats | (none) |
 
 ### Implementation
 
-The MCP server (`internal/cli/mcp.go`) delegates to the `Store` interface. It uses a lightweight MCP protocol handler that maps tool calls to Store method invocations and formats results as structured JSON.
+The MCP server (`internal/mcp/`) is served by the daemon as an HTTP endpoint, not as a separate CLI subprocess. It delegates to the `Store` interface and maps tool calls to Store method invocations, formatting results as structured JSON.
 
 ## Reranker
+
+> **Status: Planned, deferred to Phase 3 (after daemon architecture is complete)**
 
 ### Model
 
@@ -495,29 +470,39 @@ The reranker uses a yes/no classification with logprob confidence: for each cand
 
 Top-ranked RRF results are likely strong exact matches — the reranker is given less weight (25%) to preserve them. Lower-ranked results benefit more from the reranker's deeper understanding (60%), as pure retrieval signals are weaker.
 
-## Query Expansion
+## HyDE Query Expansion
+
+> **Status: Planned, not yet implemented**
+
+### Approach
+
+Hypothetical Document Embedding (HyDE): instead of generating alternative query phrasings, generate a hypothetical document that would answer the query, embed it, and use it as an additional vector search list in RRF fusion.
 
 ### Model
 
-Uses a separate small generative model (Qwen2.5-1.5B-Instruct GGUF, ~1GB), not the embedding model. The embedding model (Qwen3-Embedding) only produces vectors and cannot generate text.
-
-### Prompt
-
-```
-Given the following search query, generate 2 alternative phrasings that would match
-different ways of expressing the same information. Keep the alternatives concise.
-Return one alternative per line, no numbering.
-
-Query: {query}
-```
+Uses Ollama with a general-purpose generative model (default `qwen3:0.6b-q8_0`, configurable to any Ollama model). This is separate from the embedding model.
 
 ### Behavior
 
-- Only activated when `--expand` flag is passed or `ExpandQuery: true` in API
-- Model is lazy-loaded on first use, stays in memory for subsequent queries
-- If model fails to load, search proceeds without expansion (graceful degradation)
+When `query` is called with HyDE enabled:
+1. Generate hypothetical document via Ollama: "Given query '{q}', write a short passage that would answer this query"
+2. Embed the hypothetical document using the embedding provider
+3. Add it as an additional vector search list in RRF fusion (weight 1.0, not 2.0)
+4. This improves recall for queries where the user's phrasing differs from the document's
+
+Config:
+```yaml
+hyde:
+  enabled: true
+  model: qwen3:0.6b-q8_0
+```
+
+- Only activated when `hyde.enabled` is true in config
+- If model fails, search proceeds without HyDE expansion (graceful degradation)
 
 ## Context System
+
+> **Status: Planned, not yet implemented**
 
 ### Purpose
 
@@ -551,74 +536,55 @@ The most specific match is used. If no context is found, the field is empty.
 4. If `--from <n>` is specified, return body starting from line n
 5. If `-l <num>` is specified, limit output to num lines
 6. If `--full` is specified, return entire document body; otherwise return a snippet summary
-7. Attach any matching context from `path_contexts`
 
-## llama.cpp Integration
+## Embedding Integration
 
 ### Approach
 
-LMD uses CGo bindings to link against llama.cpp's shared library for loading GGUF models. This is the same approach Ollama uses (which is also written in Go).
+LMD communicates with embedding models via Ollama HTTP API, avoiding any CGo dependency. Ollama is the sole embedding provider — no llama-server subprocess.
 
-### Build Requirements
+### Provider
 
-- C compiler (gcc/clang)
-- llama.cpp shared library (`libllama.so` / `libllama.dylib`)
-- CGo enabled (`CGO_ENABLED=1`)
+**Ollama HTTP API**: Connects to a running Ollama instance at `http://localhost:11434/api/embed`. Requires Ollama to be installed and running with the embedding model loaded. Parameters are read from `config.Cfg.Embedding.Ollama`.
 
-### Model Loading
+### Configuration
 
-Models are downloaded from HuggingFace on first use, cached in `~/.cache/lmd/models/`. The download uses the HF repo ID + filename pattern:
-- Embedding: `hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf`
-- Reranker: `hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf`
-- Expansion: `hf:Qwen/Qwen2.5-1.5B-Instruct-GGUF/qwen2.5-1.5b-instruct-q4_k_m.gguf`
-
-### Go Binding
-
-Use `github.com/ngx Tahoe/go-llama.cpp` or a similar Go CGo wrapper. If no mature binding exists, write a minimal CGo wrapper in `internal/embedding/llama/` that exposes:
-- `llama_load_model(path) → *model`
-- `llama_embed(model, texts) → [][]float32`
-- `llama_free_model(model)`
-
-## Schema Migration
-
-Schema version is tracked in a `_meta` table:
-
-```sql
-CREATE TABLE _meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
--- Initial row: INSERT INTO _meta (key, value) VALUES ('schema_version', '1');
+```yaml
+embedding:
+  provider: ollama
+  ollama:
+    url: http://localhost:11434
+    model: qwen3-embedding:0.6b-q8_0
+    keep_alive: 30m
+  batch_size: 8
+  truncation: 800
 ```
 
-On startup, `store/schema.go` reads the current version and applies migrations sequentially. Each migration is a Go function that executes SQL statements within a transaction. Migrations are one-way (no rollback support in v1).
+### Go Implementation
 
-```go
-var migrations = []Migration{
-    {Version: 1, Up: migrateV1},
-}
+`internal/embedding/ollama.go` implements `OllamaProvider` (the `EmbeddingProvider` interface) using standard Go `net/http` client. No CGo required.
 
-func migrateV1(db *sql.DB) error {
-    // Create all initial tables
-}
-```
+## Schema Management
+
+> **Status: No migration system currently implemented.** Schema is created via `dao/schema.go` on first use. Migrations will be added when schema changes are needed.
 
 ## Concurrency
 
 - SQLite opened in WAL (Write-Ahead Logging) mode to allow concurrent reads during writes
-- `update` and `embed` operations acquire an advisory lock to prevent concurrent indexing
+- No advisory lock currently implemented; concurrent write operations should be avoided by the caller
 - Search operations can run concurrently with each other
-- Model inference (embedding/reranker/expansion) is serialized per model instance (GPU/CPU bound)
+- Model inference (embedding) is serialized per provider instance
 
 ## Score Normalization
 
 | Source | Raw Score | Normalization | Range |
 |--------|-----------|---------------|-------|
-| FTS5 (BM25) | SQLite `bm25()` (negative) | `min(abs(score) / max_score, 1.0)` where `max_score` is the top result's score | 0.0-1.0 |
-| Vector | Cosine distance (0+) | `1 / (1 + distance)` | 0.0-1.0 |
-| Reranker | 0-10 rating | `score / 10` | 0.0-1.0 |
+| FTS5 (BM25) | SQLite `rank` (negative) | `abs(score) / (1.0 + abs(score))` | 0.0-1.0 |
+| Vector | Cosine distance (0+) | `1.0 - distance` | 0.0-1.0 |
 
-BM25 normalization uses the top result as denominator (rank-based normalization). This avoids needing to know the theoretical maximum BM25 score.
+BM25 normalization uses a sigmoid-like formula that naturally maps to 0-1 without needing a reference score. Vector scoring uses cosine distance directly (lower distance = higher similarity).
+
+> **Note**: Hybrid `query` uses RRF which operates on ranks, not raw scores. These normalization formulas apply only to standalone `search` (BM25) and `vsearch` (vector) commands.
 
 ## Indexing Flow
 
@@ -628,72 +594,62 @@ BM25 normalization uses the top result as denominator (rank-based normalization)
    b. Compare with stored hash (incremental update)
    c. If changed or new:
       - Parse Markdown, extract title (first `#` heading or filename)
-      - Tokenize body with gse → tokenized_body (space-separated)
-      - Tokenize title with gse → tokenized_title
       - Write to `documents` table
-      - Write to `documents_fts` (tokenized_body + tokenized_title)
       - Delete old chunks if any
       - Markdown-aware chunking → write to `chunks` table
+      - For each chunk, insert FTS entry into `chunks_fts` (gse pre-tokenized content)
 3. Detect deleted files (in DB but not on filesystem) → remove
 4. Return stats: indexed, updated, unchanged, removed
 
 ## Embedding Flow
 
 1. Query all unembedded chunks (or all if `--force`)
-2. Load GGUF embedding model (auto-download on first use)
-3. Batch process:
-   a. Read chunk content
-   b. Format as `"title: {title} | text: {content}"`
-   c. Call `EmbeddingProvider.EmbedBatch()`
-   d. Write to `chunk_vectors` table (sqlite-vec)
-   e. Update `embed_status`
-4. Return stats: embedded, skipped, failed
+2. Batch process (batch size = 8):
+   a. Read chunk content (truncated to 800 runes if longer)
+   b. Call `EmbeddingProvider.EmbedBatch()` via Ollama HTTP API
+   c. Write to `chunks_vec` table (sqlite-vec)
+3. Return stats: embedded, skipped, failed
 
 ## Search Flows
 
 ### BM25 Search (`search` command)
 
 1. Tokenize query with gse → tokenized_query
-2. `SELECT * FROM documents_fts WHERE tokens MATCH ? ORDER BY bm25()`
-3. Join with `documents` for metadata
+2. `SELECT * FROM chunks_fts WHERE content MATCH ? ORDER BY rank`
+3. Join with `chunks` → `documents` for metadata
 4. Extract snippet
-5. Normalize score: `score = min(abs(score) / top_score, 1.0)` where `top_score` is the highest BM25 score in results
+5. Normalize score: `score = abs(score) / (1.0 + abs(score))`
 
 ### Vector Search (`vsearch` command)
 
-1. Call `EmbeddingProvider.Embed(query)` to generate query vector
-2. `SELECT chunk_id, distance FROM chunk_vectors WHERE embedding MATCH ?`
+1. Call `EmbeddingProvider.EmbedQuery(query)` to generate query vector
+2. `SELECT chunk_id, distance FROM chunks_vec WHERE embedding MATCH ?`
 3. Join with chunks → documents for metadata
-4. Convert distance to similarity: `1 / (1 + distance)`
+4. Convert distance to similarity: `1.0 - distance`
 
 ### Hybrid Search (`query` command)
 
-1. [Optional] Query expansion: generate 1-2 query variants via Qwen2.5-1.5B-Instruct (see Query Expansion section)
-2. For each query (original + variants), execute:
-   a. BM25 search → ranked list
-   b. Vector search → ranked list
-3. RRF fusion:
-   - Original query results weighted ×2
-   - `score = Σ weight × 1/(k + rank + 1)`, k=60
-4. Take top-30 candidates
-5. [Optional] Reranker scoring
-6. Position-aware blending (if reranker enabled):
-   - Rank 1-3: 75% RRF / 25% reranker
-   - Rank 4-10: 60% RRF / 40% reranker
-   - Rank 11+: 40% RRF / 60% reranker
+Uses Reciprocal Rank Fusion (RRF):
+1. Execute BM25 search → ranked list
+2. Execute vector search → ranked list
+3. (Optional) Generate HyDE document, embed it, execute additional vector search → ranked list
+4. Fuse via RRF:
+   ```
+   rrfScore(c) = SUM( weight_i / (k + rank_i + 1) ) + topRankBonus
+   k = 60
+   First 2 lists (BM25 + vector): weight = 2.0
+   Additional lists (HyDE variants): weight = 1.0
+   topRankBonus = +0.05 if best rank is #1, +0.02 if #2-#3
+   ```
+5. Group by ChunkId, preserving multiple chunks from same document
+6. Sort by RRF score descending
 7. Return final results
-
-### RRF Constants
-
-| Parameter | Value | Purpose |
-|-----------|-------|---------|
-| k | 60 | RRF smoothing constant |
-| Top-K | 30 | Candidates sent to reranker |
-| OrigWeight | 2 | Original query weight multiplier |
 
 ## MMR (Maximal Marginal Relevance)
 
-After RRF fusion and optional reranking, MMR is applied to promote result diversity and reduce redundancy.
+> **Status: Planned, not yet implemented**
+
+After fusion, MMR would promote result diversity and reduce redundancy.
 
 ### Algorithm
 
@@ -755,8 +711,8 @@ TDD is mandatory: write tests before implementation.
 |--------|-----------|
 | `tokenizer/gse` | Chinese/English/mixed accuracy, empty string, special characters |
 | `chunker/markdown` | Heading boundaries, code block protection, long text handling |
-| `store/*` | CRUD operations, FTS5 search, vector search, incremental updates |
-| `service/searcher` | BM25 search, vector search, RRF fusion algorithm correctness |
+| `dao/*` | CRUD operations, FTS5 search, vector search, incremental updates |
+| `service/searcher` | BM25 search, vector search, RRF fusion correctness |
 | `service/indexer` | File scanning, hash incremental detection, tokenization+indexing flow |
 | `formatter/*` | Output format correctness for each format |
 | `pkg/` | Public API integration tests |
@@ -786,13 +742,63 @@ In Go code, all time values are read/written in Asia/Shanghai timezone. The `tim
 | `github.com/mattn/go-sqlite3` | SQLite3 with CGo (FTS5 + extension support) |
 | `github.com/spf13/cobra` | CLI framework |
 | sqlite-vec | Vector similarity search extension |
-| llama.cpp (via CGo) | GGUF model loading for embeddings, reranking, query expansion |
+
+## Config System
+
+Configuration is centralized in `~/.config/lmd/config.yaml`, auto-generated on first run if missing.
+
+```yaml
+daemon:
+  port: 18200
+  idle_timeout: 30m
+  index_poll_interval: 60s
+
+embedding:
+  provider: ollama
+  ollama:
+    url: http://localhost:11434
+    model: qwen3-embedding:0.6b-q8_0
+    keep_alive: 30m
+  batch_size: 8
+  truncation: 800
+
+vector:
+  dimensions: 1024
+  distance_metric: cosine
+
+database:
+  path: ~/.cache/lmd/index.sqlite
+```
+
+Implemented in `internal/config/config.go` with `Load()`, `SaveDefault()`, and `DefaultConfig()`. See daemon spec §3 for full details.
+
+## Memory Layer
+
+LMD doubles as a memory layer for AI agents. Memories are stored in an independent `memories` table (sharing the same SQLite DB and embedding provider), with no explicit delete — old memories decay naturally.
+
+### Memory Types and Decay
+
+| Type | Description | Half-life |
+|------|-------------|-----------|
+| `fact` | Factual knowledge | Never (score unchanged) |
+| `episode` | Events/experiences | 15 days |
+| `relation` | Preferences/associations | 180 days |
+
+Time decay is applied at query time: `final_score = raw_score × 0.5^(age_days / half_life)`.
+
+### Operations
+
+- **memory_add**: Insert memory, auto-embed, insert FTS entry. Returns `{id, type, created_at}`.
+- **memory_search**: Search memories with time-decay scoring. Returns `[{id, content, type, score, created_at}]`.
+
+See daemon spec §11 for full schema and design details.
 
 ## Implementation Phasing
 
 The spec covers multiple subsystems. Recommended implementation order:
 
-**Phase 1 - Foundation**: Store layer (SQLite schema, CRUD) + Tokenizer (gse) + BM25 search + basic CLI (collection, update, search, get)
-**Phase 2 - Vector**: Embedding provider (GGUF) + chunking + vector storage (sqlite-vec) + vsearch command
-**Phase 3 - Hybrid**: RRF fusion + query command + reranker + query expansion
-**Phase 4 - Integration**: MCP server + context system + public API polish + output formatters
+**Phase 1 - Foundation**: DAO layer (SQLite schema, CRUD) + Tokenizer (gse) + BM25 search + basic CLI (collection, search, get)
+**Phase 2 - Daemon + Config**: Config system (`internal/config/`) + Daemon architecture (`internal/daemon/`) + CLI→HTTP migration + background indexer/embedder
+**Phase 3 - Vector**: Ollama-only embedding + chunking + vector storage (sqlite-vec) + vsearch command
+**Phase 4 - Hybrid**: RRF fusion + HyDE query expansion + query command
+**Phase 5 - Integration**: MCP in daemon + memory layer + context system + public API polish + output formatters + reranker

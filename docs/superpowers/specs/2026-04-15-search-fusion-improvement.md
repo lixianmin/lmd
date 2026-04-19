@@ -1,3 +1,5 @@
+> **Superseded** — The weighted linear fusion described here is being replaced by RRF (Reciprocal Rank Fusion) per the daemon architecture spec. See [2026-04-19-daemon-config-ollama-design.md](./2026-04-19-daemon-config-ollama-design.md) §5.
+
 # Search Fusion Improvement
 
 ## Problem

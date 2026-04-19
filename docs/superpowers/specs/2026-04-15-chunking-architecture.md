@@ -1,3 +1,5 @@
+> **Superseded by [2026-04-16-chunker-v3-sliding-window.md](./2026-04-16-chunker-v3-sliding-window.md)** — The recursive splitting approach was replaced by sliding window.
+
 # Chunking Architecture
 
 ## Design Goals

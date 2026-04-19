@@ -10,8 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var embedForce bool
-
 var embedCmd = &cobra.Command{
 	Use:   "embed",
 	Short: "Generate vector embeddings for indexed chunks",
@@ -37,6 +35,5 @@ var embedCmd = &cobra.Command{
 }
 
 func init() {
-	embedCmd.Flags().BoolVar(&embedForce, "force", false, "re-embed everything")
 	rootCmd.AddCommand(embedCmd)
 }

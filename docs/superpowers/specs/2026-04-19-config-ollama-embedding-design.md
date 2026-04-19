@@ -1,3 +1,5 @@
+> **Superseded by [2026-04-19-daemon-config-ollama-design.md](./2026-04-19-daemon-config-ollama-design.md)** — This spec is now part of the unified daemon architecture spec.
+
 # Config System + Ollama-Only Embedding
 
 ## Problem
