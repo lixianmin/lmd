@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/formatter"
@@ -25,7 +26,7 @@ func TestFuseResultsBasic(t *testing.T) {
 	}
 
 	if result[0].ChunkId != 1 {
-		t.Fatalf("expected chunk 1 to rank highest, got chunk %d (score=%.4f)", result[0].ChunkId, result[0].Score)
+		t.Fatalf("expected chunk 1 to rank highest, got chunk %d (score=%.6f)", result[0].ChunkId, result[0].Score)
 	}
 }
 
@@ -43,9 +44,9 @@ func TestFuseResultsScoreCalculation(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(result))
 	}
 
-	expected := 0.3*1.0 + 0.7*1.0
-	if result[0].Score != expected {
-		t.Fatalf("expected score %.2f, got %.4f", expected, result[0].Score)
+	expected := 2.0/61.0 + 2.0/61.0 + 0.05
+	if math.Abs(result[0].Score-expected) > 1e-9 {
+		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
 	}
 }
 
@@ -57,9 +58,9 @@ func TestFuseResultsVectorOnly(t *testing.T) {
 	if len(result) != 1 || result[0].ChunkId != 1 {
 		t.Fatal("expected vector-only results when lex is empty")
 	}
-	expected := 0.7 * 0.8
-	if diff := result[0].Score - expected; diff > 1e-9 || diff < -1e-9 {
-		t.Fatalf("expected score %.4f, got %.4f", expected, result[0].Score)
+	expected := 2.0/61.0 + 0.05
+	if math.Abs(result[0].Score-expected) > 1e-9 {
+		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
 	}
 }
 
@@ -71,9 +72,9 @@ func TestFuseResultsLexOnly(t *testing.T) {
 	if len(result) != 1 || result[0].ChunkId != 2 {
 		t.Fatal("expected lex-only results when vec is empty")
 	}
-	expected := 0.3 * 0.9
-	if diff := result[0].Score - expected; diff > 1e-9 || diff < -1e-9 {
-		t.Fatalf("expected score %.4f, got %.4f", expected, result[0].Score)
+	expected := 2.0/61.0 + 0.05
+	if math.Abs(result[0].Score-expected) > 1e-9 {
+		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
 	}
 }
 
@@ -116,25 +117,18 @@ func TestFuseResultsOrdering(t *testing.T) {
 		{ChunkId: 2, DocId: "b", Score: 0.5},
 	}
 	vecHits := []formatter.SearchHit{
-		{ChunkId: 2, DocId: "b", Score: 0.95},
-		{ChunkId: 1, DocId: "a", Score: 0.3},
+		{ChunkId: 1, DocId: "a", Score: 0.95},
+		{ChunkId: 2, DocId: "b", Score: 0.3},
 	}
 	result := FuseResults(lexHits, vecHits, 0.7)
 
-	scoreA := 0.3*0.9 + 0.7*0.3
-	scoreB := 0.3*0.5 + 0.7*0.95
-
-	if scoreB <= scoreA {
-		t.Fatalf("test setup error: b (%.4f) should score higher than a (%.4f)", scoreB, scoreA)
-	}
-
-	if result[0].ChunkId != 2 {
-		t.Fatalf("expected chunk 2 first (score=%.4f > chunk 1=%.4f), got %d", scoreB, scoreA, result[0].ChunkId)
+	if result[0].ChunkId != 1 {
+		t.Fatalf("expected chunk 1 first (rank 0 in both lists), got %d", result[0].ChunkId)
 	}
 
 	for i := 1; i < len(result); i++ {
 		if result[i].Score > result[i-1].Score {
-			t.Fatalf("results not sorted: [%d]=%.4f > [%d]=%.4f", i, result[i].Score, i-1, result[i-1].Score)
+			t.Fatalf("results not sorted: [%d]=%.6f > [%d]=%.6f", i, result[i].Score, i-1, result[i-1].Score)
 		}
 	}
 }
@@ -171,7 +165,7 @@ func TestFuseResultsSnippetFillFromVec(t *testing.T) {
 	}
 }
 
-func TestFuseResultsNoTopScoreNormalization(t *testing.T) {
+func TestFuseResultsScoresAreRRF(t *testing.T) {
 	lexHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.3},
 	}
@@ -180,12 +174,12 @@ func TestFuseResultsNoTopScoreNormalization(t *testing.T) {
 	}
 	result := FuseResults(lexHits, vecHits, 0.7)
 
-	expected := 0.3*0.3 + 0.7*0.4
-	if result[0].Score != expected {
-		t.Fatalf("expected raw combined score %.4f, got %.4f (should NOT normalize to 1.0)", expected, result[0].Score)
+	expected := 2.0/61.0 + 2.0/61.0 + 0.05
+	if math.Abs(result[0].Score-expected) > 1e-9 {
+		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
 	}
 	if result[0].Score == 1.0 {
-		t.Fatal("score should NOT be normalized to 1.0")
+		t.Fatal("score should NOT be 1.0")
 	}
 }
 
@@ -214,13 +208,7 @@ func TestFuseResultsMultipleChunksSameDoc(t *testing.T) {
 		}
 	}
 
-	score1 := 0.3 * 0.8
-	score2 := 0.3*0.5 + 0.7*0.9
-	score3 := 0.7 * 0.4
-
 	if result[0].ChunkId != 2 {
-		t.Fatalf("expected chunk 2 first (score=%.4f), got chunk %d (score=%.4f)", score2, result[0].ChunkId, result[0].Score)
+		t.Fatalf("expected chunk 2 first (rank 0 in vec, rank 1 in lex), got chunk %d (score=%.6f)", result[0].ChunkId, result[0].Score)
 	}
-	_ = score1
-	_ = score3
 }
