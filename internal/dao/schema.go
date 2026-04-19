@@ -44,6 +44,19 @@ func createTables() error {
 			chunk_id INTEGER PRIMARY KEY,
 			embedding float[1024] distance_metric=cosine
 		)`,
+		`CREATE TABLE IF NOT EXISTS memories (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			content     TEXT NOT NULL,
+			type        TEXT NOT NULL DEFAULT 'episode',
+			embedding   BLOB,
+			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+			content,
+			content='memories',
+			content_rowid='id',
+			tokenize='porter unicode61'
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}

@@ -59,18 +59,18 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	if err != nil {
 		return nil, err
 	}
+	return my.SearchVectorByEmbedding(queryVec, collection, limit), nil
+}
 
+func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) []formatter.SearchHit {
 	vecResults, err := dao.QueryVectors(queryVec, limit)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
 	var hits []formatter.SearchHit
 	for _, r := range vecResults {
 		score := dao.SimilarityToScore(r.Distance)
-		if score < minScore {
-			continue
-		}
 
 		chunk, err := dao.GetChunkById(r.ChunkID)
 		if err != nil {
@@ -98,7 +98,7 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 		})
 	}
 
-	return hits, nil
+	return hits
 }
 
 func (my *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
@@ -113,7 +113,7 @@ func (my *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, co
 		return nil, err
 	}
 
-	fused := FuseResults(lexHits, vecHits, 0.7)
+	fused := FuseResults(lexHits, vecHits)
 
 	var results []formatter.SearchHit
 	for _, h := range fused {

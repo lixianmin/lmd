@@ -90,7 +90,7 @@ func InsertVector(chunkId int64, embedding []float32) error {
 	if err != nil {
 		return err
 	}
-	_, err = withExec("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)", chunkId, vec)
+	_, err = WithExec("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)", chunkId, vec)
 	return err
 }
 

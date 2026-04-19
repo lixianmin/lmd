@@ -25,6 +25,9 @@ func registerRoutes(d *Daemon) http.Handler {
 		{"POST", "/update", (*Daemon).handleUpdate},
 		{"POST", "/embed", (*Daemon).handleEmbed},
 		{"POST", "/rebuild", (*Daemon).handleRebuild},
+		{"POST", "/memory/add", (*Daemon).handleMemoryAdd},
+		{"POST", "/memory/search", (*Daemon).handleMemorySearch},
+		{"POST", "/mcp", (*Daemon).handleMCP},
 	}
 
 	for _, rt := range routes {

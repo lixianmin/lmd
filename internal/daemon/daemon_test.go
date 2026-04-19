@@ -11,7 +11,7 @@ import (
 )
 
 func TestPidPath_UnderCacheDir(t *testing.T) {
-	p := pidPath()
+	p := PidPath()
 	home, _ := os.UserHomeDir()
 	expected := filepath.Join(home, ".cache", "lmd", "daemon.pid")
 	if p != expected {
@@ -25,9 +25,9 @@ func TestWritePid_AndReadPid(t *testing.T) {
 	os.Setenv("XDG_CACHE_HOME", dir)
 	defer os.Setenv("XDG_CACHE_HOME", oldCache)
 
-	originalPidPath := pidPath
-	pidPath = func() string { return filepath.Join(dir, "daemon.pid") }
-	defer func() { pidPath = originalPidPath }()
+	originalPidPath := PidPath
+	PidPath = func() string { return filepath.Join(dir, "daemon.pid") }
+	defer func() { PidPath = originalPidPath }()
 
 	if err := writePid(); err != nil {
 		t.Fatalf("writePid failed: %v", err)
@@ -56,9 +56,9 @@ func TestIsProcessAlive_NonExistent(t *testing.T) {
 
 func TestIsRunning_NoPidFile(t *testing.T) {
 	dir := t.TempDir()
-	originalPidPath := pidPath
-	pidPath = func() string { return filepath.Join(dir, "nonexistent.pid") }
-	defer func() { pidPath = originalPidPath }()
+	originalPidPath := PidPath
+	PidPath = func() string { return filepath.Join(dir, "nonexistent.pid") }
+	defer func() { PidPath = originalPidPath }()
 
 	if IsRunning() {
 		t.Fatal("expected IsRunning false with no pid file")
@@ -70,9 +70,9 @@ func TestIsRunning_DeadPid(t *testing.T) {
 	pidFile := filepath.Join(dir, "daemon.pid")
 	os.WriteFile(pidFile, []byte("999999999"), 0644)
 
-	originalPidPath := pidPath
-	pidPath = func() string { return pidFile }
-	defer func() { pidPath = originalPidPath }()
+	originalPidPath := PidPath
+	PidPath = func() string { return pidFile }
+	defer func() { PidPath = originalPidPath }()
 
 	if IsRunning() {
 		t.Fatal("expected IsRunning false with dead pid")

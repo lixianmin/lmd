@@ -29,7 +29,7 @@ func AddCollection(name, path, globPattern string, ignorePatterns []string) erro
 		s := string(b)
 		ignoreJSON = &s
 	}
-	_, err := withExec("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)",
+	_, err := WithExec("INSERT INTO collections (name, path, glob_pattern, ignore_patterns) VALUES (?, ?, ?, ?)",
 		name, path, globPattern, ignoreJSON)
 	return err
 }
@@ -151,7 +151,7 @@ func ListCollections() ([]CollectionRecord, error) {
 }
 
 func RenameCollection(oldName, newName string) error {
-	res, err := withExec("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?",
+	res, err := WithExec("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?",
 		newName, oldName)
 	if err != nil {
 		return err

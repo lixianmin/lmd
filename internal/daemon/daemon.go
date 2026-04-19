@@ -17,12 +17,15 @@ import (
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
+	"github.com/lixianmin/lmd/internal/mcp"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
+
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
-var pidPath = func() string {
+var PidPath = func() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "lmd", "daemon.pid")
 }
@@ -38,6 +41,7 @@ type Daemon struct {
 	searcher  *service.Searcher
 	embedder  *service.Embedder
 	provider  embedding.EmbeddingProvider
+	memSvc    *service.MemoryService
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -65,8 +69,10 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.provider)
+	my.memSvc = service.NewMemoryService(tok)
 
 	handler := registerRoutes(my)
+	mcp.RegisterHandler(my.handleToolCall)
 	my.server = &http.Server{Handler: handler}
 
 	port := my.cfg.Daemon.Port
@@ -124,7 +130,7 @@ func (my *Daemon) Stop() error {
 	default:
 		close(my.done)
 	}
-	pidFilePath := pidPath()
+	pidFilePath := PidPath()
 	os.Remove(pidFilePath)
 	logo.Info("daemon: stopped")
 	return nil
@@ -167,23 +173,60 @@ func (my *Daemon) syncIndex() {
 }
 
 func (my *Daemon) embedWorker() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-my.done:
 			return
-		default:
-			count := dao.GetUnembeddedCount()
-			if count == 0 {
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			_, err := my.embedder.EmbedBatch(context.Background(), 0)
-			if err != nil {
-				logo.Error("embedWorker: %s", err)
-				time.Sleep(30 * time.Second)
-			}
+		case <-ticker.C:
+			my.embedChunks()
+			my.embedMemories()
 		}
 	}
+}
+
+func (my *Daemon) embedChunks() {
+	count := dao.GetUnembeddedCount()
+	if count == 0 {
+		return
+	}
+	_, err := my.embedder.EmbedBatch(context.Background(), 0)
+	if err != nil {
+		logo.Error("embedWorker chunks: %s", err)
+	}
+}
+
+func (my *Daemon) embedMemories() {
+	count := dao.GetUnembeddedMemoryCount()
+	if count == 0 {
+		return
+	}
+	memories, err := dao.GetUnembeddedMemories(8)
+	if err != nil || len(memories) == 0 {
+		return
+	}
+
+	texts := make([]string, len(memories))
+	for i, m := range memories {
+		texts[i] = m.Content
+	}
+
+	vecs, err := my.provider.EmbedBatch(context.Background(), texts)
+	if err != nil {
+		logo.Error("embedWorker memories: %s", err)
+		return
+	}
+
+	for i, vec := range vecs {
+		blob, err := sqlite_vec.SerializeFloat32(vec)
+		if err != nil {
+			continue
+		}
+		dao.UpdateMemoryEmbedding(memories[i].ID, blob)
+	}
+	logo.Info("embedWorker memories: embedded=%d", len(vecs))
 }
 
 func (my *Daemon) idleMonitor(timeout time.Duration) {
@@ -205,7 +248,7 @@ func (my *Daemon) idleMonitor(timeout time.Duration) {
 }
 
 func writePid() error {
-	path := pidPath()
+	path := PidPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -213,7 +256,7 @@ func writePid() error {
 }
 
 func readPid() (int, error) {
-	data, err := os.ReadFile(pidPath())
+	data, err := os.ReadFile(PidPath())
 	if err != nil {
 		return 0, err
 	}
@@ -249,12 +292,18 @@ func IsRunning() bool {
 }
 
 func StartBackground() error {
-	cmd := exec.Command(os.Args[0], "daemon", "--detach")
+	home, _ := os.UserHomeDir()
+	logDir := filepath.Join(home, ".cache", "lmd", "logs")
+	os.MkdirAll(logDir, 0755)
+	logFile, _ := os.OpenFile(filepath.Join(logDir, "daemon.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+
+	cmd := exec.Command(os.Args[0], "daemon", "start")
 	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		return fmt.Errorf("start daemon failed: %w", err)
 	}
 	cmd.Process.Release()

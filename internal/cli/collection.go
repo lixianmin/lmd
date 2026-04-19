@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,7 +50,23 @@ var collectionAddCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
+			return nil
+		}
+
+		var resp struct {
+			Name    string `json:"name"`
+			Path    string `json:"path"`
+			Mask    string `json:"mask"`
+			Indexed int    `json:"indexed"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		fmt.Printf("Added collection %q: path=%s mask=%s indexed=%d\n", resp.Name, resp.Path, resp.Mask, resp.Indexed)
 		return nil
 	},
 }
@@ -65,7 +82,12 @@ var collectionRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
+			return nil
+		}
+
+		fmt.Printf("Removed collection %q\n", args[0])
 		return nil
 	},
 }
@@ -80,7 +102,32 @@ var collectionListCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
+			return nil
+		}
+
+		var cols []struct {
+			Name     string   `json:"name"`
+			Path     string   `json:"path"`
+			Glob     string   `json:"glob"`
+			DocCount int      `json:"doc_count"`
+			Ignore   []string `json:"ignore,omitempty"`
+		}
+		if err := json.Unmarshal(body, &cols); err != nil {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		if len(cols) == 0 {
+			fmt.Println("No collections.")
+			return nil
+		}
+
+		fmt.Printf("%-15s %-8s %-12s %s\n", "COLLECTION", "DOCS", "GLOB", "PATH")
+		for _, c := range cols {
+			fmt.Printf("%-15s %-8d %-12s %s\n", c.Name, c.DocCount, c.Glob, c.Path)
+		}
 		return nil
 	},
 }
@@ -96,7 +143,12 @@ var collectionRenameCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
+			return nil
+		}
+
+		fmt.Printf("Renamed %q -> %q\n", args[0], args[1])
 		return nil
 	},
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -18,7 +19,22 @@ var embedCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
+			return nil
+		}
+
+		var resp struct {
+			Embedded int `json:"embedded"`
+			Skipped  int `json:"skipped"`
+			Failed   int `json:"failed"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			fmt.Print(string(body))
+			return nil
+		}
+
+		fmt.Printf("Embedded: %d  Skipped: %d  Failed: %d\n", resp.Embedded, resp.Skipped, resp.Failed)
 		return nil
 	},
 }

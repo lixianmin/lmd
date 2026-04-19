@@ -52,18 +52,14 @@ func TestRRFDefaultWeights(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(result))
 	}
 
-	expected1 := 2.0/61.0 + 0.05
-	expected3 := 1.0/61.0 + 0.05
-
-	if math.Abs(result[0].Score-expected1) > 1e-9 {
-		t.Fatalf("chunk1 (weight 2.0): expected %.6f, got %.6f", expected1, result[0].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("rank 1: expected 1.0, got %.6f", result[0].Score)
 	}
-	if math.Abs(result[2].Score-expected3) > 1e-9 {
-		t.Fatalf("chunk3 (weight 1.0): expected %.6f, got %.6f", expected3, result[2].Score)
+	if result[1].Score != 0.5 {
+		t.Fatalf("rank 2: expected 0.5, got %.6f", result[1].Score)
 	}
-
-	if result[2].Score >= result[0].Score {
-		t.Fatalf("third list (weight 1.0) should score below first (weight 2.0): %.6f vs %.6f", result[2].Score, result[0].Score)
+	if result[2].Score-0.333333 > 0.001 {
+		t.Fatalf("rank 3: expected ~0.333, got %.6f", result[2].Score)
 	}
 }
 
@@ -85,22 +81,11 @@ func TestRRFTopRankBonus(t *testing.T) {
 		t.Fatalf("expected 4 results, got %d", len(result))
 	}
 
-	score1 := 1.0/61.0 + 0.05
-	score2 := 1.0/62.0 + 0.02
-	score3 := 1.0/63.0 + 0.02
-	score4 := 1.0 / 64.0
-
-	if math.Abs(result[0].Score-score1) > 1e-9 {
-		t.Fatalf("rank0 bonus: expected %.6f, got %.6f", score1, result[0].Score)
-	}
-	if math.Abs(result[1].Score-score2) > 1e-9 {
-		t.Fatalf("rank1 bonus: expected %.6f, got %.6f", score2, result[1].Score)
-	}
-	if math.Abs(result[2].Score-score3) > 1e-9 {
-		t.Fatalf("rank2 bonus: expected %.6f, got %.6f", score3, result[2].Score)
-	}
-	if math.Abs(result[3].Score-score4) > 1e-9 {
-		t.Fatalf("rank3 no bonus: expected %.6f, got %.6f", score4, result[3].Score)
+	expected := []float64{1.0, 0.5, 1.0 / 3.0, 0.25}
+	for i, exp := range expected {
+		if math.Abs(result[i].Score-exp) > 1e-9 {
+			t.Fatalf("rank %d: expected %.6f, got %.6f", i+1, exp, result[i].Score)
+		}
 	}
 }
 
@@ -160,9 +145,8 @@ func TestRRFSameChunkBothLists(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(result))
 	}
 
-	expected := 1.0/61.0 + 1.0/61.0 + 0.05
-	if math.Abs(result[0].Score-expected) > 1e-9 {
-		t.Fatalf("expected combined score %.6f, got %.6f", expected, result[0].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("expected score 1.0 for single result, got %.6f", result[0].Score)
 	}
 }
 

@@ -9,12 +9,14 @@ import (
 )
 
 var toolDefs = []ToolDef{
-	{Name: "search", Description: "Hybrid search (BM25 + vector)"},
+	{Name: "search", Description: "Hybrid search (BM25 + vector + HyDE)"},
 	{Name: "search_lex", Description: "BM25 keyword search"},
 	{Name: "search_vector", Description: "Vector semantic search"},
 	{Name: "get", Description: "Retrieve document by path or docid"},
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},
+	{Name: "memory_add", Description: "Add agent memory"},
+	{Name: "memory_search", Description: "Search agent memories"},
 }
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)
@@ -25,7 +27,7 @@ func RegisterHandler(h ToolHandler) {
 	toolHandler = h
 }
 
-func parseLine(line []byte) (*JSONRPCRequest, error) {
+func ParseLine(line []byte) (*JSONRPCRequest, error) {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
 		return nil, nil
@@ -37,7 +39,7 @@ func parseLine(line []byte) (*JSONRPCRequest, error) {
 	return &req, nil
 }
 
-func handleRequest(req JSONRPCRequest) JSONRPCResponse {
+func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return JSONRPCResponse{
@@ -90,11 +92,11 @@ func Serve(r io.Reader, w io.Writer) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
-		req, err := parseLine(scanner.Bytes())
+		req, err := ParseLine(scanner.Bytes())
 		if err != nil || req == nil {
 			continue
 		}
-		resp := handleRequest(*req)
+		resp := HandleRequest(*req)
 		if resp.ID.String() != "" {
 			data, _ := json.Marshal(resp)
 			data = append(data, '\n')

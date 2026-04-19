@@ -61,7 +61,7 @@ func withTransaction(fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-func withExec(query string, args ...any) (sql.Result, error) {
+func WithExec(query string, args ...any) (sql.Result, error) {
 	stmt, err := DB.db.Prepare(query)
 	if err != nil {
 		return nil, err

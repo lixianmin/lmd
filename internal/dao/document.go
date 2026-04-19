@@ -47,7 +47,7 @@ func UpsertDocument(doc *DocumentRecord) error {
 	).Scan(&existingID)
 
 	if err == sql.ErrNoRows {
-		res, err := withExec(
+		res, err := WithExec(
 			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
 			doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime,
@@ -65,7 +65,7 @@ func UpsertDocument(doc *DocumentRecord) error {
 
 	doc.Id = existingID
 
-	_, err = withExec(
+	_, err = WithExec(
 		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, file_mod_time=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
 		doc.DocId, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime, existingID,
 	)
@@ -116,7 +116,7 @@ func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
 }
 
 func DeleteDocument(id int64) error {
-	_, err := withExec("DELETE FROM documents WHERE id=?", id)
+	_, err := WithExec("DELETE FROM documents WHERE id=?", id)
 	return err
 }
 

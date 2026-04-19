@@ -73,16 +73,19 @@ func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []for
 
 	results := make([]formatter.SearchHit, 0, len(scores))
 	for _, e := range scores {
-		e.hit.Score = e.score
 		results = append(results, e.hit)
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
+		if scores[results[i].ChunkId].score != scores[results[j].ChunkId].score {
+			return scores[results[i].ChunkId].score > scores[results[j].ChunkId].score
 		}
 		return results[i].ChunkId < results[j].ChunkId
 	})
+
+	for i := range results {
+		results[i].Score = 1.0 / float64(i+1)
+	}
 
 	return results
 }

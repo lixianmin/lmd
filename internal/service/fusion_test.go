@@ -1,7 +1,6 @@
 package service
 
 import (
-	"math"
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/formatter"
@@ -19,7 +18,7 @@ func TestFuseResultsBasic(t *testing.T) {
 		{ChunkId: 4, DocId: "d", Score: 0.5},
 	}
 
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
 	if len(result) != 4 {
 		t.Fatalf("expected 4 results, got %d", len(result))
@@ -38,15 +37,14 @@ func TestFuseResultsScoreCalculation(t *testing.T) {
 		{ChunkId: 1, DocId: "a", Score: 1.0},
 	}
 
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
 	if len(result) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(result))
 	}
 
-	expected := 2.0/61.0 + 2.0/61.0 + 0.05
-	if math.Abs(result[0].Score-expected) > 1e-9 {
-		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("expected score 1.0 for top result, got %.6f", result[0].Score)
 	}
 }
 
@@ -54,13 +52,12 @@ func TestFuseResultsVectorOnly(t *testing.T) {
 	vecHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.8},
 	}
-	result := FuseResults(nil, vecHits, 0.7)
+	result := FuseResults(nil, vecHits)
 	if len(result) != 1 || result[0].ChunkId != 1 {
 		t.Fatal("expected vector-only results when lex is empty")
 	}
-	expected := 2.0/61.0 + 0.05
-	if math.Abs(result[0].Score-expected) > 1e-9 {
-		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("expected score 1.0 for top result, got %.6f", result[0].Score)
 	}
 }
 
@@ -68,18 +65,17 @@ func TestFuseResultsLexOnly(t *testing.T) {
 	lexHits := []formatter.SearchHit{
 		{ChunkId: 2, DocId: "b", Score: 0.9},
 	}
-	result := FuseResults(lexHits, nil, 0.7)
+	result := FuseResults(lexHits, nil)
 	if len(result) != 1 || result[0].ChunkId != 2 {
 		t.Fatal("expected lex-only results when vec is empty")
 	}
-	expected := 2.0/61.0 + 0.05
-	if math.Abs(result[0].Score-expected) > 1e-9 {
-		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("expected score 1.0 for top result, got %.6f", result[0].Score)
 	}
 }
 
 func TestFuseResultsBothEmpty(t *testing.T) {
-	result := FuseResults(nil, nil, 0.7)
+	result := FuseResults(nil, nil)
 	if len(result) != 0 {
 		t.Fatal("expected empty result for empty inputs")
 	}
@@ -94,7 +90,7 @@ func TestFuseResultsChunkDeduplication(t *testing.T) {
 		{ChunkId: 1, DocId: "a", Score: 1.0},
 		{ChunkId: 3, DocId: "a", Score: 0.8},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
 	seen := map[int64]int{}
 	for _, h := range result {
@@ -120,7 +116,7 @@ func TestFuseResultsOrdering(t *testing.T) {
 		{ChunkId: 1, DocId: "a", Score: 0.95},
 		{ChunkId: 2, DocId: "b", Score: 0.3},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
 	if result[0].ChunkId != 1 {
 		t.Fatalf("expected chunk 1 first (rank 0 in both lists), got %d", result[0].ChunkId)
@@ -140,7 +136,7 @@ func TestFuseResultsSnippetMerge(t *testing.T) {
 	vecHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.9, Snippet: "vec snippet"},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 	if len(result) != 1 {
 		t.Fatal("expected 1 result")
 	}
@@ -156,7 +152,7 @@ func TestFuseResultsSnippetFillFromVec(t *testing.T) {
 	vecHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.9, Snippet: "vec snippet"},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 	if len(result) != 1 {
 		t.Fatal("expected 1 result")
 	}
@@ -165,21 +161,17 @@ func TestFuseResultsSnippetFillFromVec(t *testing.T) {
 	}
 }
 
-func TestFuseResultsScoresAreRRF(t *testing.T) {
+func TestFuseResultsScoresAreInverseRank(t *testing.T) {
 	lexHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.3},
 	}
 	vecHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.4},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
-	expected := 2.0/61.0 + 2.0/61.0 + 0.05
-	if math.Abs(result[0].Score-expected) > 1e-9 {
-		t.Fatalf("expected RRF score %.6f, got %.6f", expected, result[0].Score)
-	}
-	if result[0].Score == 1.0 {
-		t.Fatal("score should NOT be 1.0")
+	if result[0].Score != 1.0 {
+		t.Fatalf("expected score 1.0 for top result, got %.6f", result[0].Score)
 	}
 }
 
@@ -192,7 +184,7 @@ func TestFuseResultsMultipleChunksSameDoc(t *testing.T) {
 		{ChunkId: 2, DocId: "a", Score: 0.9},
 		{ChunkId: 3, DocId: "a", Score: 0.4},
 	}
-	result := FuseResults(lexHits, vecHits, 0.7)
+	result := FuseResults(lexHits, vecHits)
 
 	if len(result) != 3 {
 		t.Fatalf("expected 3 unique chunks, got %d", len(result))

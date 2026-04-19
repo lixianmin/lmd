@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -16,7 +15,6 @@ var (
 	searchLimit      int
 	searchFull       bool
 	searchMinScore   float64
-	outputJSON       bool
 	outputFormat     string
 )
 
@@ -26,13 +24,13 @@ var searchCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.Search(args[0], searchCollection, searchLimit, searchMinScore, outputFormat, outputJSON)
+		body, err := client.Search(args[0], searchCollection, searchLimit, searchMinScore, outputFormat, jsonOut)
 		if err != nil {
 			return err
 		}
 
-		if outputJSON {
-			fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
 			return nil
 		}
 
@@ -56,8 +54,8 @@ var vsearchCmd = &cobra.Command{
 			return err
 		}
 
-		if outputJSON {
-			fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
 			return nil
 		}
 
@@ -67,7 +65,7 @@ var vsearchCmd = &cobra.Command{
 
 var queryCmd = &cobra.Command{
 	Use:   "query <query>",
-	Short: "Hybrid search (BM25 + vector with weighted fusion)",
+	Short: "Hybrid search (BM25 + vector + HyDE)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -76,8 +74,8 @@ var queryCmd = &cobra.Command{
 			return err
 		}
 
-		if outputJSON {
-			fmt.Print(string(body))
+		if jsonOut {
+			printBody(body)
 			return nil
 		}
 
@@ -97,7 +95,7 @@ func formatResponse(body []byte) error {
 }
 
 func formatResults(w *os.File, hits []formatter.SearchHit) error {
-	if outputJSON {
+	if jsonOut {
 		return formatter.NewJSONFormatter().Format(w, hits)
 	}
 	switch outputFormat {
@@ -113,7 +111,6 @@ func formatResults(w *os.File, hits []formatter.SearchHit) error {
 func init() {
 	searchCmd.Flags().StringVarP(&searchCollection, "collection", "c", "", "search in specific collection")
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "n", 5, "number of results")
-	searchCmd.Flags().BoolVar(&outputJSON, "json", false, "output as JSON")
 	searchCmd.Flags().StringVar(&outputFormat, "format", "text", "output format: text, md, csv")
 	searchCmd.Flags().BoolVar(&searchFull, "full", false, "show full document content")
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "minimum score threshold")

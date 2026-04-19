@@ -15,7 +15,7 @@ func TestHandleInitialize(t *testing.T) {
 		Params:  json.RawMessage(`{}`),
 	}
 
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error != nil {
 		t.Fatalf("initialize failed: %v", resp.Error.Message)
 	}
@@ -39,7 +39,7 @@ func TestHandleToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error != nil {
 		t.Fatalf("tools/list failed: %v", resp.Error.Message)
 	}
@@ -56,7 +56,7 @@ func TestHandleToolsList(t *testing.T) {
 	for _, tool := range result.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"search", "search_lex", "search_vector", "get", "status", "list_collections"} {
+	for _, name := range []string{"search", "search_lex", "search_vector", "get", "status", "list_collections", "memory_add", "memory_search"} {
 		if !names[name] {
 			t.Fatalf("expected '%s' tool", name)
 		}
@@ -77,7 +77,7 @@ func TestHandleToolsCall(t *testing.T) {
 		Params:  json.RawMessage(`{"name":"search","arguments":{"query":"test"}}`),
 	}
 
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error != nil {
 		t.Fatalf("tools/call failed: %v", resp.Error.Message)
 	}
@@ -98,7 +98,7 @@ func TestHandleToolsCallError(t *testing.T) {
 		Params:  json.RawMessage(`{"name":"search"}`),
 	}
 
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error == nil {
 		t.Fatal("expected error from handler")
 	}
@@ -117,7 +117,7 @@ func TestHandleToolsCallNoHandler(t *testing.T) {
 		Params:  json.RawMessage(`{"name":"search"}`),
 	}
 
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error == nil {
 		t.Fatal("expected error with no handler")
 	}
@@ -131,7 +131,7 @@ func TestHandleInitializedNotification(t *testing.T) {
 		JSONRPC: "2.0",
 		Method:  "notifications/initialized",
 	}
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.JSONRPC != "" {
 		t.Fatal("expected empty response for notification")
 	}
@@ -143,7 +143,7 @@ func TestHandleUnknownMethod(t *testing.T) {
 		ID:      json.Number("99"),
 		Method:  "nonexistent",
 	}
-	resp := handleRequest(req)
+	resp := HandleRequest(req)
 	if resp.Error == nil {
 		t.Fatal("expected error for unknown method")
 	}
@@ -154,7 +154,7 @@ func TestHandleUnknownMethod(t *testing.T) {
 
 func TestParseLine(t *testing.T) {
 	line := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
-	msg, err := parseLine([]byte(line))
+	msg, err := ParseLine([]byte(line))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,21 +164,21 @@ func TestParseLine(t *testing.T) {
 }
 
 func TestParseLineEmpty(t *testing.T) {
-	msg, err := parseLine([]byte(""))
+	msg, err := ParseLine([]byte(""))
 	if err != nil || msg != nil {
 		t.Fatal("expected nil for empty line")
 	}
 }
 
 func TestParseLineWhitespace(t *testing.T) {
-	msg, err := parseLine([]byte("   "))
+	msg, err := ParseLine([]byte("   "))
 	if err != nil || msg != nil {
 		t.Fatal("expected nil for whitespace-only line")
 	}
 }
 
 func TestParseLineInvalidJSON(t *testing.T) {
-	_, err := parseLine([]byte("not json"))
+	_, err := ParseLine([]byte("not json"))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}

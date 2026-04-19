@@ -149,3 +149,18 @@ func (c *Client) Embed() ([]byte, error) {
 func (c *Client) Rebuild() ([]byte, error) {
 	return c.Post("/rebuild", nil)
 }
+
+func (c *Client) MemoryAdd(content, memType string) ([]byte, error) {
+	return c.Post("/memory/add", map[string]interface{}{
+		"content": content,
+		"type":    memType,
+	})
+}
+
+func (c *Client) MemorySearch(query string, limit int, memType string) ([]byte, error) {
+	return c.Post("/memory/search", map[string]interface{}{
+		"query": query,
+		"limit": limit,
+		"type":  memType,
+	})
+}

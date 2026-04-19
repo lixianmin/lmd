@@ -12,6 +12,7 @@ type Config struct {
 	Embedding EmbeddingConfig `yaml:"embedding"`
 	Vector    VectorConfig    `yaml:"vector"`
 	Database  DatabaseConfig  `yaml:"database"`
+	HyDE      HyDEConfig      `yaml:"hyde"`
 }
 
 type DaemonConfig struct {
@@ -42,6 +43,11 @@ type DatabaseConfig struct {
 	Path string `yaml:"path"`
 }
 
+type HyDEConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Model   string `yaml:"model"`
+}
+
 var Cfg *Config
 
 var configDir string
@@ -57,7 +63,7 @@ func DefaultConfig() *Config {
 		Daemon: DaemonConfig{
 			Port:              18200,
 			IdleTimeout:       "30m",
-			IndexPollInterval: "60s",
+			IndexPollInterval: "30s",
 		},
 		Embedding: EmbeddingConfig{
 			Provider: "ollama",
@@ -76,6 +82,10 @@ func DefaultConfig() *Config {
 		Database: DatabaseConfig{
 			Path: filepath.Join(home, ".cache", "lmd", "index.sqlite"),
 		},
+		HyDE: HyDEConfig{
+			Enabled: true,
+			Model:   "qwen3:0.6b-q8_0",
+		},
 	}
 }
 
@@ -90,12 +100,12 @@ func Load() (*Config, error) {
 		}
 		return nil, err
 	}
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	cfg := DefaultConfig()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
-	Cfg = &cfg
-	return &cfg, nil
+	Cfg = cfg
+	return cfg, nil
 }
 
 func SaveDefault() error {

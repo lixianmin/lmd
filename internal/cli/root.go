@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -10,8 +11,8 @@ import (
 )
 
 var (
-	indexPath string
-	verbose   bool
+	verbose bool
+	jsonOut bool
 )
 
 var rootCmd = &cobra.Command{
@@ -21,6 +22,10 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := config.Load(); err != nil {
 			return fmt.Errorf("config load failed: %w", err)
+		}
+
+		if cmd.HasParent() && cmd.Parent() == daemonCmd {
+			return nil
 		}
 
 		if cmd == daemonCmd {
@@ -44,7 +49,21 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&indexPath, "index", "", "database file path (default: ~/.cache/lmd/index.sqlite)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable debug-level logging")
+	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "output as JSON")
 	rootCmd.Version = "0.1.0"
+}
+
+func printJSON(v interface{}) {
+	data, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Println(string(data))
+}
+
+func printBody(body []byte) {
+	var v interface{}
+	if json.Unmarshal(body, &v) == nil {
+		printJSON(v)
+	} else {
+		fmt.Print(string(body))
+	}
 }
