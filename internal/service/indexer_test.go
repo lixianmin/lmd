@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/tokenizer"
@@ -83,6 +84,73 @@ func TestIndexCollectionDetectDeletion(t *testing.T) {
 	}
 
 	_ = db
+}
+
+func TestTimestampUnchangedFilesSkipped(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	_ = dao.AddCollection("test", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result1.Indexed != 2 {
+		t.Fatalf("first run: expected 2 indexed, got %d", result1.Indexed)
+	}
+
+	result2, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result2.Unchanged != 2 {
+		t.Fatalf("second run: expected 2 unchanged via timestamp, got indexed=%d updated=%d unchanged=%d",
+			result2.Indexed, result2.Updated, result2.Unchanged)
+	}
+}
+
+func TestTimestampChangedFilesReindexed(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	_ = dao.AddCollection("test", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result1.Indexed != 2 {
+		t.Fatalf("first run: expected 2 indexed, got %d", result1.Indexed)
+	}
+
+	target := filepath.Join(dir, "simple.md")
+	orig, _ := os.ReadFile(target)
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(target, append(orig, []byte("\n\n# Updated content")...), 0644)
+
+	result2, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result2.Updated != 1 {
+		t.Fatalf("expected 1 updated after modification, got indexed=%d updated=%d unchanged=%d",
+			result2.Indexed, result2.Updated, result2.Unchanged)
+	}
+}
+
+func TestNewFilesIndexed(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	_ = dao.AddCollection("test", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result1.Indexed != 2 {
+		t.Fatalf("first run: expected 2 indexed, got %d", result1.Indexed)
+	}
+
+	os.WriteFile(filepath.Join(dir, "newfile.md"), []byte("# New File\n\nNew content."), 0644)
+
+	result2, _ := idx.UpdateCollection("test", dir, "*.md", nil)
+	if result2.Indexed != 1 {
+		t.Fatalf("expected 1 new indexed, got indexed=%d updated=%d unchanged=%d",
+			result2.Indexed, result2.Updated, result2.Unchanged)
+	}
 }
 
 func setupIndexTest(t *testing.T) (*dao.Store, string, func()) {

@@ -34,6 +34,11 @@ func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	}
 }
 
+type docInfo struct {
+	hash        string
+	fileModTime int64
+}
+
 func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
@@ -46,9 +51,9 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 	if err != nil {
 		return nil, err
 	}
-	existingPaths := make(map[string]string)
+	existingPaths := make(map[string]docInfo)
 	for _, d := range existingDocs {
-		existingPaths[d.Path] = d.Hash
+		existingPaths[d.Path] = docInfo{hash: d.Hash, fileModTime: d.FileModTime}
 	}
 
 	foundPaths := make(map[string]bool)
@@ -76,41 +81,87 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			return nil
 		}
 
+		stat, err := os.Stat(path)
+		if err != nil {
+			return nil
+		}
+		fileModTime := stat.ModTime().UnixNano()
+
+		relPath = filepath.ToSlash(relPath)
+		foundPaths[relPath] = true
+
+		if existing, exists := existingPaths[relPath]; exists {
+			if existing.fileModTime == fileModTime {
+				result.Unchanged++
+				return nil
+			}
+
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			hash := hashContent(content)
+
+			if existing.hash == hash {
+				doc := &dao.DocumentRecord{
+					Collection:  collectionName,
+					Path:        relPath,
+					Hash:        hash,
+					FileSize:    int64(len(content)),
+					FileModTime: fileModTime,
+				}
+				_ = dao.UpsertDocument(doc)
+				result.Unchanged++
+				return nil
+			}
+
+			result.Updated++
+
+			title := extractTitle(string(content), relPath)
+			body := string(content)
+
+			existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
+			if existingDoc != nil {
+				logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
+				dao.DeleteVectorsByDocId(existingDoc.Id)
+			}
+
+			doc := &dao.DocumentRecord{
+				Collection:  collectionName,
+				Path:        relPath,
+				Title:       title,
+				Body:        body,
+				Hash:        hash,
+				FileSize:    int64(len(content)),
+				FileModTime: fileModTime,
+			}
+
+			if err := dao.UpsertDocument(doc); err != nil {
+				return err
+			}
+
+			return idx.createChunks(doc.Id, body, hash)
+		}
+
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil
 		}
 
 		hash := hashContent(content)
-		relPath = filepath.ToSlash(relPath)
-		foundPaths[relPath] = true
-
-		if existingHash, exists := existingPaths[relPath]; exists {
-			if existingHash == hash {
-				result.Unchanged++
-				return nil
-			}
-			result.Updated++
-		} else {
-			result.Indexed++
-		}
+		result.Indexed++
 
 		title := extractTitle(string(content), relPath)
 		body := string(content)
 
-		existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
-		if existingDoc != nil {
-			logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
-			dao.DeleteVectorsByDocId(existingDoc.Id)
-		}
-
 		doc := &dao.DocumentRecord{
-			Collection: collectionName,
-			Path:       relPath,
-			Title:      title,
-			Body:       body,
-			Hash:       hash,
-			FileSize:   int64(len(content)),
+			Collection:  collectionName,
+			Path:        relPath,
+			Title:       title,
+			Body:        body,
+			Hash:        hash,
+			FileSize:    int64(len(content)),
+			FileModTime: fileModTime,
 		}
 
 		if err := dao.UpsertDocument(doc); err != nil {

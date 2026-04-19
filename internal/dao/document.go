@@ -10,17 +10,18 @@ import (
 )
 
 type DocumentRecord struct {
-	Id         int64
-	DocId      string
-	Collection string
-	Path       string
-	Title      string
-	Body       string
-	Hash       string
-	FileSize   int64
-	ModifiedAt time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Id          int64
+	DocId       string
+	Collection  string
+	Path        string
+	Title       string
+	Body        string
+	Hash        string
+	FileSize    int64
+	FileModTime int64
+	ModifiedAt  time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func generateDocId(collection, path, hash string) string {
@@ -47,9 +48,9 @@ func UpsertDocument(doc *DocumentRecord) error {
 
 	if err == sql.ErrNoRows {
 		res, err := withExec(
-			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, modified_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
-			doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize,
+			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
+			doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime,
 		)
 		if err != nil {
 			return err
@@ -65,8 +66,8 @@ func UpsertDocument(doc *DocumentRecord) error {
 	doc.Id = existingID
 
 	_, err = withExec(
-		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
-		doc.DocId, doc.Title, doc.Body, doc.Hash, doc.FileSize, existingID,
+		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, file_mod_time=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
+		doc.DocId, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime, existingID,
 	)
 	return err
 }
@@ -120,7 +121,7 @@ func DeleteDocument(id int64) error {
 }
 
 func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
-	rows, err := withQuery("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE collection=?", collection)
+	rows, err := withQuery("SELECT id, docid, collection, path, title, body, hash, file_size, file_mod_time, created_at, updated_at FROM documents WHERE collection=?", collection)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,7 @@ func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
 	for rows.Next() {
 		var doc DocumentRecord
 		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
-			&doc.Body, &doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			&doc.Body, &doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}
 		docs = append(docs, doc)

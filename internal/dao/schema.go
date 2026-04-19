@@ -52,5 +52,7 @@ func createTables() error {
 			return err
 		}
 	}
+
+	_, _ = DB.db.Exec("ALTER TABLE documents ADD COLUMN file_mod_time INTEGER DEFAULT 0")
 	return nil
 }
