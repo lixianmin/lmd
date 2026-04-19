@@ -33,7 +33,8 @@ This addresses:
 ┌─────────────┐    HTTP/MCP      │  ├─ Indexer (poll 60s)       │
 │  AI Agent   │ ◄──────────────► │  ├─ Embedder (background)    │
 │  (Cursor)   │    stdio/HTTP    │  ├─ Searcher                 │
-└─────────────┘                  │  └─ Collection manager       │
+└─────────────┘                  │  ├─ Collection manager       │
+                                 │  └─ Memory layer (agent)     │
                                  │                              │
                                  │  Config: ~/.config/lmd/      │
                                  │  DB:     ~/.cache/lmd/        │
@@ -71,6 +72,8 @@ This addresses:
 | POST | `/update` | Trigger manual index sync | `{"collection":""}` | Update result |
 | POST | `/embed` | Trigger manual embedding | - | Embed result |
 | POST | `/rebuild` | Full rebuild | - | Result |
+| POST | `/memory/add` | Add agent memory | `{"content":"...","type":"episode"}` | `{id, type, created_at}` |
+| POST | `/memory/search` | Search agent memories | `{"query":"...","limit":10,"type":""}` | `[{id, content, type, score, created_at}]` |
 
 ### Background Goroutines
 
@@ -284,8 +287,81 @@ hyde:
 8. **MCP in daemon** — MCP as daemon endpoint
 9. **HyDE** — Ollama-based query expansion
 10. **Collection add auto-index** — immediate indexing on add
+11. **Memory layer** — memories table + memory_add/search + time decay
 
-## 11. Testing
+## 11. Agent Memory Layer
+
+LMD doubles as a memory layer for AI agents. Agents store and retrieve memories via MCP tools or CLI commands.
+
+### Memory Table
+
+Independent from the document/collection system. Shares the embedding provider.
+
+```sql
+CREATE TABLE memories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    content     TEXT NOT NULL,
+    type        TEXT NOT NULL DEFAULT 'episode',  -- fact | episode | relation
+    embedding   BLOB,                              -- float32 vector (via sqlite-vec or blob)
+    created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
+);
+
+CREATE VIRTUAL TABLE memories_fts USING fts5(
+    content,
+    content='memories',
+    content_rowid='id',
+    tokenize='porter unicode61'
+);
+```
+
+### Memory Types and Decay
+
+| Type | Description | Half-life | Decay behavior |
+|------|-------------|-----------|---------------|
+| `fact` | Factual knowledge | Never | Score unchanged |
+| `episode` | Events/experiences | 15 days | `score × 0.5^(age_days/15)` |
+| `relation` | Preferences/associations | 180 days | `score × 0.5^(age_days/180)` |
+
+### Operations
+
+Only two operations — no explicit delete. Memories are never physically deleted; old memories naturally become irrelevant through score decay during search.
+
+**memory_add**: Insert a memory, auto-embed content, insert FTS entry.
+- MCP tool: `memory_add(content: string, type: "fact"|"episode"|"relation")`
+- CLI: `lmd memory add "..." --type episode`
+- Returns: `{id, type, created_at}`
+
+**memory_search**: Search memories with time-decay scoring.
+- MCP tool: `memory_search(query: string, limit?: number, type?: string)`
+- CLI: `lmd memory search "..." --type episode`
+- Scoring: raw_score × decay_factor (by type and age)
+- Returns: `[{id, content, type, score, created_at}]`
+
+### Time Decay in Search
+
+Applied at query time, not stored. For each search result:
+
+```
+age_days = (now - created_at).Hours() / 24
+decay = type == "fact" ? 1.0 : 0.5^(age_days / half_life)
+final_score = raw_score * decay
+```
+
+This means:
+- A 15-day-old episode gets 50% of its original score
+- A 30-day-old episode gets 25%
+- A 180-day-old relation gets 50%
+- Facts always get 100%
+
+### Design Notes for Future-proofing
+
+1. **Schema coexists** with documents — no conflicts, same SQLite DB
+2. **Embedding shared** — memories use the same Ollama provider as documents
+3. **MCP tools are additive** — `memory_add` and `memory_search` don't affect existing tools
+4. **No delete needed** — decay handles relevance naturally; physical storage is cheap
+5. **Collection filtering is separate** — `memory_search` queries memories table, `search`/`query` query documents
+
+## 12. Testing
 
 1. Unit: config load/save, default generation
 2. Unit: OllamaProvider with mock HTTP server
@@ -294,3 +370,5 @@ hyde:
 5. Integration: daemon start → CLI command → response
 6. Integration: file change → auto-reindex → search finds new content
 7. Integration: collection add → immediate indexing → correct doc count
+8. Unit: memory_add + memory_search with time decay
+9. Integration: MCP memory_add → memory_search finds it
