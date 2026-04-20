@@ -1,0 +1,3 @@
+[submodule "llama-go"]
+	path = llama-go
+	url = https://github.com/tcpipuk/llama-go.git
