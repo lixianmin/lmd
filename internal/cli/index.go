@@ -9,53 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var updateCollection string
-
-var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Scan filesystem and update index",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.Update(updateCollection)
-		if err != nil {
-			return err
-		}
-
-		if jsonOut {
-			printBody(body)
-			return nil
-		}
-
-		var resp struct {
-			Collections []struct {
-				Name      string `json:"name"`
-				Indexed   int    `json:"indexed"`
-				Updated   int    `json:"updated"`
-				Unchanged int    `json:"unchanged"`
-				Removed   int    `json:"removed"`
-			} `json:"collections"`
-			Totals struct {
-				Indexed   int `json:"indexed"`
-				Updated   int `json:"updated"`
-				Unchanged int `json:"unchanged"`
-				Removed   int `json:"removed"`
-			} `json:"totals"`
-			Elapsed string `json:"elapsed"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			fmt.Print(string(body))
-			return nil
-		}
-
-		for _, c := range resp.Collections {
-			fmt.Printf("  %s: +%d ~%d =%d -%d\n", c.Name, c.Indexed, c.Updated, c.Unchanged, c.Removed)
-		}
-		fmt.Printf("  totals: indexed=%d updated=%d unchanged=%d removed=%d elapsed=%s\n",
-			resp.Totals.Indexed, resp.Totals.Updated, resp.Totals.Unchanged, resp.Totals.Removed, resp.Elapsed)
-		return nil
-	},
-}
-
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show index status",
@@ -136,8 +89,6 @@ var rebuildCmd = &cobra.Command{
 }
 
 func init() {
-	updateCmd.Flags().StringVarP(&updateCollection, "collection", "c", "", "update specific collection only")
-	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(rebuildCmd)
 }

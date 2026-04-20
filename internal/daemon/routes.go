@@ -40,7 +40,6 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 5
 	}
 
-	my.syncIndex()
 	results, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -70,8 +69,7 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 		req.MinScore = 0.3
 	}
 
-	searcher := service.NewSearcher(nil)
-	results, err := searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	results, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -364,88 +362,6 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"old": req.Old, "new": req.New, "status": "renamed"})
 }
 
-func (my *Daemon) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Collection string `json:"collection"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-
-	start := time.Now()
-	logo.Info("handleUpdate: starting")
-
-	cols, err := dao.ListCollections()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	type colResult struct {
-		Name      string `json:"name"`
-		Indexed   int    `json:"indexed"`
-		Updated   int    `json:"updated"`
-		Unchanged int    `json:"unchanged"`
-		Removed   int    `json:"removed"`
-	}
-
-	var results []colResult
-	totalIndexed := 0
-	totalUpdated := 0
-	totalUnchanged := 0
-	totalRemoved := 0
-
-	for _, col := range cols {
-		if req.Collection != "" && col.Name != req.Collection {
-			continue
-		}
-
-		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Error("handleUpdate: %s failed: %s", col.Name, err)
-			continue
-		}
-
-		results = append(results, colResult{
-			Name:      col.Name,
-			Indexed:   result.Indexed,
-			Updated:   result.Updated,
-			Unchanged: result.Unchanged,
-			Removed:   result.Removed,
-		})
-		totalIndexed += result.Indexed
-		totalUpdated += result.Updated
-		totalUnchanged += result.Unchanged
-		totalRemoved += result.Removed
-	}
-
-	logo.Info("handleUpdate: done indexed=%d updated=%d unchanged=%d removed=%d elapsed=%s",
-		totalIndexed, totalUpdated, totalUnchanged, totalRemoved, time.Since(start))
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"collections": results,
-		"totals": map[string]int{
-			"indexed":   totalIndexed,
-			"updated":   totalUpdated,
-			"unchanged": totalUnchanged,
-			"removed":   totalRemoved,
-		},
-		"elapsed": time.Since(start).String(),
-	})
-}
-
-func (my *Daemon) handleEmbed(w http.ResponseWriter, r *http.Request) {
-	result, err := my.embedder.EmbedBatch(context.Background(), 0)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"embedded": result.Embedded,
-		"skipped":  result.Skipped,
-		"failed":   result.Failed,
-	})
-}
-
 func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	logo.Info("handleRebuild: starting")
@@ -613,7 +529,7 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 
 func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (interface{}, error) {
 	switch toolName {
-	case "search", "search_lex":
+	case "search_lex":
 		var req struct {
 			Query      string `json:"query"`
 			Collection string `json:"collection"`
@@ -630,6 +546,60 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		return map[string]interface{}{"hits": hits}, nil
+
+	case "search":
+		var req struct {
+			Query      string  `json:"query"`
+			Collection string  `json:"collection"`
+			Limit      int     `json:"limit"`
+			MinScore   float64 `json:"min_score"`
+		}
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, err
+		}
+		if req.Limit <= 0 {
+			req.Limit = 5
+		}
+		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*3, 0)
+		if err != nil {
+			return nil, err
+		}
+		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+		if err != nil {
+			return nil, err
+		}
+		var results []formatter.SearchHit
+		if my.cfg.HyDE.Enabled {
+			hydeDoc, hydeErr := service.GenerateHypotheticalDocument(
+				context.Background(),
+				my.cfg.Embedding.Ollama.URL,
+				my.cfg.HyDE.Model,
+				req.Query,
+			)
+			if hydeErr == nil && hydeDoc != "" {
+				hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
+				if embedErr == nil {
+					hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, req.Limit*3)
+					results = service.FuseResultsThree(lexHits, vecHits, hydeHits)
+				}
+			}
+		}
+		if len(results) == 0 {
+			results = service.FuseResults(lexHits, vecHits)
+		}
+		if req.MinScore > 0 {
+			var filtered []formatter.SearchHit
+			for _, h := range results {
+				if h.Score >= req.MinScore {
+					filtered = append(filtered, h)
+				}
+			}
+			results = filtered
+		}
+		if req.Limit > 0 && len(results) > req.Limit {
+			results = results[:req.Limit]
+		}
+		return map[string]interface{}{"hits": results}, nil
 
 	case "search_vector":
 		var req struct {

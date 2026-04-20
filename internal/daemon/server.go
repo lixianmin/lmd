@@ -22,8 +22,6 @@ func registerRoutes(d *Daemon) http.Handler {
 		{"POST", "/collection/remove", (*Daemon).handleCollectionRemove},
 		{"GET", "/collection/list", (*Daemon).handleCollectionList},
 		{"POST", "/collection/rename", (*Daemon).handleCollectionRename},
-		{"POST", "/update", (*Daemon).handleUpdate},
-		{"POST", "/embed", (*Daemon).handleEmbed},
 		{"POST", "/rebuild", (*Daemon).handleRebuild},
 		{"POST", "/memory/add", (*Daemon).handleMemoryAdd},
 		{"POST", "/memory/search", (*Daemon).handleMemorySearch},

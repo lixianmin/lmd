@@ -166,40 +166,6 @@ func TestClient_Status(t *testing.T) {
 	}
 }
 
-func TestClient_Update(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/update" {
-			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"indexed": 0})
-	}))
-	defer srv.Close()
-
-	c := &Client{baseURL: srv.URL, client: srv.Client()}
-	_, err := c.Update("")
-	if err != nil {
-		t.Fatalf("Update failed: %v", err)
-	}
-}
-
-func TestClient_Embed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/embed" {
-			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"embedded": 0})
-	}))
-	defer srv.Close()
-
-	c := &Client{baseURL: srv.URL, client: srv.Client()}
-	_, err := c.Embed()
-	if err != nil {
-		t.Fatalf("Embed failed: %v", err)
-	}
-}
-
 func TestClient_Rebuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.Path != "/rebuild" {

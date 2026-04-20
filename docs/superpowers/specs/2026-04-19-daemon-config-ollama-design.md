@@ -34,7 +34,7 @@ This addresses:
 │  AI Agent   │ ◄──────────────► │  ├─ Embedder (background)    │
 │  (Cursor)   │    stdio/HTTP    │  ├─ Searcher                 │
 └─────────────┘                  │  ├─ Collection manager       │
-                                 │  └─ Memory layer (agent)     │
+                                 │  ├─ Memory layer (agent)     │
                                  │                              │
                                  │  Config: ~/.config/lmd/      │
                                  │  DB:     ~/.cache/lmd/        │
@@ -69,23 +69,22 @@ This addresses:
 | POST | `/collection/remove` | Remove collection | `{"name":"..."}` | Result |
 | GET | `/collection/list` | List collections | - | Collection list |
 | POST | `/collection/rename` | Rename collection | `{"old":"...","new":"..."}` | Result |
-| POST | `/update` | Trigger manual index sync | `{"collection":""}` | Update result |
-| POST | `/embed` | Trigger manual embedding | - | Embed result |
 | POST | `/rebuild` | Full rebuild | - | Result |
 | POST | `/memory/add` | Add agent memory | `{"content":"...","type":"episode"}` | `{id, type, created_at}` |
 | POST | `/memory/search` | Search agent memories | `{"query":"...","limit":10,"type":""}` | `[{id, content, type, score, created_at}]` |
+| POST | `/mcp` | MCP JSON-RPC endpoint | JSON-RPC request | JSON-RPC response |
 
 ### Background Goroutines
 
 #### Index Poller
-- Every 60 seconds (configurable), scan all collections
+- Every 30 seconds (configurable via `daemon.index_poll_interval`), scan all collections
 - Compare file modification timestamps with stored values
 - Index changed/new files, remove deleted files
 - Uses timestamp fast-path (os.Stat only), falls back to SHA-256 for changed files
 
 #### Embed Worker
-- Continuously checks for unembedded chunks
-- Embeds in batches of `config.embedding.batch_size`
+- Periodically (10s ticker) embeds unembedded chunks AND memories
+- Embeds chunks in batches of `config.embedding.batch_size`
 - Runs in a single goroutine (Ollama handles parallelism internally)
 - Logs progress to stderr/daemon log
 
@@ -110,7 +109,7 @@ New: each CLI command sends HTTP request to daemon, prints response.
 2. Check daemon alive: GET http://localhost:{port}/health
    - Alive: proceed with command
    - Not alive:
-     a. Start daemon: exec.Command("lmd", "daemon", "--detach")
+      a. Start daemon: exec.Command(os.Args[0], "daemon", "start")
      b. Wait for ready: poll /health every 100ms, timeout 30s
      c. Proceed with command
 3. Execute command via HTTP API
@@ -118,9 +117,10 @@ New: each CLI command sends HTTP request to daemon, prints response.
 
 ### `lmd daemon` Command
 
-New command: `lmd daemon [--detach]`
-- `--detach`: fork to background, return immediately (used by auto-start)
-- Without `--detach`: run in foreground (for debugging / manual start)
+New subcommands: `lmd daemon start` / `lmd daemon stop`
+- `start`: run in foreground (for debugging / manual start / background fork)
+- `stop`: send SIGTERM to daemon process
+- Auto-start uses `exec.Command(os.Args[0], "daemon", "start")` with stdout/stderr redirected to `~/.cache/lmd/logs/daemon.stderr.log`
 
 ## 3. Config File
 
@@ -135,7 +135,7 @@ New command: `lmd daemon [--detach]`
 daemon:
   port: 18200
   idle_timeout: 30m
-  index_poll_interval: 60s
+  index_poll_interval: 30s
 
 embedding:
   provider: ollama
@@ -152,6 +152,10 @@ vector:
 
 database:
   path: ~/.cache/lmd/index.sqlite
+
+hyde:
+  enabled: true
+  model: qwen3:0.6b-q8_0
 ```
 
 ### Config Package
@@ -164,6 +168,7 @@ type Config struct {
     Embedding EmbeddingConfig `yaml:"embedding"`
     Vector    VectorConfig    `yaml:"vector"`
     Database  DatabaseConfig  `yaml:"database"`
+    HyDE      HyDEConfig      `yaml:"hyde"`
 }
 ```
 
@@ -200,6 +205,8 @@ Where:
   topRankBonus = +0.05 if best rank is #1
                = +0.02 if best rank is #2 or #3
                = 0 otherwise
+
+Sorting uses raw RRF score. Final score exposed to users = 1/rank (range (0, 1]), referencing QMD.
 ```
 
 Group by ChunkId, preserving multiple chunks from same document.
@@ -215,9 +222,9 @@ Unified naming (CLI + MCP + HTTP API):
 | `query` | Hybrid search + HyDE | RRF fusion of BM25 + vector + optional HyDE expansion |
 
 MCP tools exposed:
-- `search` → BM25
-- `search_vector` → vector
-- `query` → hybrid + HyDE
+- `search` → Hybrid (BM25 + vector + optional HyDE) with RRF fusion
+- `search_lex` → BM25 keyword search
+- `search_vector` → vector semantic search
 
 ## 7. collection add Auto-Index
 
@@ -326,7 +333,7 @@ CREATE VIRTUAL TABLE memories_fts USING fts5(
 
 Only two operations — no explicit delete. Memories are never physically deleted; old memories naturally become irrelevant through score decay during search.
 
-**memory_add**: Insert a memory, auto-embed content, insert FTS entry.
+**memory_add**: Insert a memory. Content only — embedding done by background embedWorker.
 - MCP tool: `memory_add(content: string, type: "fact"|"episode"|"relation")`
 - CLI: `lmd memory add "..." --type episode`
 - Returns: `{id, type, created_at}`

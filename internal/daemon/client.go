@@ -136,16 +136,6 @@ func (c *Client) CollectionRename(oldName, newName string) ([]byte, error) {
 	})
 }
 
-func (c *Client) Update(collection string) ([]byte, error) {
-	return c.Post("/update", map[string]interface{}{
-		"collection": collection,
-	})
-}
-
-func (c *Client) Embed() ([]byte, error) {
-	return c.Post("/embed", nil)
-}
-
 func (c *Client) Rebuild() ([]byte, error) {
 	return c.Post("/rebuild", nil)
 }
