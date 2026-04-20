@@ -9,7 +9,7 @@ import (
 )
 
 var toolDefs = []ToolDef{
-	{Name: "search", Description: "Hybrid search (BM25 + vector + HyDE)"},
+	{Name: "search", Description: "Hybrid search (BM25 + vector)"},
 	{Name: "search_lex", Description: "BM25 keyword search"},
 	{Name: "search_vector", Description: "Vector semantic search"},
 	{Name: "get", Description: "Retrieve document by path or docid"},

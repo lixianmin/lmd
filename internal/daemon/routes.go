@@ -168,7 +168,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t0 := time.Now()
-	hydeDoc, hydeErr := my.hydeGen.Generate(r.Context(), req.Query)
+	hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
 	hydeDur := time.Since(t0)
 	resp["hyde_generate_ms"] = hydeDur.Milliseconds()
 
@@ -182,7 +182,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	resp["hyde_document"] = hydeDoc
 	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, 300))
 
-	hydeVec, embedErr := my.provider.EmbedQuery(r.Context(), hydeDoc)
+	hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
 	if embedErr != nil {
 		logo.Warn("handleHyde: embed failed: %s", embedErr)
 		resp["hyde_embed_error"] = embedErr.Error()

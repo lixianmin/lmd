@@ -6,7 +6,6 @@ import (
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/daemon"
-	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/spf13/cobra"
 )
 
@@ -30,10 +29,6 @@ var rootCmd = &cobra.Command{
 
 		if cmd == daemonCmd {
 			return nil
-		}
-
-		if err := dao.Init(config.Cfg.Database.Path); err != nil {
-			return fmt.Errorf("dao init failed: %w", err)
 		}
 
 		client := daemon.NewClient(config.Cfg.Daemon.Port)

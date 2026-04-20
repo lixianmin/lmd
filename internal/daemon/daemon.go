@@ -111,7 +111,12 @@ func (my *Daemon) Start(ctx context.Context) error {
 		modelIdle = 10 * time.Minute
 	}
 	my.embedLifecycle = service.NewModelLifecycle(my.provider.(*embedding.LlamaProvider), modelIdle)
-	my.hydeLifecycle = service.NewModelLifecycle(hydeModel, modelIdle)
+
+	if my.cfg.HyDE.Enabled {
+		my.hydeLifecycle = service.NewModelLifecycle(hydeModel, modelIdle)
+	} else {
+		my.hydeGen = nil
+	}
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -145,7 +150,9 @@ func (my *Daemon) Start(ctx context.Context) error {
 	go my.embedWorker()
 	go my.idleMonitor(idleTimeout)
 	go my.embedLifecycle.Run()
-	go my.hydeLifecycle.Run()
+	if my.hydeLifecycle != nil {
+		go my.hydeLifecycle.Run()
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

@@ -66,7 +66,7 @@ var vsearchCmd = &cobra.Command{
 
 var queryCmd = &cobra.Command{
 	Use:   "query <query>",
-	Short: "Hybrid search (BM25 + vector + HyDE)",
+	Short: "Hybrid search (BM25 + vector)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
