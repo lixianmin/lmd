@@ -1,4 +1,4 @@
-.PHONY: build install test vet clean tidy fmt lint e2e integration integration-basic integration-vector
+.PHONY: build install test test-verbose vet clean tidy fmt lint e2e integration integration-basic integration-vector submodule
 
 BINARY  = lmd
 PKG     = github.com/lixianmin/lmd
@@ -7,23 +7,42 @@ TAGS    = fts5
 GO      = go
 LDFLAGS = -s -w
 MOD     = -mod=mod
+LLAMA_DIR = llama-go
+ENV     = LIBRARY_PATH=$$PWD/$(LLAMA_DIR) C_INCLUDE_PATH=$$PWD/$(LLAMA_DIR) CGO_LDFLAGS="-lggml-metal -lggml-blas"
 
-build:
+submodule:
+	@if [ ! -f $(LLAMA_DIR)/libllama.a ]; then \
+		echo "Initializing llama-go submodule..."; \
+		git submodule update --init --recursive; \
+		cd $(LLAMA_DIR) && mkdir -p build && cd build && \
+			cmake ../llama.cpp -DGGML_METAL=ON -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF && \
+			cmake --build . --config Release -j && cd ../..; \
+		cp $(LLAMA_DIR)/build/src/libllama.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/ggml/src/libggml.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/ggml/src/libggml-base.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/ggml/src/libggml-cpu.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/ggml/src/ggml-metal/libggml-metal.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/ggml/src/ggml-blas/libggml-blas.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		cp $(LLAMA_DIR)/build/common/libcommon.a $(LLAMA_DIR)/ 2>/dev/null || true; \
+		echo "llama-go build complete."; \
+	fi
+
+build: submodule
 	-./$(BINARY) daemon stop 2>/dev/null || true
-	$(GO) build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) -o $(BINARY) $(CMD)
+	$(ENV) $(GO) build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) -o $(BINARY) $(CMD)
 
-install:
+install: submodule
 	-$(GO) env GOPATH/bin/lmd daemon stop 2>/dev/null || true
-	$(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
+	$(ENV) $(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
 
-test:
-	$(GO) test -tags "$(TAGS)" -count=1 $(MOD) ./...
+test: submodule
+	$(ENV) $(GO) test -tags "$(TAGS)" -count=1 $(MOD) ./...
 
-test-verbose:
-	$(GO) test -tags "$(TAGS)" -count=1 -v $(MOD) ./...
+test-verbose: submodule
+	$(ENV) $(GO) test -tags "$(TAGS)" -count=1 -v $(MOD) ./...
 
-vet:
-	$(GO) vet -tags "$(TAGS)" $(MOD) ./...
+vet: submodule
+	$(ENV) $(GO) vet -tags "$(TAGS)" $(MOD) ./...
 
 tidy:
 	$(GO) mod tidy

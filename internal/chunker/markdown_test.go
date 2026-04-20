@@ -62,7 +62,7 @@ func TestChunkRespectsHardMax(t *testing.T) {
 		t.Fatalf("expected at least 2 chunks for 2000-char text, got %d", len(chunks))
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1000 {
+		if utf8.RuneCountInString(c.Content) > 1500 {
 			t.Fatalf("chunk %d exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -80,7 +80,7 @@ func TestChunkSplitByParagraph(t *testing.T) {
 		t.Fatalf("expected at least 2 chunks, got %d", len(chunks))
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1000 {
+		if utf8.RuneCountInString(c.Content) > 1500 {
 			t.Fatalf("chunk %d exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -134,7 +134,7 @@ func TestChunkOverlapDoesNotExceedHardMax(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1000 {
+		if utf8.RuneCountInString(c.Content) > 1500 {
 			t.Fatalf("chunk %d with overlap exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -166,8 +166,8 @@ func TestChunkCJKTokenEstimation(t *testing.T) {
 
 func TestNewMarkdownChunkerDefault(t *testing.T) {
 	c := NewMarkdownChunker(0)
-	if c.chunkSize != 800 {
-		t.Fatalf("expected default chunkSize=800, got %d", c.chunkSize)
+	if c.chunkSize != 1200 {
+		t.Fatalf("expected default chunkSize=1200, got %d", c.chunkSize)
 	}
 }
 

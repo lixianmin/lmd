@@ -77,13 +77,3 @@ func (my *OllamaProvider) Dimension() int { return 1024 }
 func (my *OllamaProvider) ModelName() string { return my.model }
 
 func (my *OllamaProvider) Close() error { return nil }
-
-func OllamaAvailable(url string) bool {
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(url + "/api/tags")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == 200
-}

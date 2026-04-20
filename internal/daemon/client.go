@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -37,14 +38,15 @@ func (c *Client) EnsureDaemon() error {
 	if err := StartBackground(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
+
+	fmt.Fprintf(os.Stderr, "  Waiting for daemon to start\n")
+	for {
 		if c.IsAlive() {
+			fmt.Fprintf(os.Stderr, "  Daemon ready.\n")
 			return nil
 		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("daemon did not become ready within 30s")
 }
 
 func (c *Client) Post(path string, body interface{}) ([]byte, error) {
@@ -91,6 +93,15 @@ func (c *Client) VSearch(query, collection string, limit int, minScore float64) 
 
 func (c *Client) Query(query, collection string, limit int, minScore float64) ([]byte, error) {
 	return c.Post("/query", map[string]interface{}{
+		"query":      query,
+		"collection": collection,
+		"limit":      limit,
+		"min_score":  minScore,
+	})
+}
+
+func (c *Client) HyDE(query, collection string, limit int, minScore float64) ([]byte, error) {
+	return c.Post("/hyde", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,

@@ -34,12 +34,63 @@ func NewLlamaProvider(modelPath string, gpuLayers, threads, parallel int) *Llama
 	}
 }
 
-func (my *LlamaProvider) ensureLoaded() error {
+func (my *LlamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	vecs, err := my.EmbedBatch(ctx, []string{text})
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("no embedding returned")
+	}
+	return vecs[0], nil
+}
+
+func (my *LlamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	my.mu.Lock()
 	defer my.mu.Unlock()
 
+	if err := my.loadLocked(); err != nil {
+		return nil, err
+	}
+
+	vecs, err := my.lctx.GetEmbeddingsBatch(texts)
+	if err != nil {
+		return nil, fmt.Errorf("embedding batch failed: %w", err)
+	}
+	my.lastActive = time.Now()
+	return vecs, nil
+}
+
+func (my *LlamaProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	return my.Embed(ctx, query)
+}
+
+func (my *LlamaProvider) Dimension() int    { return my.dim }
+func (my *LlamaProvider) ModelName() string { return my.modelPath }
+
+func (my *LlamaProvider) Close() error {
+	my.mu.Lock()
+	defer my.mu.Unlock()
+	return my.closeLocked()
+}
+
+func (my *LlamaProvider) ReleaseIfIdle(timeout time.Duration) bool {
+	my.mu.Lock()
+	defer my.mu.Unlock()
+
+	if my.model == nil {
+		return false
+	}
+	if time.Since(my.lastActive) > timeout {
+		my.closeLocked()
+		logo.Info("LlamaProvider: model released after idle %s", timeout)
+		return true
+	}
+	return false
+}
+
+func (my *LlamaProvider) loadLocked() error {
 	if my.model != nil {
-		my.lastActive = time.Now()
 		return nil
 	}
 
@@ -56,6 +107,7 @@ func (my *LlamaProvider) ensureLoaded() error {
 		llama.WithEmbeddings(),
 		llama.WithThreads(my.threads),
 		llama.WithParallel(my.parallel),
+		llama.WithBatch(4096),
 	)
 	if err != nil {
 		model.Close()
@@ -69,42 +121,7 @@ func (my *LlamaProvider) ensureLoaded() error {
 	return nil
 }
 
-func (my *LlamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
-	vecs, err := my.EmbedBatch(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	if len(vecs) == 0 {
-		return nil, fmt.Errorf("no embedding returned")
-	}
-	return vecs[0], nil
-}
-
-func (my *LlamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	if err := my.ensureLoaded(); err != nil {
-		return nil, err
-	}
-	my.mu.Lock()
-	defer my.mu.Unlock()
-
-	vecs, err := my.lctx.GetEmbeddingsBatch(texts)
-	if err != nil {
-		return nil, fmt.Errorf("embedding batch failed: %w", err)
-	}
-	return vecs, nil
-}
-
-func (my *LlamaProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, query)
-}
-
-func (my *LlamaProvider) Dimension() int    { return my.dim }
-func (my *LlamaProvider) ModelName() string { return my.modelPath }
-
-func (my *LlamaProvider) Close() error {
-	my.mu.Lock()
-	defer my.mu.Unlock()
-
+func (my *LlamaProvider) closeLocked() error {
 	if my.lctx != nil {
 		my.lctx.Close()
 		my.lctx = nil
@@ -113,24 +130,5 @@ func (my *LlamaProvider) Close() error {
 		my.model.Close()
 		my.model = nil
 	}
-	logo.Info("LlamaProvider: model released")
 	return nil
-}
-
-func (my *LlamaProvider) ReleaseIfIdle(timeout time.Duration) bool {
-	my.mu.Lock()
-	defer my.mu.Unlock()
-
-	if my.model == nil {
-		return false
-	}
-	if time.Since(my.lastActive) > timeout {
-		my.lctx.Close()
-		my.lctx = nil
-		my.model.Close()
-		my.model = nil
-		logo.Info("LlamaProvider: model released after idle %s", timeout)
-		return true
-	}
-	return false
 }

@@ -107,21 +107,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var results []formatter.SearchHit
-	if my.cfg.HyDE.Enabled && my.hydeGen != nil {
-		hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
-		if hydeErr == nil && hydeDoc != "" {
-			hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
-			if embedErr == nil {
-				hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, req.Limit*3)
-				results = service.FuseResultsThree(lexHits, vecHits, hydeHits)
-			}
-		}
-	}
-
-	if len(results) == 0 {
-		results = service.FuseResults(lexHits, vecHits)
-	}
+	results := service.FuseResults(lexHits, vecHits)
 
 	if req.MinScore > 0 {
 		var filtered []formatter.SearchHit
@@ -137,8 +123,95 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		results = results[:req.Limit]
 	}
 
-	logo.Info("handleQuery: query=%q collection=%s results=%d hyde=%v", req.Query, req.Collection, len(results), my.cfg.HyDE.Enabled)
+	logo.Info("handleQuery: query=%q collection=%s lex=%d vec=%d results=%d",
+		req.Query, req.Collection, len(lexHits), len(vecHits), len(results))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
+}
+
+func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query      string  `json:"query"`
+		Collection string  `json:"collection"`
+		Limit      int     `json:"limit"`
+		MinScore   float64 `json:"min_score"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.Limit <= 0 {
+		req.Limit = 5
+	}
+
+	resp := map[string]interface{}{}
+
+	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*3, 0)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	resp["lex_hits"] = len(lexHits)
+
+	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	resp["vec_hits"] = len(vecHits)
+
+	if my.hydeGen == nil {
+		resp["error"] = "HyDE model not available"
+		resp["hits"] = service.FuseResults(lexHits, vecHits)
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	t0 := time.Now()
+	hydeDoc, hydeErr := my.hydeGen.Generate(r.Context(), req.Query)
+	hydeDur := time.Since(t0)
+	resp["hyde_generate_ms"] = hydeDur.Milliseconds()
+
+	if hydeErr != nil {
+		logo.Warn("handleHyde: generate failed: %s (%s)", hydeErr, hydeDur)
+		resp["hyde_error"] = hydeErr.Error()
+		resp["hits"] = service.FuseResults(lexHits, vecHits)
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	resp["hyde_document"] = hydeDoc
+	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, 300))
+
+	hydeVec, embedErr := my.provider.EmbedQuery(r.Context(), hydeDoc)
+	if embedErr != nil {
+		logo.Warn("handleHyde: embed failed: %s", embedErr)
+		resp["hyde_embed_error"] = embedErr.Error()
+		resp["hits"] = service.FuseResults(lexHits, vecHits)
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, req.Limit*3)
+	resp["hyde_hits"] = len(hydeHits)
+	logo.Info("handleHyde: lex=%d vec=%d hyde=%d", len(lexHits), len(vecHits), len(hydeHits))
+
+	results := service.FuseResultsThree(lexHits, vecHits, hydeHits)
+
+	if req.MinScore > 0 {
+		var filtered []formatter.SearchHit
+		for _, h := range results {
+			if h.Score >= req.MinScore {
+				filtered = append(filtered, h)
+			}
+		}
+		results = filtered
+	}
+	if req.Limit > 0 && len(results) > req.Limit {
+		results = results[:req.Limit]
+	}
+
+	resp["hits"] = results
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -563,20 +636,9 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if err != nil {
 			return nil, err
 		}
-		var results []formatter.SearchHit
-		if my.cfg.HyDE.Enabled && my.hydeGen != nil {
-			hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
-			if hydeErr == nil && hydeDoc != "" {
-				hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
-				if embedErr == nil {
-					hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, req.Limit*3)
-					results = service.FuseResultsThree(lexHits, vecHits, hydeHits)
-				}
-			}
-		}
-		if len(results) == 0 {
-			results = service.FuseResults(lexHits, vecHits)
-		}
+		results := service.FuseResults(lexHits, vecHits)
+		logo.Info("handleToolCall: search query=%q lex=%d vec=%d results=%d",
+			req.Query, len(lexHits), len(vecHits), len(results))
 		if req.MinScore > 0 {
 			var filtered []formatter.SearchHit
 			for _, h := range results {
@@ -695,4 +757,12 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
+}
+
+func truncateForLog(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "..."
 }

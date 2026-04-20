@@ -30,7 +30,7 @@ type Indexer struct {
 func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	return &Indexer{
 		tokenizer: tok,
-		chunker:   chunker.NewMarkdownChunker(800),
+		chunker:   chunker.NewMarkdownChunker(1200),
 	}
 }
 

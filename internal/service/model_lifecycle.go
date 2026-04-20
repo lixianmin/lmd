@@ -1,7 +1,6 @@
 package service
 
 import (
-	"sync"
 	"time"
 
 	"github.com/lixianmin/logo"
@@ -13,29 +12,23 @@ type idleReleaser interface {
 }
 
 type ModelLifecycle struct {
-	releaser   idleReleaser
-	timeout    time.Duration
-	done       chan struct{}
-	mu         sync.Mutex
-	lastActive time.Time
+	releaser      idleReleaser
+	timeout       time.Duration
+	checkInterval time.Duration
+	done          chan struct{}
 }
 
 func NewModelLifecycle(releaser idleReleaser, timeout time.Duration) *ModelLifecycle {
 	return &ModelLifecycle{
-		releaser: releaser,
-		timeout:  timeout,
-		done:     make(chan struct{}),
+		releaser:      releaser,
+		timeout:       timeout,
+		checkInterval: 30 * time.Second,
+		done:          make(chan struct{}),
 	}
 }
 
-func (my *ModelLifecycle) Touch() {
-	my.mu.Lock()
-	defer my.mu.Unlock()
-	my.lastActive = time.Now()
-}
-
 func (my *ModelLifecycle) Run() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(my.checkInterval)
 	defer ticker.Stop()
 
 	for {

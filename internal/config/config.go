@@ -77,7 +77,7 @@ func DefaultConfig() *Config {
 		},
 		Embedding: EmbeddingConfig{
 			BatchSize:  8,
-			Truncation: 800,
+			Truncation: 1200,
 		},
 		HyDE: HyDEConfig{
 			Enabled:   true,

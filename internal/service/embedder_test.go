@@ -19,7 +19,7 @@ func TestEmbedChunks(t *testing.T) {
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(provider)
+	embedder := NewEmbedder(provider, 8, 800)
 
 	result, err := embedder.EmbedBatch(context.Background(), 0)
 	if err != nil {
@@ -40,7 +40,7 @@ func TestEmbedChunksIdempotent(t *testing.T) {
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	provider := embedding.NewMockProvider(1024)
-	embedder := NewEmbedder(provider)
+	embedder := NewEmbedder(provider, 8, 800)
 
 	embedder.EmbedBatch(context.Background(), 0)
 	r2, _ := embedder.EmbedBatch(context.Background(), 0)

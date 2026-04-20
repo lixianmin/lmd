@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -69,8 +70,10 @@ func (my *Daemon) Start(ctx context.Context) error {
 		"https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
 		"https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
 	}
+	fmt.Fprintf(os.Stderr, "  Checking embedding model...\n")
 	if err := service.DownloadModel(my.cfg.Llama.EmbedModel, embedURLs...); err != nil {
 		logo.Warn("daemon: embed model download failed: %s (will retry on first use)", err)
+		fmt.Fprintf(os.Stderr, "  Warning: embedding model download failed: %s\n", err)
 	}
 
 	if my.cfg.HyDE.Enabled {
@@ -78,8 +81,10 @@ func (my *Daemon) Start(ctx context.Context) error {
 			"https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
 			"https://hf-mirror.com/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
 		}
+		fmt.Fprintf(os.Stderr, "  Checking HyDE model...\n")
 		if err := service.DownloadModel(my.cfg.Llama.HydeModel, hydeURLs...); err != nil {
 			logo.Warn("daemon: hyde model download failed: %s", err)
+			fmt.Fprintf(os.Stderr, "  Warning: HyDE model download failed: %s\n", err)
 		}
 	}
 
@@ -91,7 +96,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	)
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
-	my.embedder = service.NewEmbedder(my.provider)
+	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
 	my.memSvc = service.NewMemoryService(tok)
 
 	hydeModel := service.NewLlamaHyDEModel(
@@ -99,7 +104,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 		my.cfg.Llama.GPULayers,
 		my.cfg.Llama.Threads,
 	)
-	my.hydeGen = service.NewHyDEGenerator(hydeModel)
+	my.hydeGen = service.NewHyDEGenerator(hydeModel, my.cfg.HyDE.MaxTokens)
 
 	modelIdle, _ := time.ParseDuration(my.cfg.Llama.ModelIdleTimeout)
 	if modelIdle == 0 {
@@ -345,27 +350,21 @@ func StartBackground() error {
 	cmd := exec.Command(os.Args[0], "daemon", "start")
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+
+	stderrR, _ := cmd.StderrPipe()
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		return fmt.Errorf("start daemon failed: %w", err)
 	}
-	cmd.Process.Release()
 
-	cfg := config.Cfg
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
-	client := NewClient(cfg.Daemon.Port)
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-		if client.IsAlive() {
-			return nil
-		}
-	}
-	return fmt.Errorf("daemon did not become ready within 30s")
+	go func() {
+		io.Copy(os.Stderr, stderrR)
+	}()
+
+	cmd.Process.Release()
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

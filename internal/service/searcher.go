@@ -100,32 +100,3 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 
 	return hits
 }
-
-func (my *Searcher) SearchHybrid(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
-	logo.Info("SearchHybrid: query=%q collection=%s limit=%d", query, collection, limit)
-	lexHits, err := my.SearchLex(query, collection, limit*3, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	vecHits, err := my.SearchVector(provider, query, collection, limit*3, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	fused := FuseResults(lexHits, vecHits)
-
-	var results []formatter.SearchHit
-	for _, h := range fused {
-		if h.Score < minScore {
-			continue
-		}
-		results = append(results, h)
-	}
-
-	if limit > 0 && len(results) > limit {
-		results = results[:limit]
-	}
-
-	return results, nil
-}

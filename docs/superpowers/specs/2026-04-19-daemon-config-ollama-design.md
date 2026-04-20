@@ -1,5 +1,9 @@
 # LMD Daemon Architecture + Config System + Ollama-only Embedding
 
+> **Superseded:** Ollama provider 部分已被 `2026-04-20-llamacpp-embedded-design.md` 取代。
+> Ollama 代码保留但当前不启用，默认使用 llama-go 内嵌推理。
+> Daemon 架构、Config 系统、RRF fusion、Memory layer 等 design 仍然有效。
+
 ## Overview
 
 Transform LMD from a per-command CLI tool into a client-server architecture:
