@@ -8,6 +8,7 @@ require (
 	github.com/lixianmin/logo v0.0.0-20260412150128-3cc29b6c2dae
 	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/spf13/cobra v1.10.2
+	github.com/tcpipuk/llama-go v0.0.0-00010101000000-000000000000
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -52,7 +52,7 @@ This addresses:
 ### PID and Port
 
 - PID file: `~/.cache/lmd/daemon.pid`
-- Default port: `18200` (configurable in config.yaml)
+- Default port: `12345` (configurable in config.yaml)
 - Health check: `GET /health` returns `{"status": "ok"}`
 
 ### HTTP API Endpoints

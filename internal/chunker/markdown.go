@@ -131,10 +131,6 @@ type rawChunk struct {
 	end     int
 }
 
-func runeCountFrom(s string, byteStart, byteEnd int) int {
-	return utf8.RuneCountInString(s[byteStart:byteEnd])
-}
-
 func (my *MarkdownChunker) findBestCutoff(points []breakPoint, targetBytePos int, fences []codeFence) int {
 	windowStart := targetBytePos - my.windowChars*4
 	if windowStart < 0 {

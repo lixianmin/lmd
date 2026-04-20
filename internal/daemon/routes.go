@@ -108,13 +108,8 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var results []formatter.SearchHit
-	if my.cfg.HyDE.Enabled {
-		hydeDoc, hydeErr := service.GenerateHypotheticalDocument(
-			context.Background(),
-			my.cfg.Embedding.Ollama.URL,
-			my.cfg.HyDE.Model,
-			req.Query,
-		)
+	if my.cfg.HyDE.Enabled && my.hydeGen != nil {
+		hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
 		if hydeErr == nil && hydeDoc != "" {
 			hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
 			if embedErr == nil {
@@ -569,13 +564,8 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		var results []formatter.SearchHit
-		if my.cfg.HyDE.Enabled {
-			hydeDoc, hydeErr := service.GenerateHypotheticalDocument(
-				context.Background(),
-				my.cfg.Embedding.Ollama.URL,
-				my.cfg.HyDE.Model,
-				req.Query,
-			)
+		if my.cfg.HyDE.Enabled && my.hydeGen != nil {
+			hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
 			if hydeErr == nil && hydeDoc != "" {
 				hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
 				if embedErr == nil {

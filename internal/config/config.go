@@ -9,10 +9,11 @@ import (
 
 type Config struct {
 	Daemon    DaemonConfig    `yaml:"daemon"`
+	Llama     LlamaConfig     `yaml:"llama"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
+	HyDE      HyDEConfig      `yaml:"hyde"`
 	Vector    VectorConfig    `yaml:"vector"`
 	Database  DatabaseConfig  `yaml:"database"`
-	HyDE      HyDEConfig      `yaml:"hyde"`
 }
 
 type DaemonConfig struct {
@@ -21,17 +22,23 @@ type DaemonConfig struct {
 	IndexPollInterval string `yaml:"index_poll_interval"`
 }
 
-type EmbeddingConfig struct {
-	Provider   string       `yaml:"provider"`
-	Ollama     OllamaConfig `yaml:"ollama"`
-	BatchSize  int          `yaml:"batch_size"`
-	Truncation int          `yaml:"truncation"`
+type LlamaConfig struct {
+	EmbedModel       string `yaml:"embed_model"`
+	HydeModel        string `yaml:"hyde_model"`
+	GPULayers        int    `yaml:"gpu_layers"`
+	ModelIdleTimeout string `yaml:"model_idle_timeout"`
+	Parallel         int    `yaml:"parallel"`
+	Threads          int    `yaml:"threads"`
 }
 
-type OllamaConfig struct {
-	URL       string `yaml:"url"`
-	Model     string `yaml:"model"`
-	KeepAlive string `yaml:"keep_alive"`
+type EmbeddingConfig struct {
+	BatchSize  int `yaml:"batch_size"`
+	Truncation int `yaml:"truncation"`
+}
+
+type HyDEConfig struct {
+	Enabled   bool `yaml:"enabled"`
+	MaxTokens int  `yaml:"max_tokens"`
 }
 
 type VectorConfig struct {
@@ -41,11 +48,6 @@ type VectorConfig struct {
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
-}
-
-type HyDEConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Model   string `yaml:"model"`
 }
 
 var Cfg *Config
@@ -61,19 +63,25 @@ func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
 		Daemon: DaemonConfig{
-			Port:              18200,
+			Port:              12345,
 			IdleTimeout:       "30m",
 			IndexPollInterval: "30s",
 		},
+		Llama: LlamaConfig{
+			EmbedModel:       filepath.Join(home, ".cache", "lmd", "models", "Qwen3-Embedding-0.6B-Q8_0.gguf"),
+			HydeModel:        filepath.Join(home, ".cache", "lmd", "models", "Qwen3-0.6B-Q8_0.gguf"),
+			GPULayers:        -1,
+			ModelIdleTimeout: "10m",
+			Parallel:         8,
+			Threads:          4,
+		},
 		Embedding: EmbeddingConfig{
-			Provider: "ollama",
-			Ollama: OllamaConfig{
-				URL:       "http://localhost:11434",
-				Model:     "qwen3-embedding:0.6b-q8_0",
-				KeepAlive: "30m",
-			},
 			BatchSize:  8,
 			Truncation: 800,
+		},
+		HyDE: HyDEConfig{
+			Enabled:   true,
+			MaxTokens: 200,
 		},
 		Vector: VectorConfig{
 			Dimensions:     1024,
@@ -81,10 +89,6 @@ func DefaultConfig() *Config {
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(home, ".cache", "lmd", "index.sqlite"),
-		},
-		HyDE: HyDEConfig{
-			Enabled: true,
-			Model:   "qwen3:0.6b-q8_0",
 		},
 	}
 }
@@ -96,6 +100,7 @@ func Load() (*Config, error) {
 		if os.IsNotExist(err) {
 			cfg := DefaultConfig()
 			Cfg = cfg
+			SaveDefault()
 			return cfg, nil
 		}
 		return nil, err

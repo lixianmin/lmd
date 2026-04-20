@@ -36,12 +36,15 @@ type Daemon struct {
 	done       chan struct{}
 	lastActive time.Time
 
-	tokenizer tokenizer.Tokenizer
-	indexer   *service.Indexer
-	searcher  *service.Searcher
-	embedder  *service.Embedder
-	provider  embedding.EmbeddingProvider
-	memSvc    *service.MemoryService
+	tokenizer      tokenizer.Tokenizer
+	indexer        *service.Indexer
+	searcher       *service.Searcher
+	embedder       *service.Embedder
+	provider       embedding.EmbeddingProvider
+	memSvc         *service.MemoryService
+	hydeGen        *service.HyDEGenerator
+	embedLifecycle *service.ModelLifecycle
+	hydeLifecycle  *service.ModelLifecycle
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -62,14 +65,48 @@ func (my *Daemon) Start(ctx context.Context) error {
 	}
 	my.tokenizer = tok
 
-	my.provider = embedding.NewOllamaProvider(
-		my.cfg.Embedding.Ollama.URL,
-		my.cfg.Embedding.Ollama.Model,
+	embedURLs := []string{
+		"https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+		"https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+	}
+	if err := service.DownloadModel(my.cfg.Llama.EmbedModel, embedURLs...); err != nil {
+		logo.Warn("daemon: embed model download failed: %s (will retry on first use)", err)
+	}
+
+	if my.cfg.HyDE.Enabled {
+		hydeURLs := []string{
+			"https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
+			"https://hf-mirror.com/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
+		}
+		if err := service.DownloadModel(my.cfg.Llama.HydeModel, hydeURLs...); err != nil {
+			logo.Warn("daemon: hyde model download failed: %s", err)
+		}
+	}
+
+	my.provider = embedding.NewLlamaProvider(
+		my.cfg.Llama.EmbedModel,
+		my.cfg.Llama.GPULayers,
+		my.cfg.Llama.Threads,
+		my.cfg.Llama.Parallel,
 	)
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.provider)
 	my.memSvc = service.NewMemoryService(tok)
+
+	hydeModel := service.NewLlamaHyDEModel(
+		my.cfg.Llama.HydeModel,
+		my.cfg.Llama.GPULayers,
+		my.cfg.Llama.Threads,
+	)
+	my.hydeGen = service.NewHyDEGenerator(hydeModel)
+
+	modelIdle, _ := time.ParseDuration(my.cfg.Llama.ModelIdleTimeout)
+	if modelIdle == 0 {
+		modelIdle = 10 * time.Minute
+	}
+	my.embedLifecycle = service.NewModelLifecycle(my.provider.(*embedding.LlamaProvider), modelIdle)
+	my.hydeLifecycle = service.NewModelLifecycle(hydeModel, modelIdle)
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -102,6 +139,8 @@ func (my *Daemon) Start(ctx context.Context) error {
 	go my.indexPoller(pollInterval)
 	go my.embedWorker()
 	go my.idleMonitor(idleTimeout)
+	go my.embedLifecycle.Run()
+	go my.hydeLifecycle.Run()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -124,6 +163,12 @@ func (my *Daemon) Stop() error {
 	}
 	if dao.DB != nil {
 		dao.DB.Close()
+	}
+	if my.embedLifecycle != nil {
+		my.embedLifecycle.Stop()
+	}
+	if my.hydeLifecycle != nil {
+		my.hydeLifecycle.Stop()
 	}
 	select {
 	case <-my.done:

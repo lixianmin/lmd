@@ -32,11 +32,7 @@ func (my *MarkdownFormatter) Format(w io.Writer, hits []SearchHit) error {
 		fmt.Fprintf(w, "- **ID**: #%s\n", r.DocId)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "```")
-		snippet := r.Snippet
-		if strings.HasSuffix(snippet, "\n") {
-			snippet = snippet[:len(snippet)-1]
-		}
-		fmt.Fprintln(w, snippet)
+		fmt.Fprintln(w, strings.TrimSuffix(r.Snippet, "\n"))
 		fmt.Fprintln(w, "```")
 		fmt.Fprintln(w)
 	}

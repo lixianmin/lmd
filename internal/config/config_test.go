@@ -8,11 +8,23 @@ import (
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Daemon.Port != 18200 {
-		t.Fatalf("expected port 18200, got %d", cfg.Daemon.Port)
+	if cfg.Daemon.Port != 12345 {
+		t.Fatalf("expected port 12345, got %d", cfg.Daemon.Port)
 	}
-	if cfg.Embedding.Ollama.URL != "http://localhost:11434" {
-		t.Fatalf("unexpected ollama url: %s", cfg.Embedding.Ollama.URL)
+	if cfg.Llama.EmbedModel == "" {
+		t.Fatal("expected non-empty llama.embed_model")
+	}
+	if cfg.Llama.HydeModel == "" {
+		t.Fatal("expected non-empty llama.hyde_model")
+	}
+	if cfg.Llama.GPULayers != -1 {
+		t.Fatalf("expected gpu_layers -1, got %d", cfg.Llama.GPULayers)
+	}
+	if cfg.Llama.Parallel != 8 {
+		t.Fatalf("expected parallel 8, got %d", cfg.Llama.Parallel)
+	}
+	if cfg.Llama.Threads != 4 {
+		t.Fatalf("expected threads 4, got %d", cfg.Llama.Threads)
 	}
 	if cfg.Embedding.BatchSize != 8 {
 		t.Fatalf("expected batch_size 8, got %d", cfg.Embedding.BatchSize)
@@ -28,6 +40,15 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Daemon.IndexPollInterval != "30s" {
 		t.Fatalf("expected index_poll_interval 30s, got %s", cfg.Daemon.IndexPollInterval)
+	}
+	if cfg.Llama.ModelIdleTimeout != "10m" {
+		t.Fatalf("expected model_idle_timeout 10m, got %s", cfg.Llama.ModelIdleTimeout)
+	}
+	if !cfg.HyDE.Enabled {
+		t.Fatal("expected default HyDE enabled=true")
+	}
+	if cfg.HyDE.MaxTokens != 200 {
+		t.Fatalf("expected hyde max_tokens 200, got %d", cfg.HyDE.MaxTokens)
 	}
 }
 
@@ -69,8 +90,8 @@ func TestLoadMissingReturnsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Daemon.Port != 18200 {
-		t.Fatalf("expected default port 18200, got %d", loaded.Daemon.Port)
+	if loaded.Daemon.Port != 12345 {
+		t.Fatalf("expected default port 12345, got %d", loaded.Daemon.Port)
 	}
 }
 
@@ -89,13 +110,30 @@ func TestLoadPartialConfig(t *testing.T) {
 	if loaded.Daemon.Port != 19999 {
 		t.Fatalf("expected port 19999, got %d", loaded.Daemon.Port)
 	}
-	if loaded.Embedding.Ollama.Model != "qwen3-embedding:0.6b-q8_0" {
-		t.Fatalf("expected default embedding model, got %q", loaded.Embedding.Ollama.Model)
+	if loaded.Llama.GPULayers != -1 {
+		t.Fatalf("expected default gpu_layers -1, got %d", loaded.Llama.GPULayers)
 	}
 	if loaded.Embedding.BatchSize != 8 {
 		t.Fatalf("expected default batch_size 8, got %d", loaded.Embedding.BatchSize)
 	}
 	if !loaded.HyDE.Enabled {
 		t.Fatal("expected default HyDE enabled=true")
+	}
+}
+
+func TestLoadAutoGeneratesFile(t *testing.T) {
+	dir := t.TempDir()
+	orig := configDir
+	configDir = dir
+	defer func() { configDir = orig }()
+
+	_, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Fatal("config file should be auto-generated on first load")
 	}
 }
