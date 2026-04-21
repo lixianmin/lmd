@@ -101,14 +101,13 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vecHits, err := my.searcher.SearchVectorWithPRF(my.provider, req.Query, req.Collection, req.Limit*3, lexHits)
+	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	results := service.FuseResults(lexHits, vecHits)
-	results = my.searcher.ApplyMMR(results, my.provider, req.Query, 0.7, req.Limit)
 
 	if req.MinScore > 0 {
 		var filtered []formatter.SearchHit
@@ -605,12 +604,11 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if err != nil {
 			return nil, err
 		}
-	vecHits, err := my.searcher.SearchVectorWithPRF(my.provider, req.Query, req.Collection, req.Limit*3, lexHits)
+	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
 		if err != nil {
 			return nil, err
 		}
 		results := service.FuseResults(lexHits, vecHits)
-		results = my.searcher.ApplyMMR(results, my.provider, req.Query, 0.7, req.Limit)
 		logo.Info("handleToolCall: search query=%q lex=%d vec=%d results=%d",
 			req.Query, len(lexHits), len(vecHits), len(results))
 		if req.MinScore > 0 {

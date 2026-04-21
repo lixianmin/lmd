@@ -83,8 +83,16 @@ func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []for
 		return results[i].ChunkId < results[j].ChunkId
 	})
 
+	maxScore := 0.0
+	for _, e := range scores {
+		if e.score > maxScore {
+			maxScore = e.score
+		}
+	}
 	for i := range results {
-		results[i].Score = 1.0 / float64(i+1)
+		if maxScore > 0 {
+			results[i].Score = scores[results[i].ChunkId].score / maxScore
+		}
 	}
 
 	return results
