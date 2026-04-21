@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/daemon"
@@ -52,8 +53,15 @@ var stopCmd = &cobra.Command{
 			return fmt.Errorf("cannot stop daemon: %w", err)
 		}
 
-		fmt.Printf("daemon (pid %d) stopped\n", pid)
-		return nil
+		for i := 0; i < 20; i++ {
+			if !daemon.IsRunning() {
+				fmt.Printf("daemon (pid %d) stopped\n", pid)
+				return nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		os.Remove(pidFile)
+		return fmt.Errorf("timeout waiting for daemon (pid %d) to stop", pid)
 	},
 }
 
