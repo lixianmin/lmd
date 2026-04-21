@@ -58,7 +58,7 @@ func (my *HyDEAPIClient) Generate(ctx context.Context, query string) (string, er
 - `Generate` 调 `POST {base_url}/chat/completions`
 - 超时 60s
 - 请求格式遵循 OpenAI Chat Completions API
-- Prompt: `/no_think\nWrite a brief factual passage (50-150 words)...`
+- Prompt: `Write a brief factual passage (50-150 words)...`（通过 `enable_thinking: false` JSON 字段禁用思考，非 `/no_think` 前缀）
 
 ### daemon 接线
 
@@ -75,7 +75,7 @@ my.hydeGen = service.NewHyDEAPIClient(
 
 ### handleHyde 路由行为
 
-- `api_key` 为空 → 返回 `{"error": "HyDE requires API key, set hyde.api_key in config"}`
+- `api_key` 为空 → `Generate()` 返回错误 `"HyDE requires api_key, set hyde.api_key in config"`
 - 正常 → 调 API 生成假想文档 → embedding → 向量搜索
 
 ## HyDE 接口不变

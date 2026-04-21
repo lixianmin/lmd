@@ -18,7 +18,7 @@
 | chunkSize | 1200 runes | 300 runes | 减少语义稀释，适配 0.6B embedding 模型 |
 | hardMax | chunkSize + 300 | chunkSize + 150 | 硬切上限同比缩小 |
 | overlapChars | 200 | ~45（15%），以句为单位对齐 | 防止跨句撕裂 |
-| minChunkSize | 200 | 80 | 同比缩小，避免合并过多碎片 |
+| minChunkSize | 200 | chunkSize/4 = 75 | 同比缩小，避免合并过多碎片 |
 
 ### Overlap 对齐规则
 
