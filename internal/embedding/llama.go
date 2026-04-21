@@ -61,8 +61,10 @@ func (my *LlamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	return vecs, nil
 }
 
+const embedQueryPrefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
+
 func (my *LlamaProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, query)
+	return my.Embed(ctx, embedQueryPrefix+query)
 }
 
 func (my *LlamaProvider) Dimension() int    { return my.dim }

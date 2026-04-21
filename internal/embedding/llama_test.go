@@ -2,6 +2,7 @@ package embedding
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -72,5 +73,16 @@ func TestLlamaProvider_ReleaseIfIdle_NotYetIdle(t *testing.T) {
 	released := p.ReleaseIfIdle(10 * time.Minute)
 	if released {
 		t.Fatal("should not release when not idle")
+	}
+}
+
+func TestEmbedQueryPrefix(t *testing.T) {
+	mock := NewMockProvider(32)
+
+	vecDirect, _ := mock.Embed(context.Background(), "hello")
+	vecQuery, _ := mock.EmbedQuery(context.Background(), "hello")
+
+	if fmt.Sprintf("%x", vecDirect) == fmt.Sprintf("%x", vecQuery) {
+		t.Fatal("EmbedQuery should produce different embedding than Embed (due to instruction prefix)")
 	}
 }
