@@ -619,7 +619,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if err != nil {
 			return nil, err
 		}
-		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+	vecHits, err := my.searcher.SearchVectorWithPRF(my.provider, req.Query, req.Collection, req.Limit*3, lexHits)
 		if err != nil {
 			return nil, err
 		}

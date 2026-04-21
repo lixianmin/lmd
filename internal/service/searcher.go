@@ -9,7 +9,6 @@ import (
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
-
 type Searcher struct {
 	tokenizer tokenizer.Tokenizer
 }
@@ -59,6 +58,33 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	if err != nil {
 		return nil, err
 	}
+	return my.SearchVectorByEmbedding(queryVec, collection, limit), nil
+}
+
+func (my *Searcher) SearchVectorWithPRF(provider embedding.EmbeddingProvider, query, collection string, limit int, ftsHits []formatter.SearchHit) ([]formatter.SearchHit, error) {
+	logo.Info("SearchVectorWithPRF: query=%q collection=%s ftsHits=%d", query, collection, len(ftsHits))
+	queryVec, err := provider.EmbedQuery(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ftsHits) >= 3 {
+		var chunkIds []int64
+		for i := 0; i < 3 && i < len(ftsHits); i++ {
+			chunkIds = append(chunkIds, ftsHits[i].ChunkId)
+		}
+
+		embeddings, err := dao.GetEmbeddingsByChunkIds(chunkIds)
+		if err == nil && len(embeddings) > 0 {
+			var docVecs [][]float32
+			for _, e := range embeddings {
+				docVecs = append(docVecs, e.Embedding)
+			}
+			queryVec = Rocchio(queryVec, docVecs, 0.6, 0.4)
+			logo.Info("SearchVectorWithPRF: Rocchio applied with %d feedback docs", len(docVecs))
+		}
+	}
+
 	return my.SearchVectorByEmbedding(queryVec, collection, limit), nil
 }
 
