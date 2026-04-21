@@ -23,11 +23,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("config load failed: %w", err)
 		}
 
-		if cmd.HasParent() && cmd.Parent() == daemonCmd {
-			return nil
-		}
-
-		if cmd == daemonCmd {
+		if cmd == daemonStartCmd || cmd == stopCmd {
 			return nil
 		}
 

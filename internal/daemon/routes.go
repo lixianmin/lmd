@@ -146,24 +146,11 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{}
 
-	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*3, 0)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	resp["lex_hits"] = len(lexHits)
-
-	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	resp["vec_hits"] = len(vecHits)
-
 	if my.hydeGen == nil {
-		resp["error"] = "HyDE model not available"
-		resp["hits"] = service.FuseResults(lexHits, vecHits)
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"error": "HyDE model not available",
+			"hits":  []formatter.SearchHit{},
+		})
 		return
 	}
 
@@ -175,7 +162,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	if hydeErr != nil {
 		logo.Warn("handleHyde: generate failed: %s (%s)", hydeErr, hydeDur)
 		resp["hyde_error"] = hydeErr.Error()
-		resp["hits"] = service.FuseResults(lexHits, vecHits)
+		resp["hits"] = []formatter.SearchHit{}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -186,17 +173,17 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	if embedErr != nil {
 		logo.Warn("handleHyde: embed failed: %s", embedErr)
 		resp["hyde_embed_error"] = embedErr.Error()
-		resp["hits"] = service.FuseResults(lexHits, vecHits)
+		resp["hits"] = []formatter.SearchHit{}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
-	hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, req.Limit*3)
+	fetchLimit := req.Limit * 3
+	hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
 	resp["hyde_hits"] = len(hydeHits)
-	logo.Info("handleHyde: lex=%d vec=%d hyde=%d", len(lexHits), len(vecHits), len(hydeHits))
+	logo.Info("handleHyde: hyde_hits=%d", len(hydeHits))
 
-	results := service.FuseResultsThree(lexHits, vecHits, hydeHits)
-
+	results := hydeHits
 	if req.MinScore > 0 {
 		var filtered []formatter.SearchHit
 		for _, h := range results {

@@ -354,7 +354,7 @@ func StartBackground() error {
 	os.MkdirAll(logDir, 0755)
 	logFile, _ := os.OpenFile(filepath.Join(logDir, "daemon.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 
-	cmd := exec.Command(os.Args[0], "daemon", "start")
+	cmd := exec.Command(os.Args[0], "daemon-start")
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 

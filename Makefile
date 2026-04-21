@@ -28,11 +28,11 @@ submodule:
 	fi
 
 build: submodule
-	-./$(BINARY) daemon stop 2>/dev/null || true
+	-./$(BINARY) stop 2>/dev/null || true
 	$(ENV) $(GO) build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) -o $(BINARY) $(CMD)
 
 install: submodule
-	-$(GO) env GOPATH/bin/lmd daemon stop 2>/dev/null || true
+	-$(GO) env GOPATH/bin/lmd stop 2>/dev/null || true
 	$(ENV) $(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
 
 test: submodule

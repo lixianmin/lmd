@@ -86,7 +86,7 @@ var queryCmd = &cobra.Command{
 
 var hydeCmd = &cobra.Command{
 	Use:   "hyde <query>",
-	Short: "HyDE search (BM25 + vector + hypothetical document)",
+	Short: "HyDE search (vector search via hypothetical document)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -103,8 +103,6 @@ var hydeCmd = &cobra.Command{
 		var resp struct {
 			HyDEDocument   string                `json:"hyde_document"`
 			HyDEGenerateMs int64                 `json:"hyde_generate_ms"`
-			LexHits        int                   `json:"lex_hits"`
-			VecHits        int                   `json:"vec_hits"`
 			HyDEHits       int                   `json:"hyde_hits"`
 			Hits           []formatter.SearchHit `json:"hits"`
 			HyDEError      string                `json:"hyde_error,omitempty"`
@@ -118,8 +116,8 @@ var hydeCmd = &cobra.Command{
 		} else if resp.HyDEDocument != "" {
 			fmt.Fprintf(os.Stderr, "HyDE document: %s\n", resp.HyDEDocument)
 		}
-		fmt.Fprintf(os.Stderr, "Results: lex=%d vec=%d hyde=%d total=%d\n",
-			resp.LexHits, resp.VecHits, resp.HyDEHits, len(resp.Hits))
+		fmt.Fprintf(os.Stderr, "Results: hyde=%d total=%d\n",
+			resp.HyDEHits, len(resp.Hits))
 		fmt.Fprintf(os.Stderr, "Generate time: %dms\n\n", resp.HyDEGenerateMs)
 
 		return formatResults(os.Stdout, resp.Hits)
