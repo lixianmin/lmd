@@ -451,27 +451,12 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, col := range cols {
-		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Error("handleRebuild: index %s failed: %s", col.Name, err)
-			continue
-		}
-		logo.Info("handleRebuild: %s indexed=%d updated=%d unchanged=%d removed=%d",
-			col.Name, result.Indexed, result.Updated, result.Unchanged, result.Removed)
-	}
+	my.syncIndex()
 
-	embedResult, err := my.embedder.EmbedBatch(context.Background(), 0)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	logo.Info("handleRebuild: done embedded=%d elapsed=%s", embedResult.Embedded, time.Since(start))
+	logo.Info("handleRebuild: collections restored, background embedWorker will handle embedding")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"indexed": embedResult.Embedded,
-		"skipped": embedResult.Skipped,
-		"elapsed": time.Since(start).String(),
+		"collections": len(cols),
+		"elapsed":     time.Since(start).String(),
 	})
 }
 

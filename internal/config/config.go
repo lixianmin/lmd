@@ -17,9 +17,7 @@ type Config struct {
 }
 
 type DaemonConfig struct {
-	Port              int    `yaml:"port"`
-	IdleTimeout       string `yaml:"idle_timeout"`
-	IndexPollInterval string `yaml:"index_poll_interval"`
+	Port int `yaml:"port"`
 }
 
 type LlamaConfig struct {
@@ -64,9 +62,7 @@ func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
 		Daemon: DaemonConfig{
-			Port:              12345,
-			IdleTimeout:       "30m",
-			IndexPollInterval: "30s",
+			Port: 12345,
 		},
 		Llama: LlamaConfig{
 			EmbedModel:       filepath.Join(home, ".cache", "lmd", "models", "Qwen3-Embedding-0.6B-Q8_0.gguf"),

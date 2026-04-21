@@ -12,7 +12,7 @@ LMD combines **BM25 keyword search** (via FTS5 + gse segmentation) with **vector
 - **Chinese-first**: gse tokenizer provides accurate Chinese word segmentation
 - **Markdown-aware**: Chunks respect heading and code block boundaries
 - **Single binary**: Compile and run, no external services needed
-- **Go library**: Import `pkg/` for programmatic access
+- **Go library**: HTTP API via daemon (library API removed)
 - **Agent-ready**: MCP server + JSON output planned for AI agent integration
 
 ## Install
@@ -81,43 +81,6 @@ lmd status
 | `--full` | false | Show full document content |
 | `--min-score` | 0 | Minimum score threshold |
 
-## Go Library
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-
-    "github.com/lixianmin/lmd/pkg/lmd"
-)
-
-func main() {
-    store, err := lmd.CreateStore(lmd.StoreOptions{
-        DBPath: "myindex.sqlite",
-    })
-    if err != nil {
-        panic(err)
-    }
-    defer store.Close()
-
-    store.AddCollection("notes", lmd.CollectionConfig{
-        Path:        "/path/to/notes",
-        GlobPattern: "**/*.md",
-    })
-
-    store.Update(context.Background(), lmd.UpdateOptions{})
-
-    results, _ := store.SearchLex("并发编程", lmd.LexOptions{
-        Limit: 5,
-    })
-    for _, r := range results {
-        fmt.Printf("%s: %s (%.0f%%)\n", r.Path, r.Title, r.Score*100)
-    }
-}
-```
-
 ## Architecture
 
 ```
@@ -128,7 +91,6 @@ internal/store/       SQLite persistence (FTS5 + sqlite-vec)
 internal/tokenizer/   Text segmentation (gse)
 internal/embedding/   Vector embedding abstraction
 internal/chunker/     Markdown-aware document chunking
-pkg/                  Public Go API
 test/fixtures/        Test documents (Chinese + English)
 ```
 

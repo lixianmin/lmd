@@ -89,8 +89,7 @@ func TestIsRunning_WithLock(t *testing.T) {
 
 func TestDaemon_Stop_WithoutStart(t *testing.T) {
 	d := &Daemon{
-		cfg:  nil,
-		done: make(chan struct{}),
+		cfg: nil,
 	}
 	err := d.Stop()
 	if err != nil {
@@ -99,9 +98,7 @@ func TestDaemon_Stop_WithoutStart(t *testing.T) {
 }
 
 func TestDaemon_TouchActivity(t *testing.T) {
-	d := &Daemon{
-		done: make(chan struct{}),
-	}
+	d := &Daemon{}
 	before := d.lastActive
 	time.Sleep(10 * time.Millisecond)
 	d.touchActivity()
@@ -112,8 +109,7 @@ func TestDaemon_TouchActivity(t *testing.T) {
 
 func TestRegisterRoutes_HealthEndpoint(t *testing.T) {
 	d := &Daemon{
-		cfg:  nil,
-		done: make(chan struct{}),
+		cfg: nil,
 	}
 	handler := registerRoutes(d)
 

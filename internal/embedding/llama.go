@@ -57,7 +57,7 @@ func (my *LlamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	if err != nil {
 		return nil, fmt.Errorf("embedding batch failed: %w", err)
 	}
-	my.lastActive = time.Now()
+	my.touchActivity()
 	return vecs, nil
 }
 
@@ -116,7 +116,7 @@ func (my *LlamaProvider) loadLocked() error {
 
 	my.model = model
 	my.lctx = lctx
-	my.lastActive = time.Now()
+	my.touchActivity()
 	logo.Info("LlamaProvider: model loaded from %s", my.modelPath)
 	return nil
 }
@@ -131,4 +131,8 @@ func (my *LlamaProvider) closeLocked() error {
 		my.model = nil
 	}
 	return nil
+}
+
+func (my *LlamaProvider) touchActivity() {
+	my.lastActive = time.Now()
 }

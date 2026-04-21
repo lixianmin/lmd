@@ -35,23 +35,21 @@ var PidPath = func() string {
 type Daemon struct {
 	cfg        *config.Config
 	server     *http.Server
-	done       chan struct{}
+	wc         loom.WaitClose
 	lastActive time.Time
 
-	tokenizer      tokenizer.Tokenizer
-	indexer        *service.Indexer
-	searcher       *service.Searcher
-	embedder       *service.Embedder
-	provider       embedding.EmbeddingProvider
-	memSvc         *service.MemoryService
-	hydeClient     *service.HyDEAPIClient
-	embedLifecycle *service.ModelLifecycle
+	tokenizer  tokenizer.Tokenizer
+	indexer    *service.Indexer
+	searcher   *service.Searcher
+	embedder   *service.Embedder
+	provider   *embedding.LlamaProvider
+	memSvc     *service.MemoryService
+	hydeClient *service.HyDEAPIClient
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
 	return &Daemon{
-		cfg:  cfg,
-		done: make(chan struct{}),
+		cfg: cfg,
 	}
 }
 
@@ -86,6 +84,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 		my.cfg.Llama.Threads,
 		my.cfg.Llama.Parallel,
 	)
+
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
@@ -94,12 +93,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.hydeClient = service.NewHyDEAPIClient(
 		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
 	)
-
-	modelIdle, _ := time.ParseDuration(my.cfg.Llama.ModelIdleTimeout)
-	if modelIdle == 0 {
-		modelIdle = 10 * time.Minute
-	}
-	my.embedLifecycle = service.NewModelLifecycle(my.provider.(*embedding.LlamaProvider), modelIdle)
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -117,28 +110,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	})
 	logo.Info("daemon: listening on %s", addr)
 	my.touchActivity()
-
-	idleTimeout, _ := time.ParseDuration(my.cfg.Daemon.IdleTimeout)
-	if idleTimeout == 0 {
-		idleTimeout = 30 * time.Minute
-	}
-	pollInterval, _ := time.ParseDuration(my.cfg.Daemon.IndexPollInterval)
-	if pollInterval == 0 {
-		pollInterval = 60 * time.Second
-	}
-
-	loom.Go(func(later loom.Later) {
-		my.indexPoller(pollInterval)
-	})
-	loom.Go(func(later loom.Later) {
-		my.embedWorker()
-	})
-	loom.Go(func(later loom.Later) {
-		my.idleMonitor(idleTimeout)
-	})
-	loom.Go(func(later loom.Later) {
-		my.embedLifecycle.Run()
-	})
+	loom.Go(my.goLoop)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -159,17 +131,17 @@ func (my *Daemon) Stop() error {
 		defer cancel()
 		my.server.Shutdown(shutdownCtx)
 	}
+
 	if dao.DB != nil {
 		dao.DB.Close()
 	}
-	if my.embedLifecycle != nil {
-		my.embedLifecycle.Stop()
-	}
-	select {
-	case <-my.done:
-	default:
-		close(my.done)
-	}
+
+	my.provider.Close()
+
+	my.wc.Close(func() error {
+		return nil
+	})
+
 	releaseLock()
 	logo.Info("daemon: stopped")
 	return nil
@@ -179,16 +151,29 @@ func (my *Daemon) touchActivity() {
 	my.lastActive = time.Now()
 }
 
-func (my *Daemon) indexPoller(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+func (my *Daemon) goLoop(later loom.Later) {
+	var syncIndexTicker = later.NewTicker(60 * time.Second)
+	var embedTicker = later.NewTicker(5 * time.Second)
+	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
+	var idleTimeout = 60 * time.Minute
 
+	var closeChan = my.wc.C()
 	for {
 		select {
-		case <-my.done:
+		case <-closeChan:
 			return
-		case <-ticker.C:
+		case <-syncIndexTicker.C:
 			my.syncIndex()
+		case <-embedTicker.C:
+			my.embedChunks()
+			my.embedMemories()
+			my.provider.ReleaseIfIdle(modelIdleTimeout)
+
+			if !my.lastActive.IsZero() && time.Since(my.lastActive) > idleTimeout {
+				logo.Info("daemon: idle timeout reached, shutting down")
+				my.Stop()
+				return
+			}
 		}
 	}
 }
@@ -211,26 +196,12 @@ func (my *Daemon) syncIndex() {
 	}
 }
 
-func (my *Daemon) embedWorker() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-my.done:
-			return
-		case <-ticker.C:
-			my.embedChunks()
-			my.embedMemories()
-		}
-	}
-}
-
 func (my *Daemon) embedChunks() {
 	count := dao.GetUnembeddedCount()
 	if count == 0 {
 		return
 	}
+
 	_, err := my.embedder.EmbedBatch(context.Background(), 0)
 	if err != nil {
 		logo.Error("embedWorker chunks: %s", err)
@@ -266,24 +237,6 @@ func (my *Daemon) embedMemories() {
 		dao.UpdateMemoryEmbedding(memories[i].ID, blob)
 	}
 	logo.Info("embedWorker memories: embedded=%d", len(vecs))
-}
-
-func (my *Daemon) idleMonitor(timeout time.Duration) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-my.done:
-			return
-		case <-ticker.C:
-			if !my.lastActive.IsZero() && time.Since(my.lastActive) > timeout {
-				logo.Info("daemon: idle timeout reached, shutting down")
-				my.Stop()
-				return
-			}
-		}
-	}
 }
 
 var lockFile *os.File
@@ -371,4 +324,17 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func parseDuration(s string, defaultDuration time.Duration) time.Duration {
+	if s == "" {
+		return defaultDuration
+	}
+
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return defaultDuration
+	}
+
+	return dur
 }

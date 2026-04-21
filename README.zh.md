@@ -81,42 +81,6 @@ lmd status
 | `--full` | false | 显示完整文档内容 |
 | `--min-score` | 0 | 最低分数阈值 |
 
-## Go 代码库使用
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-
-    "github.com/lixianmin/lmd/pkg/lmd"
-)
-
-func main() {
-    store, err := lmd.CreateStore(lmd.StoreOptions{
-        DBPath: "myindex.sqlite",
-    })
-    if err != nil {
-        panic(err)
-    }
-    defer store.Close()
-
-    store.AddCollection("notes", lmd.CollectionConfig{
-        Path:        "/path/to/notes",
-        GlobPattern: "**/*.md",
-    })
-
-    store.Update(context.Background(), lmd.UpdateOptions{})
-
-    results, _ := store.SearchLex("并发编程", lmd.LexOptions{
-        Limit: 5,
-    })
-    for _, r := range results {
-        fmt.Printf("%s: %s (%.0f%%)\n", r.Path, r.Title, r.Score*100)
-    }
-}
-```
 
 ## 项目结构
 
@@ -128,7 +92,6 @@ internal/store/       SQLite 持久化（FTS5 + sqlite-vec）
 internal/tokenizer/   文本分词（gse）
 internal/embedding/   向量嵌入抽象层
 internal/chunker/     Markdown 感知的文档分块
-pkg/                  公共 Go API
 test/fixtures/        测试文档（中文 + 英文）
 ```
 

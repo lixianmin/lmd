@@ -69,7 +69,7 @@ func TestLlamaProvider_ReleaseIfIdle_NotLoaded(t *testing.T) {
 
 func TestLlamaProvider_ReleaseIfIdle_NotYetIdle(t *testing.T) {
 	p := NewLlamaProvider("/fake/model.gguf", -1, 4, 8)
-	p.lastActive = time.Now()
+	p.touchActivity()
 	released := p.ReleaseIfIdle(10 * time.Minute)
 	if released {
 		t.Fatal("should not release when not idle")

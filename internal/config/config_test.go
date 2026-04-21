@@ -32,12 +32,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Embedding.Truncation != 300 {
 		t.Fatalf("expected truncation 300, got %d", cfg.Embedding.Truncation)
 	}
-	if cfg.Daemon.IdleTimeout != "30m" {
-		t.Fatalf("expected idle_timeout 30m, got %s", cfg.Daemon.IdleTimeout)
-	}
-	if cfg.Daemon.IndexPollInterval != "30s" {
-		t.Fatalf("expected index_poll_interval 30s, got %s", cfg.Daemon.IndexPollInterval)
-	}
 	if cfg.Llama.ModelIdleTimeout != "10m" {
 		t.Fatalf("expected model_idle_timeout 10m, got %s", cfg.Llama.ModelIdleTimeout)
 	}
