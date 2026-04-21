@@ -69,7 +69,7 @@ func (my *OllamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]f
 }
 
 func (my *OllamaProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, query)
+	return my.Embed(ctx, EmbedQueryPrefix+query)
 }
 
 func (my *OllamaProvider) Dimension() int { return 1024 }

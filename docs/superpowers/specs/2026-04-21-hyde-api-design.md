@@ -49,7 +49,6 @@ type HyDEAPIClient struct {
     apiKey    string
     model     string
     maxTokens int
-    client    *http.Client
 }
 
 func NewHyDEAPIClient(baseURL, apiKey, model string, maxTokens int) *HyDEAPIClient

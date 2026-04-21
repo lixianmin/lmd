@@ -77,7 +77,7 @@ func DefaultConfig() *Config {
 		},
 		Embedding: EmbeddingConfig{
 			BatchSize:  8,
-			Truncation: 1200,
+			Truncation: 300,
 		},
 		HyDE: HyDEConfig{
 			BaseURL:   "https://api.siliconflow.cn/v1",

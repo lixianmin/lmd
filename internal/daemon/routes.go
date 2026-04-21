@@ -169,7 +169,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	resp["hyde_document"] = hydeDoc
 	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, 300))
 
-	hydeVec, embedErr := my.provider.EmbedQuery(context.Background(), hydeDoc)
+	hydeVec, embedErr := my.provider.Embed(context.Background(), hydeDoc)
 	if embedErr != nil {
 		logo.Warn("handleHyde: embed failed: %s", embedErr)
 		resp["hyde_embed_error"] = embedErr.Error()

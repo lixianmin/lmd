@@ -28,10 +28,8 @@ func (my *MockProvider) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 	return vecs, nil
 }
 
-const mockQueryPrefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
-
 func (my *MockProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, mockQueryPrefix+query)
+	return my.Embed(ctx, EmbedQueryPrefix+query)
 }
 
 func (my *MockProvider) Dimension() int    { return my.dim }
