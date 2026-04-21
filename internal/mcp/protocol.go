@@ -14,7 +14,7 @@ type JSONRPCRequest struct {
 type JSONRPCResponse struct {
 	JSONRPC string        `json:"jsonrpc"`
 	ID      json.Number   `json:"id"`
-	Result  interface{}   `json:"result,omitempty"`
+	Result  any           `json:"result,omitempty"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 

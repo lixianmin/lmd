@@ -46,7 +46,7 @@ func TestHyDEAPIClientGenerate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHyDEAPIClient(server.URL+"/v1", "test-key", "Qwen/Qwen3-9B", 200)
+	client := NewHyDEAPIClient(server.URL+"/v1", "test-key", "Qwen/Qwen3.5-9B", 200)
 	doc, err := client.Generate(context.Background(), "docker volume mount")
 	if err != nil {
 		t.Fatal(err)

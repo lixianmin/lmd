@@ -1,4 +1,4 @@
-.PHONY: build install test test-verbose vet clean tidy fmt lint e2e integration integration-basic integration-vector submodule
+.PHONY: build install both test test-verbose vet clean tidy fmt lint e2e integration integration-basic integration-vector submodule
 
 BINARY  = lmd
 PKG     = github.com/lixianmin/lmd
@@ -34,6 +34,8 @@ build: submodule
 install: submodule
 	-$(GO) env GOPATH/bin/lmd stop 2>/dev/null || true
 	$(ENV) $(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
+
+both: build install
 
 test: submodule
 	$(ENV) $(GO) test -tags "$(TAGS)" -count=1 $(MOD) ./...

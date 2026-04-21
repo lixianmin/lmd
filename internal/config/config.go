@@ -82,7 +82,7 @@ func DefaultConfig() *Config {
 		HyDE: HyDEConfig{
 			BaseURL:   "https://api.siliconflow.cn/v1",
 			APIKey:    "",
-			Model:     "Qwen/Qwen3-9B",
+			Model:     "Qwen/Qwen3.5-9B",
 			MaxTokens: 200,
 		},
 		Vector: VectorConfig{

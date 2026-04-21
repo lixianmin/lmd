@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -19,63 +20,70 @@ func TestPidPath_UnderCacheDir(t *testing.T) {
 	}
 }
 
-func TestWritePid_AndReadPid(t *testing.T) {
-	dir := t.TempDir()
-	oldCache := os.Getenv("XDG_CACHE_HOME")
-	os.Setenv("XDG_CACHE_HOME", dir)
-	defer os.Setenv("XDG_CACHE_HOME", oldCache)
-
-	originalPidPath := PidPath
-	PidPath = func() string { return filepath.Join(dir, "daemon.pid") }
-	defer func() { PidPath = originalPidPath }()
-
-	if err := writePid(); err != nil {
-		t.Fatalf("writePid failed: %v", err)
-	}
-
-	pid, err := readPid()
-	if err != nil {
-		t.Fatalf("readPid failed: %v", err)
-	}
-	if pid != os.Getpid() {
-		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
-	}
-}
-
-func TestIsProcessAlive_CurrentProcess(t *testing.T) {
-	if !isProcessAlive(os.Getpid()) {
-		t.Fatal("current process should be alive")
-	}
-}
-
-func TestIsProcessAlive_NonExistent(t *testing.T) {
-	if isProcessAlive(999999999) {
-		t.Fatal("non-existent pid should not be alive")
-	}
-}
-
-func TestIsRunning_NoPidFile(t *testing.T) {
-	dir := t.TempDir()
-	originalPidPath := PidPath
-	PidPath = func() string { return filepath.Join(dir, "nonexistent.pid") }
-	defer func() { PidPath = originalPidPath }()
-
-	if IsRunning() {
-		t.Fatal("expected IsRunning false with no pid file")
-	}
-}
-
-func TestIsRunning_DeadPid(t *testing.T) {
+func TestAcquireLock(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "daemon.pid")
-	os.WriteFile(pidFile, []byte("999999999"), 0644)
-
-	originalPidPath := PidPath
+	orig := PidPath
 	PidPath = func() string { return pidFile }
-	defer func() { PidPath = originalPidPath }()
+	defer func() { PidPath = orig }()
+
+	if err := acquireLock(); err != nil {
+		t.Fatalf("acquireLock failed: %v", err)
+	}
+	defer releaseLock()
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("read pid file failed: %v", err)
+	}
+	if string(data) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("expected pid %d, got %s", os.Getpid(), string(data))
+	}
+}
+
+func TestAcquireLock_DoubleFails(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "daemon.pid")
+	orig := PidPath
+	PidPath = func() string { return pidFile }
+	defer func() { PidPath = orig }()
+
+	if err := acquireLock(); err != nil {
+		t.Fatalf("first acquireLock failed: %v", err)
+	}
+	defer releaseLock()
+
+	err := acquireLock()
+	if err == nil {
+		t.Fatal("expected second acquireLock to fail")
+	}
+}
+
+func TestIsRunning_NoLockFile(t *testing.T) {
+	dir := t.TempDir()
+	orig := PidPath
+	PidPath = func() string { return filepath.Join(dir, "nonexistent.pid") }
+	defer func() { PidPath = orig }()
 
 	if IsRunning() {
-		t.Fatal("expected IsRunning false with dead pid")
+		t.Fatal("expected IsRunning false with no lock file")
+	}
+}
+
+func TestIsRunning_WithLock(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "daemon.pid")
+	orig := PidPath
+	PidPath = func() string { return pidFile }
+	defer func() { PidPath = orig }()
+
+	if err := acquireLock(); err != nil {
+		t.Fatalf("acquireLock failed: %v", err)
+	}
+	defer releaseLock()
+
+	if !IsRunning() {
+		t.Fatal("expected IsRunning true when lock is held")
 	}
 }
 

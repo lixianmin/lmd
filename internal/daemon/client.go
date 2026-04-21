@@ -35,11 +35,16 @@ func (c *Client) EnsureDaemon() error {
 	if c.IsAlive() {
 		return nil
 	}
-	if err := StartBackground(); err != nil {
-		return fmt.Errorf("failed to start daemon: %w", err)
+
+	if IsRunning() {
+		fmt.Fprintf(os.Stderr, "  Daemon already starting, waiting...\n")
+	} else {
+		if err := StartBackground(); err != nil {
+			return fmt.Errorf("failed to start daemon: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "  Waiting for daemon to start\n")
 	}
 
-	fmt.Fprintf(os.Stderr, "  Waiting for daemon to start\n")
 	for {
 		if c.IsAlive() {
 			fmt.Fprintf(os.Stderr, "  Daemon ready.\n")

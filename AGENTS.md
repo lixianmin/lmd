@@ -81,14 +81,22 @@ func (my *Flag) AddFlag(flag int64) {
   ...
 }
 
-// 使用 loom.Go() 启动 goroutine
-import "github.com/lixianmin/got/loom"
+// json序列化使用 github.com/lixianmin/got/convert
+bts, err := convert.ToJsonE(user)
+err = convert.FromJsonE(bts, &user)
+
+// http请求使用 github.com/lixianmin/got/webx
+result, err := webx.Post(context.Background(), url, webx.WithRequestBuilder(func(req *http.Request) string {
+    req.Header.Set("Content-Type", "application/json")
+    return `{"name": "panda"}`
+}))
+
+// 启动 goroutine 使用 github.com/lixianmin/got/loom
 loom.Go(func(later loom.Later) {
     ...
 })
 
 // 日志库使用：github.com/lixianmin/logo
-// 具体使用方式参考项目README.md，示例如下：
 logo.Info("连接 %s:%d 成功", host, port)	// Printf 风格（包含 % 格式化动词时自动格式化）
 logo.JsonI("sessionId", id, "elapsed", time.Since(start))	// JSON 结构化日志（交替传入 key-value 对）
 ```

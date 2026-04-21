@@ -27,32 +27,32 @@ var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop the running LMD daemon",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.Cfg
-		if cfg == nil {
-			cfg = config.DefaultConfig()
-		}
-
 		pidFile := daemon.PidPath()
+
+		if !daemon.IsRunning() {
+			fmt.Println("daemon is not running")
+			os.Remove(pidFile)
+			return nil
+		}
+
 		data, err := os.ReadFile(pidFile)
-		if err == nil {
-			if pid, err := strconv.Atoi(string(data)); err == nil {
-				if proc, err := os.FindProcess(pid); err == nil {
-					if proc.Signal(os.Interrupt) == nil {
-						fmt.Printf("daemon (pid %d) stopped\n", pid)
-						os.Remove(pidFile)
-						return nil
-					}
-				}
-			}
+		if err != nil {
+			return fmt.Errorf("cannot read lock file: %w", err)
+		}
+		pid, err := strconv.Atoi(string(data))
+		if err != nil {
+			return fmt.Errorf("invalid pid in lock file: %w", err)
 		}
 
-		client := daemon.NewClient(cfg.Daemon.Port)
-		if client.IsAlive() {
-			return fmt.Errorf("daemon is alive on port %d but PID file is invalid; kill manually", cfg.Daemon.Port)
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			return fmt.Errorf("cannot find process: %w", err)
+		}
+		if err := proc.Signal(os.Interrupt); err != nil {
+			return fmt.Errorf("cannot stop daemon: %w", err)
 		}
 
-		fmt.Println("daemon is not running")
-		os.Remove(pidFile)
+		fmt.Printf("daemon (pid %d) stopped\n", pid)
 		return nil
 	},
 }

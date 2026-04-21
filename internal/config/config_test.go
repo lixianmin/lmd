@@ -44,8 +44,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.HyDE.BaseURL != "https://api.siliconflow.cn/v1" {
 		t.Fatalf("expected hyde base_url, got %s", cfg.HyDE.BaseURL)
 	}
-	if cfg.HyDE.Model != "Qwen/Qwen3-9B" {
-		t.Fatalf("expected hyde model Qwen/Qwen3-9B, got %s", cfg.HyDE.Model)
+	if cfg.HyDE.Model != "Qwen/Qwen3.5-9B" {
+		t.Fatalf("expected hyde model Qwen/Qwen3.5-9B, got %s", cfg.HyDE.Model)
 	}
 	if cfg.HyDE.MaxTokens != 200 {
 		t.Fatalf("expected hyde max_tokens 200, got %d", cfg.HyDE.MaxTokens)

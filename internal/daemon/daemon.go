@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -55,6 +56,10 @@ func NewDaemon(cfg *config.Config) *Daemon {
 }
 
 func (my *Daemon) Start(ctx context.Context) error {
+	if err := acquireLock(); err != nil {
+		return err
+	}
+
 	if err := dao.Init(my.cfg.Database.Path); err != nil {
 		return fmt.Errorf("dao init failed: %w", err)
 	}
@@ -107,11 +112,9 @@ func (my *Daemon) Start(ctx context.Context) error {
 		return fmt.Errorf("listen on %s failed: %w", addr, err)
 	}
 
-	if err := writePid(); err != nil {
-		logo.Warn("writePid failed: %s", err)
-	}
-
-	go my.server.Serve(listener)
+	loom.Go(func(later loom.Later) {
+		my.server.Serve(listener)
+	})
 	logo.Info("daemon: listening on %s", addr)
 	my.touchActivity()
 
@@ -124,10 +127,18 @@ func (my *Daemon) Start(ctx context.Context) error {
 		pollInterval = 60 * time.Second
 	}
 
-	go my.indexPoller(pollInterval)
-	go my.embedWorker()
-	go my.idleMonitor(idleTimeout)
-	go my.embedLifecycle.Run()
+	loom.Go(func(later loom.Later) {
+		my.indexPoller(pollInterval)
+	})
+	loom.Go(func(later loom.Later) {
+		my.embedWorker()
+	})
+	loom.Go(func(later loom.Later) {
+		my.idleMonitor(idleTimeout)
+	})
+	loom.Go(func(later loom.Later) {
+		my.embedLifecycle.Run()
+	})
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -159,8 +170,7 @@ func (my *Daemon) Stop() error {
 	default:
 		close(my.done)
 	}
-	pidFilePath := PidPath()
-	os.Remove(pidFilePath)
+	releaseLock()
 	logo.Info("daemon: stopped")
 	return nil
 }
@@ -276,51 +286,62 @@ func (my *Daemon) idleMonitor(timeout time.Duration) {
 	}
 }
 
-func writePid() error {
+var lockFile *os.File
+
+func acquireLock() error {
 	path := PidPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return fmt.Errorf("daemon already running (lock held on %s)", path)
+	}
+
+	f.Truncate(0)
+	f.Seek(0, 0)
+	f.WriteString(strconv.Itoa(os.Getpid()))
+	f.Sync()
+
+	lockFile = f
+	return nil
 }
 
-func readPid() (int, error) {
-	data, err := os.ReadFile(PidPath())
-	if err != nil {
-		return 0, err
+func releaseLock() {
+	if lockFile != nil {
+		syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		lockFile.Close()
+		lockFile = nil
+		os.Remove(PidPath())
 	}
-	return strconv.Atoi(string(data))
-}
-
-func isProcessAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
 }
 
 func IsRunning() bool {
-	pid, err := readPid()
+	path := PidPath()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return false
 	}
-	if !isProcessAlive(pid) {
-		return false
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return true
 	}
-	cfg := config.Cfg
-	if cfg == nil {
-		cfg, _ = config.Load()
-	}
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
-	client := NewClient(cfg.Daemon.Port)
-	return client.IsAlive()
+	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
 }
 
 func StartBackground() error {
+	if IsRunning() {
+		return fmt.Errorf("daemon already running")
+	}
+
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".cache", "lmd", "logs")
 	os.MkdirAll(logDir, 0755)
@@ -338,9 +359,9 @@ func StartBackground() error {
 		return fmt.Errorf("start daemon failed: %w", err)
 	}
 
-	go func() {
+	loom.Go(func(later loom.Later) {
 		io.Copy(os.Stderr, stderrR)
-	}()
+	})
 
 	cmd.Process.Release()
 	return nil

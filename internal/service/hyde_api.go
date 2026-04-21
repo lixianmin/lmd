@@ -1,26 +1,26 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/lixianmin/got/convert"
+	"github.com/lixianmin/got/webx"
 	"github.com/lixianmin/logo"
 )
 
-const hydePromptTemplate = "/no_think Write a brief factual passage (50-150 words) that directly answers this question. Use only relevant facts and terminology.\n\nQuestion: %s"
+const hydePromptTemplate = "Write a brief factual passage (50-150 words) that directly answers this question. Use only relevant facts and terminology.\n\nQuestion: %s"
+
+const hydeTimeout = 60 * time.Second
 
 type HyDEAPIClient struct {
 	baseURL   string
 	apiKey    string
 	model     string
 	maxTokens int
-	client    *http.Client
 }
 
 func NewHyDEAPIClient(baseURL, apiKey, model string, maxTokens int) *HyDEAPIClient {
@@ -29,7 +29,6 @@ func NewHyDEAPIClient(baseURL, apiKey, model string, maxTokens int) *HyDEAPIClie
 		apiKey:    apiKey,
 		model:     model,
 		maxTokens: maxTokens,
-		client:    &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -38,49 +37,71 @@ func (my *HyDEAPIClient) Generate(ctx context.Context, query string) (string, er
 		return "", fmt.Errorf("HyDE requires api_key, set hyde.api_key in config")
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, hydeTimeout)
+	defer cancel()
+
 	prompt := fmt.Sprintf(hydePromptTemplate, query)
-
-	payload := map[string]interface{}{
-		"model": my.model,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-		"max_tokens": my.maxTokens,
-		"stream":     false,
-	}
-
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, my.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("hyde create request failed: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+my.apiKey)
+	logo.Info("HyDEAPIClient: prompt: %s", truncateString(prompt, 500))
 
 	t0 := time.Now()
-	resp, err := my.client.Do(req)
+	respBody, err := my.doRequest(ctx, prompt)
 	if err != nil {
-		return "", fmt.Errorf("hyde request failed: %w", err)
+		return "", err
 	}
-	defer resp.Body.Close()
+	logo.Info("HyDEAPIClient: raw response (%s): %s", time.Since(t0), truncateString(string(respBody), 1000))
 
-	respBody, err := io.ReadAll(resp.Body)
+	content, err := my.extractContent(respBody)
 	if err != nil {
-		return "", fmt.Errorf("hyde read response failed: %w", err)
+		return "", err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("hyde API returned %d: %s", resp.StatusCode, string(respBody))
+	logo.Info("HyDEAPIClient: done (%s): %s", time.Since(t0), truncateString(content, 300))
+	return content, nil
+}
+
+func (my *HyDEAPIClient) doRequest(ctx context.Context, prompt string) ([]byte, error) {
+	payload := map[string]any{
+		"model": my.model,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
+		"max_tokens":      my.maxTokens,
+		"stream":          false,
+		"enable_thinking": false,
+	}
+
+	body, _ := convert.ToJsonE(payload)
+	respBody, err := webx.Post(ctx, my.baseURL+"/chat/completions", webx.WithRequestBuilder(func(req *http.Request) string {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+my.apiKey)
+		return convert.String(body)
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("hyde request failed: %w", err)
+	}
+
+	return respBody, nil
+}
+
+func (my *HyDEAPIClient) extractContent(data []byte) (string, error) {
+	var errResp struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if convert.FromJsonE(data, &errResp) == nil && errResp.Error.Message != "" {
+		return "", fmt.Errorf("hyde API error: %s", errResp.Error.Message)
 	}
 
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	if err := convert.FromJsonE(data, &result); err != nil {
 		return "", fmt.Errorf("hyde decode failed: %w", err)
 	}
 
@@ -89,7 +110,13 @@ func (my *HyDEAPIClient) Generate(ctx context.Context, query string) (string, er
 	}
 
 	content := strings.TrimSpace(result.Choices[0].Message.Content)
-	logo.Info("HyDEAPIClient: generate done (%s): %s", time.Since(t0), truncateString(content, 300))
+	if content == "" {
+		content = strings.TrimSpace(result.Choices[0].Message.ReasoningContent)
+	}
+	if content == "" {
+		return "", fmt.Errorf("hyde API returned empty content")
+	}
+
 	return content, nil
 }
 

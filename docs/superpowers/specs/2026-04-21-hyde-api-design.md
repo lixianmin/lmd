@@ -15,7 +15,7 @@ Embedding 仍使用本地 llama-go，本次不涉及。
 hyde:
   base_url: "https://api.siliconflow.cn/v1"
   api_key: ""
-  model: "Qwen/Qwen3-9B"
+  model: "Qwen/Qwen3.5-9B"
   max_tokens: 200
 ```
 

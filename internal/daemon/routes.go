@@ -144,10 +144,10 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 5
 	}
 
-	resp := map[string]interface{}{}
+	resp := map[string]any{}
 
 	if my.hydeClient == nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"error": "HyDE not available",
 			"hits":  []formatter.SearchHit{},
 		})
