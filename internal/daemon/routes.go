@@ -453,7 +453,7 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 
 	my.syncIndex()
 
-	logo.Info("handleRebuild: collections restored, background embedWorker will handle embedding")
+	logo.Info("handleRebuild: collections restored, background embedTicker will handle embedding")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"collections": len(cols),
 		"elapsed":     time.Since(start).String(),

@@ -136,7 +136,9 @@ func (my *Daemon) Stop() error {
 		dao.DB.Close()
 	}
 
-	my.provider.Close()
+	if my.provider != nil {
+		my.provider.Close()
+	}
 
 	my.wc.Close(func() error {
 		return nil
@@ -204,7 +206,7 @@ func (my *Daemon) embedChunks() {
 
 	_, err := my.embedder.EmbedBatch(context.Background(), 0)
 	if err != nil {
-		logo.Error("embedWorker chunks: %s", err)
+		logo.Error("embedChunks: %s", err)
 	}
 }
 
@@ -225,7 +227,7 @@ func (my *Daemon) embedMemories() {
 
 	vecs, err := my.provider.EmbedBatch(context.Background(), texts)
 	if err != nil {
-		logo.Error("embedWorker memories: %s", err)
+		logo.Error("embedMemories: %s", err)
 		return
 	}
 
@@ -236,7 +238,7 @@ func (my *Daemon) embedMemories() {
 		}
 		dao.UpdateMemoryEmbedding(memories[i].ID, blob)
 	}
-	logo.Info("embedWorker memories: embedded=%d", len(vecs))
+	logo.Info("embedMemories: embedded=%d", len(vecs))
 }
 
 var lockFile *os.File
