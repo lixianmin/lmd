@@ -18,15 +18,19 @@ type MarkdownChunker struct {
 
 func NewMarkdownChunker(chunkSize int) *MarkdownChunker {
 	if chunkSize <= 0 {
-		chunkSize = 1200
+		chunkSize = 300
+	}
+	overlapChars := chunkSize * 15 / 100
+	if overlapChars < 30 {
+		overlapChars = 30
 	}
 	return &MarkdownChunker{
 		chunkSize:    chunkSize,
-		hardMax:      chunkSize + 300,
-		overlapChars: 200,
-		windowChars:  300,
+		hardMax:      chunkSize + chunkSize/2,
+		overlapChars: overlapChars,
+		windowChars:  chunkSize / 2,
 		decayFactor:  0.7,
-		minChunkSize: 200,
+		minChunkSize: chunkSize / 4,
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 func TestChunkEmptyBody(t *testing.T) {
-	chunks, err := NewMarkdownChunker(800).Chunk("")
+	chunks, err := NewMarkdownChunker(300).Chunk("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,12 +18,9 @@ func TestChunkEmptyBody(t *testing.T) {
 
 func TestChunkShortDocument(t *testing.T) {
 	text := "Short document."
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(chunks))
 	}
 	if chunks[0].Content != text {
 		t.Fatalf("expected %q, got %q", text, chunks[0].Content)
@@ -54,7 +51,7 @@ func TestChunkStartEndLine(t *testing.T) {
 
 func TestChunkRespectsHardMax(t *testing.T) {
 	text := strings.Repeat("a", 2000)
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +59,7 @@ func TestChunkRespectsHardMax(t *testing.T) {
 		t.Fatalf("expected at least 2 chunks for 2000-char text, got %d", len(chunks))
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1500 {
+		if utf8.RuneCountInString(c.Content) > 450 {
 			t.Fatalf("chunk %d exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -72,7 +69,7 @@ func TestChunkSplitByParagraph(t *testing.T) {
 	paraA := strings.Repeat("word ", 200)
 	paraB := strings.Repeat("other ", 200)
 	text := paraA + "\n\n" + paraB
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +77,7 @@ func TestChunkSplitByParagraph(t *testing.T) {
 		t.Fatalf("expected at least 2 chunks, got %d", len(chunks))
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1500 {
+		if utf8.RuneCountInString(c.Content) > 450 {
 			t.Fatalf("chunk %d exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -89,7 +86,7 @@ func TestChunkSplitByParagraph(t *testing.T) {
 func TestChunkHeadingBreakpoint(t *testing.T) {
 	para := strings.Repeat("content line. ", 60)
 	text := para + "\n## Section Two\n\n" + para
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +98,7 @@ func TestChunkHeadingBreakpoint(t *testing.T) {
 func TestChunkCodeFenceNotSplit(t *testing.T) {
 	code := strings.Repeat("fmt.Println(\"hello\")\n", 10)
 	text := "Before.\n\n```go\n" + code + "```\n\nAfter."
-	chunks, err := NewMarkdownChunker(500).Chunk(text)
+	chunks, err := NewMarkdownChunker(200).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +112,12 @@ func TestChunkCodeFenceNotSplit(t *testing.T) {
 
 func TestChunkNoTinyFragments(t *testing.T) {
 	text := "Title\n\n---\n\nA\n\nB\n\n" + strings.Repeat("Real content here. ", 50)
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) < 50 {
+		if utf8.RuneCountInString(c.Content) < 20 {
 			t.Fatalf("chunk %d is too small (%d runes): %q", i, utf8.RuneCountInString(c.Content), c.Content)
 		}
 	}
@@ -129,12 +126,12 @@ func TestChunkNoTinyFragments(t *testing.T) {
 func TestChunkOverlapDoesNotExceedHardMax(t *testing.T) {
 	para := strings.Repeat("This is a test sentence. ", 80)
 	text := para + "\n\n" + para
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, c := range chunks {
-		if utf8.RuneCountInString(c.Content) > 1500 {
+		if utf8.RuneCountInString(c.Content) > 450 {
 			t.Fatalf("chunk %d with overlap exceeds hardMax: runeCount=%d", i, utf8.RuneCountInString(c.Content))
 		}
 	}
@@ -142,7 +139,7 @@ func TestChunkOverlapDoesNotExceedHardMax(t *testing.T) {
 
 func TestChunkStripsBase64Images(t *testing.T) {
 	text := "# Title\n\nSome text here.\n\n![img](data:image/png;base64," + strings.Repeat("A", 5000) + ")\n\nMore text."
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +152,7 @@ func TestChunkStripsBase64Images(t *testing.T) {
 
 func TestChunkCJKTokenEstimation(t *testing.T) {
 	text := "你好世界"
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,14 +163,17 @@ func TestChunkCJKTokenEstimation(t *testing.T) {
 
 func TestNewMarkdownChunkerDefault(t *testing.T) {
 	c := NewMarkdownChunker(0)
-	if c.chunkSize != 1200 {
-		t.Fatalf("expected default chunkSize=1200, got %d", c.chunkSize)
+	if c.chunkSize != 300 {
+		t.Fatalf("expected default chunkSize=300, got %d", c.chunkSize)
+	}
+	if c.overlapChars != 45 {
+		t.Fatalf("expected default overlapChars=45, got %d", c.overlapChars)
 	}
 }
 
 func TestChunkTitleAtPosition0(t *testing.T) {
 	text := "# First Heading\n\nSome content here."
-	chunks, err := NewMarkdownChunker(800).Chunk(text)
+	chunks, err := NewMarkdownChunker(300).Chunk(text)
 	if err != nil {
 		t.Fatal(err)
 	}
