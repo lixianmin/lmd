@@ -4,11 +4,11 @@
 
 一个 Go 语言编写的本地混合搜索引擎，专注于 Markdown 文档管理，提供一流的中文语言支持。
 
-LMD 结合 **BM25 关键词搜索**（FTS5 + gse 分词）和**向量语义搜索**（sqlite-vec + Qwen3-Embedding），通过 RRF 融合排序和 MMR 多样性重排，提供快速精准的检索能力。后台 daemon 自动管理索引和嵌入，支持 CLI 和 MCP 接口。
+LMD 结合 **BM25 关键词搜索**（FTS5 + gse 分词）和**向量语义搜索**（sqlite-vec + Qwen3-Embedding），通过 RRF 融合排序，提供快速精准的检索能力。后台 daemon 自动管理索引和嵌入，支持 CLI 和 MCP 接口。
 
 ## 特性
 
-- **混合搜索**：BM25 + 向量搜索，RRF 融合 + Rocchio PRF 查询扩展 + MMR 多样性重排
+- **混合搜索**：BM25 + 向量搜索，RRF 融合
 - **HyDE 搜索**：通过 SiliconFlow API 生成假设文档，提升召回率
 - **中文优先**：gse 分词器提供准确的中文分词能力
 - **Markdown 感知**：分块时尊重标题和代码块边界（300 字符目标）
@@ -63,7 +63,7 @@ lmd rebuild
 | `collection rename <old> <new>` | 重命名集合 |
 | `search <query>` | BM25 关键词搜索 |
 | `vsearch <query>` | 向量语义搜索 |
-| `query <query>` | 混合搜索（BM25 + 向量 + RRF 融合 + MMR） |
+| `query <query>` | 混合搜索（BM25 + 向量 + RRF 融合） |
 | `hyde <query>` | HyDE 搜索（通过假设文档进行向量搜索） |
 | `get <collection/path>` 或 `get <#docid>` | 获取文档 |
 | `memory add <content> --type <t>` | 添加记忆（fact\|episode\|relation） |

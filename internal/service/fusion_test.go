@@ -161,7 +161,7 @@ func TestFuseResultsSnippetFillFromVec(t *testing.T) {
 	}
 }
 
-func TestFuseResultsScoresAreInverseRank(t *testing.T) {
+func TestFuseResultsScoresAreNormalized(t *testing.T) {
 	lexHits := []formatter.SearchHit{
 		{ChunkId: 1, DocId: "a", Score: 0.3},
 	}

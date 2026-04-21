@@ -4,11 +4,11 @@
 
 A local hybrid search engine for Markdown documents with first-class Chinese language support. Written in Go.
 
-LMD combines **BM25 keyword search** (via FTS5 + gse segmentation) with **vector semantic search** (via sqlite-vec + Qwen3-Embedding), fused with RRF and re-ranked with MMR for diversity. It runs as a background daemon with CLI and MCP interfaces.
+LMD combines **BM25 keyword search** (via FTS5 + gse segmentation) with **vector semantic search** (via sqlite-vec + Qwen3-Embedding), fused with RRF. It runs as a background daemon with CLI and MCP interfaces.
 
 ## Features
 
-- **Hybrid search**: BM25 + vector search with RRF fusion, Rocchio PRF query expansion, MMR diversity re-ranking
+- **Hybrid search**: BM25 + vector search with RRF fusion
 - **HyDE search**: Hypothetical Document Embedding via SiliconFlow API for improved recall
 - **Chinese-first**: gse tokenizer provides accurate Chinese word segmentation
 - **Markdown-aware**: Chunks respect heading and code block boundaries (300 rune target)
@@ -63,7 +63,7 @@ lmd rebuild
 | `collection rename <old> <new>` | Rename a collection |
 | `search <query>` | BM25 keyword search |
 | `vsearch <query>` | Vector semantic search |
-| `query <query>` | Hybrid search (BM25 + vector + RRF fusion + MMR) |
+| `query <query>` | Hybrid search (BM25 + vector + RRF fusion) |
 | `hyde <query>` | HyDE search (vector search via hypothetical document) |
 | `get <collection/path>` or `get <#docid>` | Retrieve a document |
 | `memory add <content> --type <t>` | Add a memory (fact\|episode\|relation) |

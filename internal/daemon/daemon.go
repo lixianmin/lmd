@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -37,6 +38,8 @@ type Daemon struct {
 	server     *http.Server
 	wc         loom.WaitClose
 	lastActive time.Time
+	rebuildMu  sync.Mutex
+	stopOnce   sync.Once
 
 	tokenizer  tokenizer.Tokenizer
 	indexer    *service.Indexer
@@ -126,26 +129,28 @@ func (my *Daemon) Start(ctx context.Context) error {
 }
 
 func (my *Daemon) Stop() error {
-	if my.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		my.server.Shutdown(shutdownCtx)
-	}
+	my.stopOnce.Do(func() {
+		if my.server != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			my.server.Shutdown(shutdownCtx)
+		}
 
-	if dao.DB != nil {
-		dao.DB.Close()
-	}
+		if dao.DB != nil {
+			dao.DB.Close()
+		}
 
-	if my.provider != nil {
-		my.provider.Close()
-	}
+		if my.provider != nil {
+			my.provider.Close()
+		}
 
-	my.wc.Close(func() error {
-		return nil
+		my.wc.Close(func() error {
+			return nil
+		})
+
+		releaseLock()
+		logo.Info("daemon: stopped")
 	})
-
-	releaseLock()
-	logo.Info("daemon: stopped")
 	return nil
 }
 
@@ -199,6 +204,9 @@ func (my *Daemon) syncIndex() {
 }
 
 func (my *Daemon) embedChunks() {
+	my.rebuildMu.Lock()
+	defer my.rebuildMu.Unlock()
+
 	count := dao.GetUnembeddedCount()
 	if count == 0 {
 		return
@@ -211,6 +219,9 @@ func (my *Daemon) embedChunks() {
 }
 
 func (my *Daemon) embedMemories() {
+	my.rebuildMu.Lock()
+	defer my.rebuildMu.Unlock()
+
 	count := dao.GetUnembeddedMemoryCount()
 	if count == 0 {
 		return

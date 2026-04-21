@@ -418,6 +418,9 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 }
 
 func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
+	my.rebuildMu.Lock()
+	defer my.rebuildMu.Unlock()
+
 	start := time.Now()
 	logo.Info("handleRebuild: starting")
 
@@ -604,7 +607,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if err != nil {
 			return nil, err
 		}
-	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
 		if err != nil {
 			return nil, err
 		}
