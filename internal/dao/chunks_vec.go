@@ -2,8 +2,11 @@ package dao
 
 import (
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
@@ -263,4 +266,55 @@ func GetChunkById(chunkId int64) (*ChunkRecord, error) {
 
 func SimilarityToScore(distance float64) float64 {
 	return 1.0 - distance
+}
+
+type ChunkEmbedding struct {
+	ChunkID   int64
+	Embedding []float32
+}
+
+func GetEmbeddingsByChunkIds(chunkIds []int64) ([]ChunkEmbedding, error) {
+	if len(chunkIds) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(chunkIds))
+	args := make([]any, len(chunkIds))
+	for i, id := range chunkIds {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(
+		"SELECT chunk_id, embedding FROM chunks_vec WHERE chunk_id IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := withQuery(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ChunkEmbedding
+	for rows.Next() {
+		var r ChunkEmbedding
+		var vecBlob []byte
+		if err := rows.Scan(&r.ChunkID, &vecBlob); err != nil {
+			return nil, err
+		}
+		r.Embedding = deserializeFloat32(vecBlob)
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func deserializeFloat32(data []byte) []float32 {
+	count := len(data) / 4
+	vec := make([]float32, count)
+	for i := 0; i < count; i++ {
+		bits := binary.LittleEndian.Uint32(data[i*4:])
+		vec[i] = math.Float32frombits(bits)
+	}
+	return vec
 }

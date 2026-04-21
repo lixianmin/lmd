@@ -244,3 +244,48 @@ func TestSimilarityToScore(t *testing.T) {
 		t.Fatalf("expected 0.7, got %f", score)
 	}
 }
+
+func TestGetEmbeddingsByChunkIds(t *testing.T) {
+	initTestDB(t)
+
+	chunks := []ChunkData{
+		{Content: "test content", Position: 0, TokenCount: 2, Hash: "h1"},
+	}
+	_, records := mustInsertDocWithChunks(t, "notes", "emb_test.md", chunks)
+	chunkId := records[0].ID
+
+	vec := make([]float32, EmbeddingDim)
+	for i := range vec {
+		vec[i] = float32(i)
+	}
+
+	if err := InsertVector(chunkId, vec); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := GetEmbeddingsByChunkIds([]int64{chunkId})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].ChunkID != chunkId {
+		t.Fatalf("expected chunkId %d, got %d", chunkId, results[0].ChunkID)
+	}
+	if len(results[0].Embedding) != EmbeddingDim {
+		t.Fatalf("expected dim %d, got %d", EmbeddingDim, len(results[0].Embedding))
+	}
+}
+
+func TestGetEmbeddingsByChunkIdsEmpty(t *testing.T) {
+	initTestDB(t)
+
+	results, err := GetEmbeddingsByChunkIds(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results for empty input, got %d", len(results))
+	}
+}
