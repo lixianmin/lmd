@@ -43,9 +43,8 @@ type Daemon struct {
 	embedder       *service.Embedder
 	provider       embedding.EmbeddingProvider
 	memSvc         *service.MemoryService
-	hydeGen        *service.HyDEGenerator
+	hydeClient     *service.HyDEAPIClient
 	embedLifecycle *service.ModelLifecycle
-	hydeLifecycle  *service.ModelLifecycle
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -76,18 +75,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "  Warning: embedding model download failed: %s\n", err)
 	}
 
-	if my.cfg.HyDE.Enabled {
-		hydeURLs := []string{
-			"https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
-			"https://hf-mirror.com/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
-		}
-		fmt.Fprintf(os.Stderr, "  Checking HyDE model...\n")
-		if err := service.DownloadModel(my.cfg.Llama.HydeModel, hydeURLs...); err != nil {
-			logo.Warn("daemon: hyde model download failed: %s", err)
-			fmt.Fprintf(os.Stderr, "  Warning: HyDE model download failed: %s\n", err)
-		}
-	}
-
 	my.provider = embedding.NewLlamaProvider(
 		my.cfg.Llama.EmbedModel,
 		my.cfg.Llama.GPULayers,
@@ -99,24 +86,15 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
 	my.memSvc = service.NewMemoryService(tok)
 
-	hydeModel := service.NewLlamaHyDEModel(
-		my.cfg.Llama.HydeModel,
-		my.cfg.Llama.GPULayers,
-		my.cfg.Llama.Threads,
+	my.hydeClient = service.NewHyDEAPIClient(
+		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
 	)
-	my.hydeGen = service.NewHyDEGenerator(hydeModel, my.cfg.HyDE.MaxTokens)
 
 	modelIdle, _ := time.ParseDuration(my.cfg.Llama.ModelIdleTimeout)
 	if modelIdle == 0 {
 		modelIdle = 10 * time.Minute
 	}
 	my.embedLifecycle = service.NewModelLifecycle(my.provider.(*embedding.LlamaProvider), modelIdle)
-
-	if my.cfg.HyDE.Enabled {
-		my.hydeLifecycle = service.NewModelLifecycle(hydeModel, modelIdle)
-	} else {
-		my.hydeGen = nil
-	}
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -150,9 +128,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 	go my.embedWorker()
 	go my.idleMonitor(idleTimeout)
 	go my.embedLifecycle.Run()
-	if my.hydeLifecycle != nil {
-		go my.hydeLifecycle.Run()
-	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -178,9 +153,6 @@ func (my *Daemon) Stop() error {
 	}
 	if my.embedLifecycle != nil {
 		my.embedLifecycle.Stop()
-	}
-	if my.hydeLifecycle != nil {
-		my.hydeLifecycle.Stop()
 	}
 	select {
 	case <-my.done:

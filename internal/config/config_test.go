@@ -14,9 +14,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Llama.EmbedModel == "" {
 		t.Fatal("expected non-empty llama.embed_model")
 	}
-	if cfg.Llama.HydeModel == "" {
-		t.Fatal("expected non-empty llama.hyde_model")
-	}
 	if cfg.Llama.GPULayers != -1 {
 		t.Fatalf("expected gpu_layers -1, got %d", cfg.Llama.GPULayers)
 	}
@@ -44,8 +41,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Llama.ModelIdleTimeout != "10m" {
 		t.Fatalf("expected model_idle_timeout 10m, got %s", cfg.Llama.ModelIdleTimeout)
 	}
-	if !cfg.HyDE.Enabled {
-		t.Fatal("expected default HyDE enabled=true")
+	if cfg.HyDE.BaseURL != "https://api.siliconflow.cn/v1" {
+		t.Fatalf("expected hyde base_url, got %s", cfg.HyDE.BaseURL)
+	}
+	if cfg.HyDE.Model != "Qwen/Qwen3-9B" {
+		t.Fatalf("expected hyde model Qwen/Qwen3-9B, got %s", cfg.HyDE.Model)
 	}
 	if cfg.HyDE.MaxTokens != 200 {
 		t.Fatalf("expected hyde max_tokens 200, got %d", cfg.HyDE.MaxTokens)
@@ -116,8 +116,8 @@ func TestLoadPartialConfig(t *testing.T) {
 	if loaded.Embedding.BatchSize != 8 {
 		t.Fatalf("expected default batch_size 8, got %d", loaded.Embedding.BatchSize)
 	}
-	if !loaded.HyDE.Enabled {
-		t.Fatal("expected default HyDE enabled=true")
+	if loaded.HyDE.BaseURL != "https://api.siliconflow.cn/v1" {
+		t.Fatalf("expected default hyde base_url, got %s", loaded.HyDE.BaseURL)
 	}
 }
 

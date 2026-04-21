@@ -146,16 +146,16 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{}
 
-	if my.hydeGen == nil {
+	if my.hydeClient == nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"error": "HyDE model not available",
+			"error": "HyDE not available",
 			"hits":  []formatter.SearchHit{},
 		})
 		return
 	}
 
 	t0 := time.Now()
-	hydeDoc, hydeErr := my.hydeGen.Generate(context.Background(), req.Query)
+	hydeDoc, hydeErr := my.hydeClient.Generate(context.Background(), req.Query)
 	hydeDur := time.Since(t0)
 	resp["hyde_generate_ms"] = hydeDur.Milliseconds()
 

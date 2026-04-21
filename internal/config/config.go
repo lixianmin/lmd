@@ -24,7 +24,6 @@ type DaemonConfig struct {
 
 type LlamaConfig struct {
 	EmbedModel       string `yaml:"embed_model"`
-	HydeModel        string `yaml:"hyde_model"`
 	GPULayers        int    `yaml:"gpu_layers"`
 	ModelIdleTimeout string `yaml:"model_idle_timeout"`
 	Parallel         int    `yaml:"parallel"`
@@ -37,8 +36,10 @@ type EmbeddingConfig struct {
 }
 
 type HyDEConfig struct {
-	Enabled   bool `yaml:"enabled"`
-	MaxTokens int  `yaml:"max_tokens"`
+	BaseURL   string `yaml:"base_url"`
+	APIKey    string `yaml:"api_key"`
+	Model     string `yaml:"model"`
+	MaxTokens int    `yaml:"max_tokens"`
 }
 
 type VectorConfig struct {
@@ -69,7 +70,6 @@ func DefaultConfig() *Config {
 		},
 		Llama: LlamaConfig{
 			EmbedModel:       filepath.Join(home, ".cache", "lmd", "models", "Qwen3-Embedding-0.6B-Q8_0.gguf"),
-			HydeModel:        filepath.Join(home, ".cache", "lmd", "models", "Qwen3-0.6B-Q8_0.gguf"),
 			GPULayers:        -1,
 			ModelIdleTimeout: "10m",
 			Parallel:         8,
@@ -80,7 +80,9 @@ func DefaultConfig() *Config {
 			Truncation: 1200,
 		},
 		HyDE: HyDEConfig{
-			Enabled:   true,
+			BaseURL:   "https://api.siliconflow.cn/v1",
+			APIKey:    "",
+			Model:     "Qwen/Qwen3-9B",
 			MaxTokens: 200,
 		},
 		Vector: VectorConfig{
