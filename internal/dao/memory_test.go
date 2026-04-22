@@ -7,6 +7,19 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
+func makeSerializedVec(t *testing.T) []byte {
+	t.Helper()
+	vec := make([]float32, EmbeddingDim)
+	for i := range vec {
+		vec[i] = 0.01
+	}
+	serialized, err := sqlite_vec.SerializeFloat32(vec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return serialized
+}
+
 func TestInsertMemory(t *testing.T) {
 	initTestDB(t)
 
@@ -115,8 +128,13 @@ func TestUpdateMemoryEmbedding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vec := []byte{0, 0, 128, 63, 0, 0, 0, 64}
-	if err := UpdateMemoryEmbedding(id, vec); err != nil {
+	vec := make([]float32, EmbeddingDim)
+	vec[0] = 1.0
+	serialized, err := sqlite_vec.SerializeFloat32(vec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateMemoryEmbedding(id, serialized); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +175,7 @@ func TestGetUnembeddedMemories(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	UpdateMemoryEmbedding(results[0].ID, []byte{1, 2, 3})
+	UpdateMemoryEmbedding(results[0].ID, makeSerializedVec(t))
 
 	if count := GetUnembeddedMemoryCount(); count != 1 {
 		t.Fatalf("expected 1 unembedded after update, got %d", count)
@@ -175,12 +193,7 @@ func TestSearchMemoryVector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fakeVec := make([]float32, EmbeddingDim)
-	for i := range fakeVec {
-		fakeVec[i] = 0.01
-	}
-	serialized, _ := sqlite_vec.SerializeFloat32(padVector(fakeVec))
-	UpdateMemoryEmbedding(results[0].ID, serialized)
+	UpdateMemoryEmbedding(results[0].ID, makeSerializedVec(t))
 
 	queryVec := make([]float32, EmbeddingDim)
 	for i := range queryVec {

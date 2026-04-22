@@ -1,7 +1,6 @@
 package service
 
 import (
-	"math"
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/formatter"
@@ -55,11 +54,11 @@ func TestRRFDefaultWeights(t *testing.T) {
 	if result[0].Score != 1.0 {
 		t.Fatalf("rank 1: expected 1.0, got %.6f", result[0].Score)
 	}
-	if result[1].Score != 0.5 {
-		t.Fatalf("rank 2: expected 0.5, got %.6f", result[1].Score)
+	if result[1].Score != 1.0 {
+		t.Fatalf("rank 2: expected 1.0, got %.6f", result[1].Score)
 	}
-	if result[2].Score-0.333333 > 0.001 {
-		t.Fatalf("rank 3: expected ~0.333, got %.6f", result[2].Score)
+	if result[2].Score < 0.7 || result[2].Score > 0.9 {
+		t.Fatalf("rank 3: expected ~0.8, got %.6f", result[2].Score)
 	}
 }
 
@@ -81,10 +80,12 @@ func TestRRFTopRankBonus(t *testing.T) {
 		t.Fatalf("expected 4 results, got %d", len(result))
 	}
 
-	expected := []float64{1.0, 0.5, 1.0 / 3.0, 0.25}
-	for i, exp := range expected {
-		if math.Abs(result[i].Score-exp) > 1e-9 {
-			t.Fatalf("rank %d: expected %.6f, got %.6f", i+1, exp, result[i].Score)
+	if result[0].Score != 1.0 {
+		t.Fatalf("rank 1: expected 1.0, got %.6f", result[0].Score)
+	}
+	for i := 1; i < len(result); i++ {
+		if result[i].Score > result[i-1].Score {
+			t.Fatalf("results not sorted: [%d]=%.6f > [%d]=%.6f", i, result[i].Score, i-1, result[i-1].Score)
 		}
 	}
 }

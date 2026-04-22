@@ -229,19 +229,18 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 		From  int    `json:"from"`
 		Lines int    `json:"lines"`
 	}
-	body, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := convert.FromJsonE(body, &req); err != nil {
+	if err := convert.FromJsonE(bodyBytes, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	input := req.Path
 	var doc *dao.DocumentRecord
-	var err error
 
 	if strings.HasPrefix(input, "#") {
 		doc, err = dao.GetDocumentByDocId(input[1:])
