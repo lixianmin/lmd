@@ -145,6 +145,10 @@ func createTables() error {
 			content_rowid='id',
 			tokenize='porter unicode61'
 		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
+			memory_id INTEGER PRIMARY KEY,
+			embedding float[1024] distance_metric=cosine
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}

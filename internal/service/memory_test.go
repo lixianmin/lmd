@@ -24,7 +24,7 @@ func initMemoryTestDB(t *testing.T) {
 
 func TestMemoryAdd(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	id, err := svc.Add("user prefers dark mode", "fact")
 	if err != nil {
@@ -35,14 +35,14 @@ func TestMemoryAdd(t *testing.T) {
 	}
 }
 
-func TestMemorySearchNoDecay(t *testing.T) {
+func TestMemoryQueryNoDecay(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	svc.Add("user prefers dark mode", "fact")
 	svc.Add("light theme is default", "fact")
 
-	results, err := svc.Search("dark", 10, "")
+	results, err := svc.Query("dark", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,15 +57,15 @@ func TestMemorySearchNoDecay(t *testing.T) {
 	}
 }
 
-func TestMemorySearchFactNoDecay(t *testing.T) {
+func TestMemoryQueryFactNoDecay(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	id, _ := svc.Add("important fact here", "fact")
 	oldTime := time.Now().Add(-365 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
 
-	results, err := svc.Search("important fact", 10, "")
+	results, err := svc.Query("important fact", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,15 +77,15 @@ func TestMemorySearchFactNoDecay(t *testing.T) {
 	}
 }
 
-func TestMemorySearchEpisodeDecay(t *testing.T) {
+func TestMemoryQueryEpisodeDecay(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	id, _ := svc.Add("episode event happened", "episode")
 	oldTime := time.Now().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
 
-	results, err := svc.Search("episode event", 10, "")
+	results, err := svc.Query("episode event", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,15 +102,15 @@ func TestMemorySearchEpisodeDecay(t *testing.T) {
 	}
 }
 
-func TestMemorySearchRelationDecay(t *testing.T) {
+func TestMemoryQueryRelationDecay(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	id, _ := svc.Add("user likes coffee", "relation")
 	oldTime := time.Now().Add(-180 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
 
-	results, err := svc.Search("coffee", 10, "")
+	results, err := svc.Query("coffee", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,27 +124,28 @@ func TestMemorySearchRelationDecay(t *testing.T) {
 	}
 }
 
-func TestMemorySearchFilterByType(t *testing.T) {
+func TestMemoryQueryHardForget(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
-	svc.Add("dark mode preference", "fact")
-	svc.Add("dark sky tonight", "episode")
+	id, _ := svc.Add("old episode", "episode")
+	oldTime := time.Now().Add(-100 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
 
-	results, err := svc.Search("dark", 10, "fact")
+	results, err := svc.Query("old episode", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range results {
-		if r.Type != "fact" {
-			t.Fatalf("expected only fact type, got %s", r.Type)
+		if r.ID == id {
+			t.Fatal("100-day-old episode should be forgotten (hard forget)")
 		}
 	}
 }
 
 func TestMemoryAddInvalidType(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil)
+	svc := NewMemoryService(nil, nil)
 
 	_, err := svc.Add("test", "invalid")
 	if err == nil {

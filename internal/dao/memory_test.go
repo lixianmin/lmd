@@ -3,6 +3,8 @@ package dao
 import (
 	"testing"
 	"time"
+
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
 func TestInsertMemory(t *testing.T) {
@@ -79,24 +81,6 @@ func TestSearchMemoryFTS(t *testing.T) {
 	}
 }
 
-func TestSearchMemoryFTSByType(t *testing.T) {
-	initTestDB(t)
-
-	InsertMemory("dark mode preference", "fact")
-	InsertMemory("dark sky tonight", "episode")
-
-	results, err := SearchMemoryFTSByType("dark", "fact", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Type != "fact" {
-		t.Fatalf("expected type fact, got %s", results[0].Type)
-	}
-}
-
 func TestMemoryFTSScoreDecay(t *testing.T) {
 	initTestDB(t)
 
@@ -143,6 +127,12 @@ func TestUpdateMemoryEmbedding(t *testing.T) {
 	if len(rec.Embedding) == 0 {
 		t.Fatal("expected embedding to be set")
 	}
+
+	count := 0
+	DB.db.QueryRow("SELECT COUNT(*) FROM memories_vec WHERE memory_id=?", id).Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 row in memories_vec, got %d", count)
+	}
 }
 
 func TestGetUnembeddedMemories(t *testing.T) {
@@ -171,5 +161,40 @@ func TestGetUnembeddedMemories(t *testing.T) {
 
 	if count := GetUnembeddedMemoryCount(); count != 1 {
 		t.Fatalf("expected 1 unembedded after update, got %d", count)
+	}
+}
+
+func TestSearchMemoryVector(t *testing.T) {
+	initTestDB(t)
+
+	InsertMemory("user likes coffee", "relation")
+	InsertMemory("python is great", "fact")
+
+	results, err := GetUnembeddedMemories(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fakeVec := make([]float32, EmbeddingDim)
+	for i := range fakeVec {
+		fakeVec[i] = 0.01
+	}
+	serialized, _ := sqlite_vec.SerializeFloat32(padVector(fakeVec))
+	UpdateMemoryEmbedding(results[0].ID, serialized)
+
+	queryVec := make([]float32, EmbeddingDim)
+	for i := range queryVec {
+		queryVec[i] = 0.01
+	}
+
+	vecResults, err := SearchMemoryVector(queryVec, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vecResults) == 0 {
+		t.Fatal("expected at least 1 vector result")
+	}
+	if vecResults[0].ID != results[0].ID {
+		t.Fatalf("expected memory %d, got %d", results[0].ID, vecResults[0].ID)
 	}
 }

@@ -204,3 +204,26 @@ func TestFuseResultsMultipleChunksSameDoc(t *testing.T) {
 		t.Fatalf("expected chunk 2 first (rank 0 in vec, rank 1 in lex), got chunk %d (score=%.6f)", result[0].ChunkId, result[0].Score)
 	}
 }
+
+func TestRRFWithRankedItems(t *testing.T) {
+	lists := [][]RankedItem{
+		{{Key: 10, Score: 0.8}, {Key: 20, Score: 0.6}},
+		{{Key: 20, Score: 0.9}, {Key: 30, Score: 0.5}},
+	}
+	results := ReciprocalRankFusionGeneric(lists, DefaultRRFParams())
+	if len(results) != 3 {
+		t.Fatalf("expected 3, got %d", len(results))
+	}
+	if results[0].Key != 20 {
+		t.Fatalf("expected key 20 first (rank 0 in vec, rank 1 in lex), got %d", results[0].Key)
+	}
+	keys := map[int64]bool{}
+	for _, r := range results {
+		keys[r.Key] = true
+	}
+	for _, k := range []int64{10, 20, 30} {
+		if !keys[k] {
+			t.Fatalf("expected key %d in results", k)
+		}
+	}
+}

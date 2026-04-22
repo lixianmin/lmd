@@ -1,13 +1,17 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
+
+const forgetThreshold = 0.05
 
 type MemorySearchResult struct {
 	ID        int64   `json:"id"`
@@ -20,10 +24,11 @@ type MemorySearchResult struct {
 
 type MemoryService struct {
 	tokenizer tokenizer.Tokenizer
+	provider  embedding.EmbeddingProvider
 }
 
-func NewMemoryService(tok tokenizer.Tokenizer) *MemoryService {
-	return &MemoryService{tokenizer: tok}
+func NewMemoryService(tok tokenizer.Tokenizer, prov embedding.EmbeddingProvider) *MemoryService {
+	return &MemoryService{tokenizer: tok, provider: prov}
 }
 
 func (my *MemoryService) Add(content, memType string) (int64, error) {
@@ -36,7 +41,7 @@ func (my *MemoryService) Add(content, memType string) (int64, error) {
 	return dao.InsertMemory(content, memType)
 }
 
-func (my *MemoryService) Search(query string, limit int, memType string) ([]MemorySearchResult, error) {
+func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, error) {
 	ftsQuery := query
 	if my.tokenizer != nil {
 		tokenized := my.tokenizer.TokenizeToString(query)
@@ -45,33 +50,65 @@ func (my *MemoryService) Search(query string, limit int, memType string) ([]Memo
 		}
 	}
 
-	var records []dao.MemoryRecord
-	var err error
-
-	if memType != "" {
-		records, err = dao.SearchMemoryFTSByType(ftsQuery, memType, limit)
-	} else {
-		records, err = dao.SearchMemoryFTS(ftsQuery, limit)
-	}
+	ftsRecords, err := dao.SearchMemoryFTS(ftsQuery, limit*3)
 	if err != nil {
 		return nil, err
 	}
 
+	var ftsItems []RankedItem
+	for _, r := range ftsRecords {
+		ftsItems = append(ftsItems, RankedItem{Key: r.ID})
+	}
+
+	var vecRecords []dao.MemoryRecord
+	if my.provider != nil {
+		vec, embedErr := my.provider.Embed(context.Background(), query)
+		if embedErr == nil {
+			vecRecords, _ = dao.SearchMemoryVector(vec, limit*3)
+		}
+	}
+
+	var vecItems []RankedItem
+	for _, r := range vecRecords {
+		vecItems = append(vecItems, RankedItem{Key: r.ID})
+	}
+
+	ranked := ReciprocalRankFusionGeneric([][]RankedItem{ftsItems, vecItems}, DefaultRRFParams())
+
+	recordMap := make(map[int64]dao.MemoryRecord)
+	for _, r := range ftsRecords {
+		recordMap[r.ID] = r
+	}
+	for _, r := range vecRecords {
+		if _, ok := recordMap[r.ID]; !ok {
+			recordMap[r.ID] = r
+		}
+	}
+
 	now := time.Now()
 	var results []MemorySearchResult
-	for _, rec := range records {
+	for _, r := range ranked {
+		rec := recordMap[r.Key]
 		ageDays := now.Sub(rec.CreatedAt).Hours() / 24
 		decay := decayFactor(rec.Type, ageDays)
-		finalScore := rec.Score * decay
+		finalScore := r.Score * decay
+
+		if finalScore < forgetThreshold && decay < 1.0 {
+			continue
+		}
 
 		results = append(results, MemorySearchResult{
 			ID:        rec.ID,
 			Content:   rec.Content,
 			Type:      rec.Type,
 			Score:     finalScore,
-			RawScore:  rec.Score,
+			RawScore:  r.Score,
 			CreatedAt: rec.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
+	}
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
 	}
 
 	return results, nil

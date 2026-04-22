@@ -16,7 +16,7 @@ var toolDefs = []ToolDef{
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},
 	{Name: "memory_add", Description: "Add agent memory"},
-	{Name: "memory_search", Description: "Search agent memories"},
+	{Name: "memory_query", Description: "Query agent memories with hybrid search"},
 }
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)

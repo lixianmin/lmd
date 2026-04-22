@@ -163,10 +163,9 @@ func (c *Client) MemoryAdd(content, memType string) ([]byte, error) {
 	})
 }
 
-func (c *Client) MemorySearch(query string, limit int, memType string) ([]byte, error) {
-	return c.Post("/memory/search", map[string]interface{}{
+func (c *Client) MemoryQuery(query string, limit int) ([]byte, error) {
+	return c.Post("/memory/query", map[string]interface{}{
 		"query": query,
 		"limit": limit,
-		"type":  memType,
 	})
 }

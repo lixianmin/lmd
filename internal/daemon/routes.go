@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/mcp"
@@ -31,7 +32,12 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Format     string  `json:"format"`
 		JSON       bool    `json:"json"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -57,7 +63,12 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -86,7 +97,12 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -135,7 +151,12 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -208,7 +229,12 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 		From  int    `json:"from"`
 		Lines int    `json:"lines"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -302,7 +328,12 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		Mask string `json:"mask"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -355,7 +386,12 @@ func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -403,7 +439,12 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 		Old string `json:"old"`
 		New string `json:"new"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -467,7 +508,12 @@ func (my *Daemon) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 		Type    string `json:"type"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -501,13 +547,17 @@ func (my *Daemon) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (my *Daemon) handleMemorySearch(w http.ResponseWriter, r *http.Request) {
+func (my *Daemon) handleMemoryQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
-		Type  string `json:"type"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -516,13 +566,13 @@ func (my *Daemon) handleMemorySearch(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 10
 	}
 
-	results, err := my.memSvc.Search(req.Query, req.Limit, req.Type)
+	results, err := my.memSvc.Query(req.Query, req.Limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	logo.Info("handleMemorySearch: query=%q results=%d", req.Query, len(results))
+	logo.Info("handleMemoryQuery: query=%q results=%d", req.Query, len(results))
 	writeJSON(w, http.StatusOK, results)
 }
 
@@ -578,7 +628,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Collection string `json:"collection"`
 			Limit      int    `json:"limit"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		if req.Limit <= 0 {
@@ -597,7 +647,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Limit      int     `json:"limit"`
 			MinScore   float64 `json:"min_score"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		if req.Limit <= 0 {
@@ -635,7 +685,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Limit      int     `json:"limit"`
 			MinScore   float64 `json:"min_score"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		if req.Limit <= 0 {
@@ -655,7 +705,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Path string `json:"path"`
 			Full bool   `json:"full"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		parts := strings.SplitN(req.Path, "/", 2)
@@ -700,7 +750,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Content string `json:"content"`
 			Type    string `json:"type"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		if req.Content == "" {
@@ -715,19 +765,18 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		}
 		return map[string]interface{}{"id": id, "type": req.Type}, nil
 
-	case "memory_search":
+	case "memory_query":
 		var req struct {
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
-			Type  string `json:"type"`
 		}
-		if err := json.Unmarshal(params, &req); err != nil {
+		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
 		}
 		if req.Limit <= 0 {
 			req.Limit = 10
 		}
-		return my.memSvc.Search(req.Query, req.Limit, req.Type)
+		return my.memSvc.Query(req.Query, req.Limit)
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)

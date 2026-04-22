@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/daemon"
 	"github.com/spf13/cobra"
@@ -40,7 +40,7 @@ var memoryAddCmd = &cobra.Command{
 			Type      string `json:"type"`
 			CreatedAt string `json:"created_at"`
 		}
-		if err := json.Unmarshal(body, &resp); err != nil {
+		if err := convert.FromJsonE(body, &resp); err != nil {
 			return err
 		}
 
@@ -49,13 +49,13 @@ var memoryAddCmd = &cobra.Command{
 	},
 }
 
-var memorySearchCmd = &cobra.Command{
-	Use:   "search <query>",
-	Short: "Search memories",
+var memoryQueryCmd = &cobra.Command{
+	Use:   "query <query>",
+	Short: "Query memories",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.MemorySearch(args[0], memoryLimit, memoryType)
+		body, err := client.MemoryQuery(args[0], memoryLimit)
 		if err != nil {
 			return err
 		}
@@ -72,7 +72,7 @@ var memorySearchCmd = &cobra.Command{
 			Score     float64 `json:"score"`
 			CreatedAt string  `json:"created_at"`
 		}
-		if err := json.Unmarshal(body, &results); err != nil {
+		if err := convert.FromJsonE(body, &results); err != nil {
 			return err
 		}
 
@@ -86,10 +86,9 @@ var memorySearchCmd = &cobra.Command{
 func init() {
 	memoryAddCmd.Flags().StringVar(&memoryType, "type", "episode", "memory type: fact|episode|relation")
 
-	memorySearchCmd.Flags().StringVar(&memoryType, "type", "", "filter by type")
-	memorySearchCmd.Flags().IntVar(&memoryLimit, "limit", 10, "max results")
+	memoryQueryCmd.Flags().IntVar(&memoryLimit, "limit", 10, "max results")
 
 	memoryCmd.AddCommand(memoryAddCmd)
-	memoryCmd.AddCommand(memorySearchCmd)
+	memoryCmd.AddCommand(memoryQueryCmd)
 	rootCmd.AddCommand(memoryCmd)
 }

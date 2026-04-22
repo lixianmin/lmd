@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lixianmin/got/loom"
+	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -91,7 +92,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
-	my.memSvc = service.NewMemoryService(tok)
+	my.memSvc = service.NewMemoryService(tok, my.provider)
 
 	my.hydeClient = service.NewHyDEAPIClient(
 		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
@@ -336,7 +337,11 @@ func StartBackground() error {
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	bts, err := convert.ToJsonE(v)
+	if err != nil {
+		return
+	}
+	w.Write(bts)
 }
 
 func parseDuration(s string, defaultDuration time.Duration) time.Duration {

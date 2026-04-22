@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"math"
 	"time"
+
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
 type MemoryRecord struct {
@@ -44,38 +46,14 @@ func GetMemoryByID(id int64) (*MemoryRecord, error) {
 }
 
 func SearchMemoryFTS(tokenizedQuery string, limit int) ([]MemoryRecord, error) {
-	return searchMemoryFTSFiltered(tokenizedQuery, "", limit)
-}
-
-func SearchMemoryFTSByType(tokenizedQuery, memType string, limit int) ([]MemoryRecord, error) {
-	return searchMemoryFTSFiltered(tokenizedQuery, memType, limit)
-}
-
-func searchMemoryFTSFiltered(tokenizedQuery, memType string, limit int) ([]MemoryRecord, error) {
-	var query string
-	var args []any
-
-	if memType != "" {
-		query = `
-			SELECT m.id, m.content, m.type, abs(f.rank) as raw_score, m.created_at
-			FROM memories_fts f
-			JOIN memories m ON m.id = f.rowid
-			WHERE f.content MATCH ? AND m.type = ?
-			ORDER BY rank LIMIT ?
-		`
-		args = []any{tokenizedQuery, memType, limit}
-	} else {
-		query = `
-			SELECT m.id, m.content, m.type, abs(f.rank) as raw_score, m.created_at
-			FROM memories_fts f
-			JOIN memories m ON m.id = f.rowid
-			WHERE f.content MATCH ?
-			ORDER BY rank LIMIT ?
-		`
-		args = []any{tokenizedQuery, limit}
-	}
-
-	rows, err := withQuery(query, args...)
+	query := `
+		SELECT m.id, m.content, m.type, abs(f.rank) as raw_score, m.created_at
+		FROM memories_fts f
+		JOIN memories m ON m.id = f.rowid
+		WHERE f.content MATCH ?
+		ORDER BY rank LIMIT ?
+	`
+	rows, err := withQuery(query, tokenizedQuery, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -95,23 +73,74 @@ func searchMemoryFTSFiltered(tokenizedQuery, memType string, limit int) ([]Memor
 	return results, rows.Err()
 }
 
+func SearchMemoryVector(query []float32, limit int) ([]MemoryRecord, error) {
+	q, err := sqlite_vec.SerializeFloat32(padVector(query))
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := withQuery(`
+		SELECT v.memory_id, v.distance
+		FROM memories_vec v
+		WHERE v.embedding MATCH ?
+		ORDER BY v.distance
+		LIMIT ?
+	`, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []MemoryRecord
+	for rows.Next() {
+		var id int64
+		var distance float64
+		if err := rows.Scan(&id, &distance); err != nil {
+			return nil, err
+		}
+		score := 1.0 - distance
+		results = append(results, MemoryRecord{ID: id, Score: score})
+	}
+
+	for i := range results {
+		row := withQueryRow("SELECT content, type, created_at FROM memories WHERE id=?", results[i].ID)
+		if err := row.Scan(&results[i].Content, &results[i].Type, &results[i].CreatedAt); err != nil {
+			continue
+		}
+	}
+
+	return results, rows.Err()
+}
+
 func UpdateMemoryEmbedding(id int64, vec []byte) error {
-	_, err := WithExec("UPDATE memories SET embedding=? WHERE id=?", vec, id)
-	return err
+	return withTransaction(func(tx *sql.Tx) error {
+		_, err := tx.Exec("UPDATE memories SET embedding=? WHERE id=?", vec, id)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("INSERT OR REPLACE INTO memories_vec(memory_id, embedding) VALUES (?, ?)", id, vec)
+		return err
+	})
 }
 
 func GetUnembeddedMemoryCount() int {
-	row := DB.db.QueryRow("SELECT COUNT(*) FROM memories WHERE embedding IS NULL")
 	var count int
-	row.Scan(&count)
+	DB.db.QueryRow(`
+		SELECT COUNT(*) FROM memories m
+		LEFT JOIN memories_vec v ON m.id = v.memory_id
+		WHERE v.memory_id IS NULL
+	`).Scan(&count)
 	return count
 }
 
 func GetUnembeddedMemories(limit int) ([]MemoryRecord, error) {
-	rows, err := withQuery(
-		"SELECT id, content, type, created_at FROM memories WHERE embedding IS NULL LIMIT ?",
-		limit,
-	)
+	rows, err := withQuery(`
+		SELECT m.id, m.content, m.type, m.created_at
+		FROM memories m
+		LEFT JOIN memories_vec v ON m.id = v.memory_id
+		WHERE v.memory_id IS NULL
+		LIMIT ?
+	`, limit)
 	if err != nil {
 		return nil, err
 	}

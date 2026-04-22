@@ -6,6 +6,11 @@ import (
 	"github.com/lixianmin/lmd/internal/formatter"
 )
 
+type RankedItem struct {
+	Key   int64
+	Score float64
+}
+
 type RRFParams struct {
 	K             float64
 	Weights       []float64
@@ -21,9 +26,9 @@ func DefaultRRFParams() RRFParams {
 	}
 }
 
-func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []formatter.SearchHit {
+func ReciprocalRankFusionGeneric(lists [][]RankedItem, params RRFParams) []RankedItem {
 	type entry struct {
-		hit      formatter.SearchHit
+		item     RankedItem
 		score    float64
 		bestRank int
 	}
@@ -43,19 +48,16 @@ func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []for
 			weight = 1.0
 		}
 
-		for r, hit := range list {
+		for r, item := range list {
 			contribution := weight / (params.K + float64(r) + 1)
-			if existing, ok := scores[hit.ChunkId]; ok {
+			if existing, ok := scores[item.Key]; ok {
 				existing.score += contribution
 				if r < existing.bestRank {
 					existing.bestRank = r
 				}
-				if existing.hit.Snippet == "" && hit.Snippet != "" {
-					existing.hit.Snippet = hit.Snippet
-				}
 			} else {
-				scores[hit.ChunkId] = &entry{
-					hit:      hit,
+				scores[item.Key] = &entry{
+					item:     item,
 					score:    contribution,
 					bestRank: r,
 				}
@@ -71,16 +73,18 @@ func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []for
 		}
 	}
 
-	results := make([]formatter.SearchHit, 0, len(scores))
+	results := make([]RankedItem, 0, len(scores))
 	for _, e := range scores {
-		results = append(results, e.hit)
+		results = append(results, e.item)
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		if scores[results[i].ChunkId].score != scores[results[j].ChunkId].score {
-			return scores[results[i].ChunkId].score > scores[results[j].ChunkId].score
+		ki := results[i].Key
+		kj := results[j].Key
+		if scores[ki].score != scores[kj].score {
+			return scores[ki].score > scores[kj].score
 		}
-		return results[i].ChunkId < results[j].ChunkId
+		return ki < kj
 	})
 
 	maxScore := 0.0
@@ -91,8 +95,44 @@ func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []for
 	}
 	for i := range results {
 		if maxScore > 0 {
-			results[i].Score = scores[results[i].ChunkId].score / maxScore
+			results[i].Score = scores[results[i].Key].score / maxScore
 		}
+	}
+
+	return results
+}
+
+func ReciprocalRankFusion(lists [][]formatter.SearchHit, params RRFParams) []formatter.SearchHit {
+	var genericLists [][]RankedItem
+	for _, list := range lists {
+		var items []RankedItem
+		for _, h := range list {
+			items = append(items, RankedItem{Key: h.ChunkId})
+		}
+		genericLists = append(genericLists, items)
+	}
+
+	ranked := ReciprocalRankFusionGeneric(genericLists, params)
+
+	scoreMap := make(map[int64]float64, len(ranked))
+	for _, r := range ranked {
+		scoreMap[r.Key] = r.Score
+	}
+
+	hitMap := make(map[int64]formatter.SearchHit)
+	for _, list := range lists {
+		for _, h := range list {
+			if existing, ok := hitMap[h.ChunkId]; !ok || existing.Snippet == "" && h.Snippet != "" {
+				hitMap[h.ChunkId] = h
+			}
+		}
+	}
+
+	results := make([]formatter.SearchHit, 0, len(ranked))
+	for _, r := range ranked {
+		hit := hitMap[r.Key]
+		hit.Score = r.Score
+		results = append(results, hit)
 	}
 
 	return results
