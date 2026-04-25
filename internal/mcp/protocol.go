@@ -24,8 +24,9 @@ type JSONRPCError struct {
 }
 
 type InitializeResult struct {
-	ProtocolVersion string     `json:"protocolVersion"`
-	ServerInfo      ServerInfo `json:"serverInfo"`
+	ProtocolVersion string            `json:"protocolVersion"`
+	Capabilities    map[string]any    `json:"capabilities"`
+	ServerInfo      ServerInfo        `json:"serverInfo"`
 }
 
 type ServerInfo struct {

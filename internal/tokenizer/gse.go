@@ -2,11 +2,13 @@ package tokenizer
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/go-ego/gse"
 )
 
 type GseTokenizer struct {
+	mu  sync.Mutex
 	seg *gse.Segmenter
 }
 
@@ -23,14 +25,20 @@ func (my *GseTokenizer) Cut(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return my.seg.Cut(text)
+	my.mu.Lock()
+	result := my.seg.Cut(text)
+	my.mu.Unlock()
+	return result
 }
 
 func (my *GseTokenizer) CutForSearch(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return my.seg.CutSearch(text)
+	my.mu.Lock()
+	result := my.seg.CutSearch(text)
+	my.mu.Unlock()
+	return result
 }
 
 func (my *GseTokenizer) TokenizeToString(text string) string {

@@ -159,16 +159,19 @@ func ListCollections() ([]CollectionRecord, error) {
 }
 
 func RenameCollection(oldName, newName string) error {
-	res, err := WithExec("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?",
-		newName, oldName)
-	if err != nil {
+	return withTransaction(func(tx *sql.Tx) error {
+		res, err := tx.Exec("UPDATE collections SET name=?, updated_at=DATETIME('now', '+8 hours') WHERE name=?",
+			newName, oldName)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return errors.New("collection not found: " + oldName)
+		}
+		_, err = tx.Exec("UPDATE documents SET collection=? WHERE collection=?", newName, oldName)
 		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return errors.New("collection not found: " + oldName)
-	}
-	return nil
+	})
 }
 
 func buildInQuery(prefix string, count int, suffix string) string {

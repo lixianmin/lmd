@@ -74,16 +74,15 @@ var rebuildCmd = &cobra.Command{
 		}
 
 		var resp struct {
-			Indexed int    `json:"indexed"`
-			Skipped int    `json:"skipped"`
-			Elapsed string `json:"elapsed"`
+			Collections int    `json:"collections"`
+			Elapsed     string `json:"elapsed"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
 			fmt.Print(string(body))
 			return nil
 		}
 
-		fmt.Printf("Rebuild complete: indexed=%d skipped=%d elapsed=%s\n", resp.Indexed, resp.Skipped, resp.Elapsed)
+		fmt.Printf("Rebuild complete: collections=%d elapsed=%s\n", resp.Collections, resp.Elapsed)
 		return nil
 	},
 }

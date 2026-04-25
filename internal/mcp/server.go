@@ -19,6 +19,7 @@ var toolDefs = []ToolDef{
 	{Name: "list_collections", Description: "List all collections"},
 	{Name: "memory_add", Description: "Add agent memory"},
 	{Name: "memory_query", Description: "Query agent memories with hybrid search"},
+	{Name: "memory_delete", Description: "Delete an agent memory by id"},
 }
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)
@@ -48,6 +49,7 @@ func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 			JSONRPC: "2.0", ID: req.ID,
 			Result: InitializeResult{
 				ProtocolVersion: "2024-11-05",
+				Capabilities:    map[string]any{"tools": map[string]any{}},
 				ServerInfo:      ServerInfo{Name: "lmd", Version: "0.1.0"},
 			},
 		}

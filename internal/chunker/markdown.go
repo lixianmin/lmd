@@ -26,6 +26,21 @@ const (
 
 var base64ImgRe = regexp.MustCompile(`!\[[^\]]*\]\(data:image/[^;]+;base64,[^)]*\)`)
 
+var breakPointPatterns = []struct {
+	re    *regexp.Regexp
+	score int
+}{
+	{regexp.MustCompile(`\n#[^#]`), breakScoreH1},
+	{regexp.MustCompile(`\n##[^#]`), breakScoreH2},
+	{regexp.MustCompile(`\n###[^#]`), breakScoreH3},
+	{regexp.MustCompile(`\n####[^#]`), breakScoreH4},
+	{regexp.MustCompile("\\n```[^\n]*"), breakScoreCodeFence},
+	{regexp.MustCompile(`\n(?:---|\*\*\*|___)\s*\n`), breakScoreHR},
+	{regexp.MustCompile(`\n\n+`), breakScoreBlank},
+}
+
+var codeFenceRe = regexp.MustCompile("```")
+
 type MarkdownChunker struct {
 	chunkSize    int
 	hardMax      int
@@ -62,30 +77,8 @@ type codeFence struct {
 }
 
 func scanBreakPoints(text string) []breakPoint {
-	h1Re := regexp.MustCompile(`\n#[^#]`)
-	h2Re := regexp.MustCompile(`\n##[^#]`)
-	h3Re := regexp.MustCompile(`\n###[^#]`)
-	h4Re := regexp.MustCompile(`\n####[^#]`)
-	codeFenceRe := regexp.MustCompile("\\n```[^\n]*")
-	hrRe := regexp.MustCompile(`\n(?:---|\*\*\*|___)\s*\n`)
-	blankRe := regexp.MustCompile(`\n\n+`)
-
-	type pattern struct {
-		re    *regexp.Regexp
-		score int
-	}
-	patterns := []pattern{
-		{h1Re, breakScoreH1},
-		{h2Re, breakScoreH2},
-		{h3Re, breakScoreH3},
-		{h4Re, breakScoreH4},
-		{codeFenceRe, breakScoreCodeFence},
-		{hrRe, breakScoreHR},
-		{blankRe, breakScoreBlank},
-	}
-
 	seen := make(map[int]int)
-	for _, p := range patterns {
+	for _, p := range breakPointPatterns {
 		locs := p.re.FindAllStringIndex(text, -1)
 		for _, loc := range locs {
 			pos := loc[0]
@@ -106,8 +99,7 @@ func scanBreakPoints(text string) []breakPoint {
 }
 
 func scanCodeFences(text string) []codeFence {
-	re := regexp.MustCompile("```")
-	matches := re.FindAllStringIndex(text, -1)
+	matches := codeFenceRe.FindAllStringIndex(text, -1)
 	var fences []codeFence
 	for i := 0; i < len(matches)-1; i += 2 {
 		start := matches[i][0]

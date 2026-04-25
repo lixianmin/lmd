@@ -102,12 +102,12 @@ func TestMemoryQueryEpisodeDecay(t *testing.T) {
 	}
 }
 
-func TestMemoryQueryRelationDecay(t *testing.T) {
+func TestMemoryQueryRelationRecencyBoost(t *testing.T) {
 	initMemoryTestDB(t)
 	svc := NewMemoryService(nil, nil)
 
 	id, _ := svc.Add("user likes coffee", "relation")
-	oldTime := time.Now().Add(-180 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	oldTime := time.Now().Add(-365 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
 
 	results, err := svc.Query("coffee", 10)
@@ -115,12 +115,12 @@ func TestMemoryQueryRelationDecay(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(results) == 0 {
-		t.Fatal("expected at least 1 result")
+		t.Fatal("relation should never be forgotten")
 	}
 
 	approx := results[0].Score / results[0].RawScore
-	if approx < 0.4 || approx > 0.6 {
-		t.Fatalf("expected decay factor ~0.5 for 180-day relation, got %.3f", approx)
+	if approx < relationRecencyBase-0.05 {
+		t.Fatalf("1-year-old relation should have recencyBoost >= %.2f, got %.3f", relationRecencyBase, approx)
 	}
 }
 
@@ -156,7 +156,7 @@ func TestMemoryAddInvalidType(t *testing.T) {
 	}
 }
 
-func TestDecayFactor(t *testing.T) {
+func TestTimePenalty(t *testing.T) {
 	tests := []struct {
 		memType string
 		ageDays float64
@@ -168,16 +168,48 @@ func TestDecayFactor(t *testing.T) {
 		{"episode", 15, 0.5, 0.01},
 		{"episode", 30, 0.25, 0.01},
 		{"episode", 0, 1.0, 0.01},
-		{"relation", 180, 0.5, 0.01},
-		{"relation", 360, 0.25, 0.01},
 		{"relation", 0, 1.0, 0.01},
+		{"relation", 365, 0.85, 0.02},
+		{"relation", 3650, 0.7, 0.02},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s/%.0fd", tt.memType, tt.ageDays), func(t *testing.T) {
-			got := decayFactor(tt.memType, tt.ageDays)
+			got := timePenalty(tt.memType, tt.ageDays)
 			if got < tt.want-tt.delta || got > tt.want+tt.delta {
-				t.Fatalf("decayFactor(%s, %.0f) = %.4f, want %.4f±%.4f", tt.memType, tt.ageDays, got, tt.want, tt.delta)
+				t.Fatalf("timePenalty(%s, %.0f) = %.4f, want %.4f±%.4f", tt.memType, tt.ageDays, got, tt.want, tt.delta)
 			}
 		})
+	}
+}
+
+func TestMemoryDelete(t *testing.T) {
+	initMemoryTestDB(t)
+	svc := NewMemoryService(nil, nil)
+
+	id, _ := svc.Add("to be deleted", "fact")
+
+	results, _ := svc.Query("to be deleted", 10)
+	if len(results) == 0 {
+		t.Fatal("memory should exist before delete")
+	}
+
+	if err := dao.DeleteMemory(id); err != nil {
+		t.Fatalf("DeleteMemory failed: %v", err)
+	}
+
+	results, _ = svc.Query("to be deleted", 10)
+	for _, r := range results {
+		if r.ID == id {
+			t.Fatal("memory should not appear after delete")
+		}
+	}
+}
+
+func TestMemoryDeleteNotFound(t *testing.T) {
+	initMemoryTestDB(t)
+
+	err := dao.DeleteMemory(99999)
+	if err == nil {
+		t.Fatal("expected error for nonexistent memory")
 	}
 }

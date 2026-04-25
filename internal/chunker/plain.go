@@ -46,14 +46,14 @@ func (my *PlainTextChunker) Chunk(body string) ([]Chunk, error) {
 
 	var rawChunks []rawChunk
 	pos := 0
+	byteOff := 0
 
 	for pos < totalRunes {
 		remaining := totalRunes - pos
 		if remaining <= my.chunkSize {
-			content := string(runes[pos:])
 			rawChunks = append(rawChunks, rawChunk{
-				content: content,
-				start:   len(string(runes[:pos])),
+				content: string(runes[pos:]),
+				start:   byteOff,
 				end:     len(body),
 			})
 			break
@@ -65,12 +65,17 @@ func (my *PlainTextChunker) Chunk(body string) ([]Chunk, error) {
 			cutPos = targetPos
 		}
 
-		content := string(runes[pos:cutPos])
+		cutByteOff := byteOff
+		for i := pos; i < cutPos; i++ {
+			cutByteOff += utf8.RuneLen(runes[i])
+		}
+
 		rawChunks = append(rawChunks, rawChunk{
-			content: content,
-			start:   len(string(runes[:pos])),
-			end:     len(string(runes[:cutPos])),
+			content: string(runes[pos:cutPos]),
+			start:   byteOff,
+			end:     cutByteOff,
 		})
+		byteOff = cutByteOff
 		pos = cutPos
 	}
 

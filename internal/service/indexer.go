@@ -41,12 +41,12 @@ func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	}
 }
 
-func (idx *Indexer) chunkerForExt(ext string) chunker.Chunker {
+func (my *Indexer) chunkerForExt(ext string) chunker.Chunker {
 	switch ext {
 	case ".txt":
-		return idx.plainChunker
+		return my.plainChunker
 	default:
-		return idx.markdownChunker
+		return my.markdownChunker
 	}
 }
 
@@ -73,7 +73,7 @@ type docInfo struct {
 	fileModTime int64
 }
 
-func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
+func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
 	pattern := globPattern
@@ -181,8 +181,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 				return err
 			}
 
-			ch := idx.chunkerForExt(filepath.Ext(relPath))
-			return idx.createChunks(doc.Id, body, hash, ch)
+			ch := my.chunkerForExt(filepath.Ext(relPath))
+			return my.createChunks(doc.Id, body, hash, ch)
 		}
 
 		content, err := os.ReadFile(path)
@@ -210,8 +210,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			return err
 		}
 
-		ch := idx.chunkerForExt(filepath.Ext(relPath))
-		return idx.createChunks(doc.Id, body, hash, ch)
+		ch := my.chunkerForExt(filepath.Ext(relPath))
+		return my.createChunks(doc.Id, body, hash, ch)
 	})
 	if err != nil {
 		return nil, err
@@ -232,7 +232,7 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 	return result, nil
 }
 
-func (idx *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {
+func (my *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {
 	chunks, err := ch.Chunk(body)
 	if err != nil {
 		return err
@@ -250,7 +250,7 @@ func (idx *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chun
 			TokenCount: c.TokenCount,
 			Hash:       hash,
 		}
-		tokenized[i] = idx.tokenizer.TokenizeToString(c.Content)
+		tokenized[i] = my.tokenizer.TokenizeToString(c.Content)
 	}
 	_, err = dao.InsertChunks(docId, data, tokenized)
 	return err

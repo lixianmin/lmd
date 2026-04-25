@@ -146,6 +146,7 @@ func (my *Daemon) Stop() error {
 
 		if dao.DB != nil {
 			dao.DB.Close()
+			dao.DB = nil
 		}
 
 		if my.provider != nil {
@@ -196,7 +197,10 @@ func (my *Daemon) goLoop(later loom.Later) {
 func (my *Daemon) syncIndex() {
 	my.rebuildMu.Lock()
 	defer my.rebuildMu.Unlock()
+	my.syncIndexUnlocked()
+}
 
+func (my *Daemon) syncIndexUnlocked() {
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Error("indexPoller: list collections failed: %s", err)
@@ -361,6 +365,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.WriteHeader(status)
 	bts, err := convert.ToJsonE(v)
 	if err != nil {
+		w.Write([]byte(`{"error":"internal serialization error"}`))
 		return
 	}
 	w.Write(bts)

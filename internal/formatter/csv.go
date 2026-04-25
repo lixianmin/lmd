@@ -22,8 +22,9 @@ func (my *CSVFormatter) Format(w io.Writer, hits []SearchHit) error {
 
 	for _, r := range hits {
 		snippet := r.Snippet
-		if len(snippet) > csvSnippetMaxRunes {
-			snippet = snippet[:csvSnippetMaxRunes]
+		runes := []rune(snippet)
+		if len(runes) > csvSnippetMaxRunes {
+			snippet = string(runes[:csvSnippetMaxRunes])
 		}
 		cw.Write([]string{
 			r.Path,

@@ -502,7 +502,7 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	my.syncIndex()
+	my.syncIndexUnlocked()
 
 	logo.Info("handleRebuild: collections restored, background embedTicker will handle embedding")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -582,6 +582,34 @@ func (my *Daemon) handleMemoryQuery(w http.ResponseWriter, r *http.Request) {
 
 	logo.Info("handleMemoryQuery: query=%q results=%d", req.Query, len(results))
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (my *Daemon) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+
+	if err := dao.DeleteMemory(req.ID); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "memory not found"})
+		return
+	}
+
+	logo.Info("handleMemoryDelete: id=%d", req.ID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (my *Daemon) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -788,6 +816,21 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			req.Limit = defaultMemoryQueryLimit
 		}
 		return my.memSvc.Query(req.Query, req.Limit)
+
+	case "memory_delete":
+		var req struct {
+			ID int64 `json:"id"`
+		}
+		if err := convert.FromJsonE(params, &req); err != nil {
+			return nil, err
+		}
+		if req.ID <= 0 {
+			return nil, fmt.Errorf("id is required")
+		}
+		if err := dao.DeleteMemory(req.ID); err != nil {
+			return nil, fmt.Errorf("memory not found: %d", req.ID)
+		}
+		return map[string]string{"status": "deleted"}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)

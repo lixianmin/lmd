@@ -3,6 +3,7 @@ package dao
 import (
 	"database/sql"
 	"math"
+	"strings"
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -74,19 +75,18 @@ func SearchMemoryFTS(tokenizedQuery string, limit int) ([]MemoryRecord, error) {
 	return results, rows.Err()
 }
 
-func SearchMemoryVector(query []float32, limit int) ([]MemoryRecord, error) {
-	q, err := sqlite_vec.SerializeFloat32(padVector(query))
+func SearchMemoryVector(q []float32, limit int) ([]MemoryRecord, error) {
+	blob, err := sqlite_vec.SerializeFloat32(q)
 	if err != nil {
 		return nil, err
 	}
-
 	rows, err := withQuery(`
 		SELECT v.memory_id, v.distance
 		FROM memories_vec v
 		WHERE v.embedding MATCH ?
 		ORDER BY v.distance
 		LIMIT ?
-	`, q, limit)
+	`, blob, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +103,46 @@ func SearchMemoryVector(query []float32, limit int) ([]MemoryRecord, error) {
 		results = append(results, MemoryRecord{Id: id, Score: score})
 	}
 
-	for i := range results {
-		row := withQueryRow("SELECT content, type, created_at FROM memories WHERE id=?", results[i].Id)
-		if err := row.Scan(&results[i].Content, &results[i].Type, &results[i].CreatedAt); err != nil {
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(results) == 0 {
+		return results, nil
+	}
+
+	ids := make([]any, len(results))
+	placeholders := make([]string, len(results))
+	for i, r := range results {
+		ids[i] = r.Id
+		placeholders[i] = "?"
+	}
+	query := "SELECT id, content, type, created_at FROM memories WHERE id IN (" +
+		strings.Join(placeholders, ",") + ")"
+	contentRows, err := withQuery(query, ids...)
+	if err != nil {
+		return nil, err
+	}
+	defer contentRows.Close()
+
+	contentMap := make(map[int64]MemoryRecord)
+	for contentRows.Next() {
+		var rec MemoryRecord
+		if err := contentRows.Scan(&rec.Id, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
 			continue
+		}
+		contentMap[rec.Id] = rec
+	}
+
+	for i := range results {
+		if rec, ok := contentMap[results[i].Id]; ok {
+			results[i].Content = rec.Content
+			results[i].Type = rec.Type
+			results[i].CreatedAt = rec.CreatedAt
 		}
 	}
 
-	return results, rows.Err()
+	return results, nil
 }
 
 func UpdateMemoryEmbedding(id int64, vec []byte) error {
@@ -158,4 +190,24 @@ func GetUnembeddedMemories(limit int) ([]MemoryRecord, error) {
 		results = append(results, rec)
 	}
 	return results, rows.Err()
+}
+
+func DeleteMemory(id int64) error {
+	return withTransaction(func(tx *sql.Tx) error {
+		if _, err := tx.Exec("DELETE FROM memories_vec WHERE memory_id=?", id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM memories_fts WHERE rowid=?", id); err != nil {
+			return err
+		}
+		res, err := tx.Exec("DELETE FROM memories WHERE id=?", id)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return sql.ErrNoRows
+		}
+		return nil
+	})
 }

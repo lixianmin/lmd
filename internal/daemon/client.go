@@ -28,8 +28,8 @@ func NewClient(port int) *Client {
 	}
 }
 
-func (c *Client) IsAlive() bool {
-	resp, err := c.client.Get(c.baseURL + "/health")
+func (my *Client) IsAlive() bool {
+	resp, err := my.client.Get(my.baseURL + "/health")
 	if err != nil {
 		return false
 	}
@@ -37,8 +37,8 @@ func (c *Client) IsAlive() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func (c *Client) EnsureDaemon() error {
-	if c.IsAlive() {
+func (my *Client) EnsureDaemon() error {
+	if my.IsAlive() {
 		return nil
 	}
 
@@ -53,7 +53,7 @@ func (c *Client) EnsureDaemon() error {
 
 	deadline := time.Now().Add(daemonStartTimeout)
 	for {
-		if c.IsAlive() {
+		if my.IsAlive() {
 			fmt.Fprintf(os.Stderr, "  Daemon ready.\n")
 			return nil
 		}
@@ -64,30 +64,38 @@ func (c *Client) EnsureDaemon() error {
 	}
 }
 
-func (c *Client) Post(path string, body interface{}) ([]byte, error) {
+func (my *Client) Post(path string, body interface{}) ([]byte, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.client.Post(c.baseURL+path, "application/json", bytes.NewReader(data))
+	resp, err := my.client.Post(my.baseURL+path, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("daemon returned %d: %s", resp.StatusCode, string(respBody))
+	}
 	return io.ReadAll(resp.Body)
 }
 
-func (c *Client) Get(path string) ([]byte, error) {
-	resp, err := c.client.Get(c.baseURL + path)
+func (my *Client) Get(path string) ([]byte, error) {
+	resp, err := my.client.Get(my.baseURL + path)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("daemon returned %d: %s", resp.StatusCode, string(respBody))
+	}
 	return io.ReadAll(resp.Body)
 }
 
-func (c *Client) Search(query, collection string, limit int, minScore float64, format string, jsonOutput bool) ([]byte, error) {
-	return c.Post("/search", map[string]interface{}{
+func (my *Client) Search(query, collection string, limit int, minScore float64, format string, jsonOutput bool) ([]byte, error) {
+	return my.Post("/search", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,
@@ -97,8 +105,8 @@ func (c *Client) Search(query, collection string, limit int, minScore float64, f
 	})
 }
 
-func (c *Client) VSearch(query, collection string, limit int, minScore float64) ([]byte, error) {
-	return c.Post("/vsearch", map[string]interface{}{
+func (my *Client) VSearch(query, collection string, limit int, minScore float64) ([]byte, error) {
+	return my.Post("/vsearch", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,
@@ -106,8 +114,8 @@ func (c *Client) VSearch(query, collection string, limit int, minScore float64) 
 	})
 }
 
-func (c *Client) Query(query, collection string, limit int, minScore float64) ([]byte, error) {
-	return c.Post("/query", map[string]interface{}{
+func (my *Client) Query(query, collection string, limit int, minScore float64) ([]byte, error) {
+	return my.Post("/query", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,
@@ -115,8 +123,8 @@ func (c *Client) Query(query, collection string, limit int, minScore float64) ([
 	})
 }
 
-func (c *Client) HyDE(query, collection string, limit int, minScore float64) ([]byte, error) {
-	return c.Post("/hyde", map[string]interface{}{
+func (my *Client) HyDE(query, collection string, limit int, minScore float64) ([]byte, error) {
+	return my.Post("/hyde", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,
@@ -124,8 +132,8 @@ func (c *Client) HyDE(query, collection string, limit int, minScore float64) ([]
 	})
 }
 
-func (c *Client) GetDoc(pathOrDocId string, full bool, from, lines int) ([]byte, error) {
-	return c.Post("/get", map[string]interface{}{
+func (my *Client) GetDoc(pathOrDocId string, full bool, from, lines int) ([]byte, error) {
+	return my.Post("/get", map[string]interface{}{
 		"path":  pathOrDocId,
 		"full":  full,
 		"from":  from,
@@ -133,49 +141,55 @@ func (c *Client) GetDoc(pathOrDocId string, full bool, from, lines int) ([]byte,
 	})
 }
 
-func (c *Client) Status() ([]byte, error) {
-	return c.Get("/status")
+func (my *Client) Status() ([]byte, error) {
+	return my.Get("/status")
 }
 
-func (c *Client) CollectionAdd(path, name, mask string) ([]byte, error) {
-	return c.Post("/collection/add", map[string]interface{}{
+func (my *Client) CollectionAdd(path, name, mask string) ([]byte, error) {
+	return my.Post("/collection/add", map[string]interface{}{
 		"path": path,
 		"name": name,
 		"mask": mask,
 	})
 }
 
-func (c *Client) CollectionRemove(name string) ([]byte, error) {
-	return c.Post("/collection/remove", map[string]interface{}{
+func (my *Client) CollectionRemove(name string) ([]byte, error) {
+	return my.Post("/collection/remove", map[string]interface{}{
 		"name": name,
 	})
 }
 
-func (c *Client) CollectionList() ([]byte, error) {
-	return c.Get("/collection/list")
+func (my *Client) CollectionList() ([]byte, error) {
+	return my.Get("/collection/list")
 }
 
-func (c *Client) CollectionRename(oldName, newName string) ([]byte, error) {
-	return c.Post("/collection/rename", map[string]interface{}{
+func (my *Client) CollectionRename(oldName, newName string) ([]byte, error) {
+	return my.Post("/collection/rename", map[string]interface{}{
 		"old": oldName,
 		"new": newName,
 	})
 }
 
-func (c *Client) Rebuild() ([]byte, error) {
-	return c.Post("/rebuild", nil)
+func (my *Client) Rebuild() ([]byte, error) {
+	return my.Post("/rebuild", nil)
 }
 
-func (c *Client) MemoryAdd(content, memType string) ([]byte, error) {
-	return c.Post("/memory/add", map[string]interface{}{
+func (my *Client) MemoryAdd(content, memType string) ([]byte, error) {
+	return my.Post("/memory/add", map[string]interface{}{
 		"content": content,
 		"type":    memType,
 	})
 }
 
-func (c *Client) MemoryQuery(query string, limit int) ([]byte, error) {
-	return c.Post("/memory/query", map[string]interface{}{
+func (my *Client) MemoryQuery(query string, limit int) ([]byte, error) {
+	return my.Post("/memory/query", map[string]interface{}{
 		"query": query,
 		"limit": limit,
+	})
+}
+
+func (my *Client) MemoryDelete(id int64) ([]byte, error) {
+	return my.Post("/memory/delete", map[string]interface{}{
+		"id": id,
 	})
 }

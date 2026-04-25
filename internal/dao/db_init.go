@@ -84,7 +84,6 @@ func withQueryRow(query string, args ...any) *sql.Row {
 	if err != nil {
 		return DB.db.QueryRow(query, args...)
 	}
-	defer stmt.Close()
 	return stmt.QueryRow(args...)
 }
 
@@ -150,6 +149,7 @@ func createTables() error {
 			embedding float[1024] distance_metric=cosine
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path_unique ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}
 	for _, s := range stmts {

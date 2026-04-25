@@ -40,36 +40,27 @@ func ShortDocId(docId string) string {
 func UpsertDocument(doc *DocumentRecord) error {
 	doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
 
-	var existingID int64
-	err := DB.db.QueryRow(
-		"SELECT id FROM documents WHERE collection=? AND path=?",
-		doc.Collection, doc.Path,
-	).Scan(&existingID)
-
-	if err == sql.ErrNoRows {
-		res, err := WithExec(
-			`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))`,
-			doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime,
-		)
-		if err != nil {
-			return err
-		}
-		doc.Id, _ = res.LastInsertId()
-		return nil
-	}
-
+	res, err := WithExec(`
+		INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))
+		ON CONFLICT(collection, path) DO UPDATE SET
+			docid=excluded.docid, title=excluded.title, body=excluded.body,
+			hash=excluded.hash, file_size=excluded.file_size, file_mod_time=excluded.file_mod_time,
+			modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours')
+	`, doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime)
 	if err != nil {
 		return err
 	}
 
-	doc.Id = existingID
-
-	_, err = WithExec(
-		`UPDATE documents SET docid=?, title=?, body=?, hash=?, file_size=?, file_mod_time=?, modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours') WHERE id=?`,
-		doc.DocId, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime, existingID,
-	)
-	return err
+	doc.Id, _ = res.LastInsertId()
+	if doc.Id == 0 {
+		err := withQueryRow("SELECT id FROM documents WHERE collection=? AND path=?",
+			doc.Collection, doc.Path).Scan(&doc.Id)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func GetDocumentByDocId(docId string) (*DocumentRecord, error) {

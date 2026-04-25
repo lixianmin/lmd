@@ -11,12 +11,13 @@ import (
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
-const forgetThreshold = 0.05 // 衰变后分数低于此阈值的记忆被遗忘
+const forgetThreshold = 0.05 // 衰变后分数低于此阈值的 Episode 被遗忘
 
 const (
-	decayBase        = 0.5   // 指数衰变底数：每过半衰期分数减半
-	episodeHalfLife  = 15.0  // episode 类型记忆半衰期（天）
-	relationHalfLife = 180.0 // relation 类型记忆半衰期（天）
+	decayBase              = 0.5  // 指数衰变底数：每过半衰期分数减半
+	episodeHalfLife        = 15.0 // episode 类型记忆半衰期（天）
+	relationRecencyBase    = 0.7  // Relation 时效偏好底数，保证老记录不低于相关性的 70%
+	relationRecencyHalfLife = 365.0 // Relation 时效偏好半衰期（天），缓慢偏好新记录
 )
 
 type MemorySearchResult struct {
@@ -96,10 +97,10 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 	for _, r := range ranked {
 		rec := recordMap[r.Key]
 		ageDays := now.Sub(rec.CreatedAt).Hours() / 24
-		decay := decayFactor(rec.Type, ageDays)
+		decay := timePenalty(rec.Type, ageDays)
 		finalScore := r.Score * decay
 
-		if finalScore < forgetThreshold && decay < 1.0 {
+		if rec.Type == "episode" && finalScore < forgetThreshold {
 			continue
 		}
 
@@ -120,14 +121,18 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 	return results, nil
 }
 
-func decayFactor(memType string, ageDays float64) float64 {
+// timePenalty 根据记忆类型返回时间修正因子：
+// - Fact: 永远 1.0，时间不影响
+// - Episode: 指数衰减，过期的被遗忘
+// - Relation: 轻微时效偏好（recencyBoost），永不遗忘
+func timePenalty(memType string, ageDays float64) float64 {
 	switch memType {
 	case "fact":
 		return 1.0
 	case "episode":
 		return math.Pow(decayBase, ageDays/episodeHalfLife)
 	case "relation":
-		return math.Pow(decayBase, ageDays/relationHalfLife)
+		return relationRecencyBase + (1-relationRecencyBase)*math.Exp(-ageDays*math.Ln2/relationRecencyHalfLife)
 	default:
 		return 1.0
 	}
