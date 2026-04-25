@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const ollamaHTTPTimeout = 120 * time.Second // Ollama HTTP 客户端超时
+
 type OllamaProvider struct {
 	baseURL string
 	model   string
@@ -20,7 +22,7 @@ func NewOllamaProvider(url, model string) *OllamaProvider {
 	return &OllamaProvider{
 		baseURL: url,
 		model:   model,
-		client:  &http.Client{Timeout: 120 * time.Second},
+		client:  &http.Client{Timeout: ollamaHTTPTimeout},
 	}
 }
 
@@ -72,7 +74,7 @@ func (my *OllamaProvider) EmbedQuery(ctx context.Context, query string) ([]float
 	return my.Embed(ctx, EmbedQueryPrefix+query)
 }
 
-func (my *OllamaProvider) Dimension() int { return 1024 }
+func (my *OllamaProvider) Dimension() int { return EmbeddingDim }
 
 func (my *OllamaProvider) ModelName() string { return my.model }
 

@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+const (
+	httpClientTimeout  = 120 * time.Second      // HTTP 客户端总超时
+	daemonStartTimeout = 30 * time.Second       // 等待 daemon 启动的最长等待时间
+	daemonPollInterval = 500 * time.Millisecond // 轮询 daemon 是否存活的间隔
+)
+
 type Client struct {
 	baseURL string
 	client  *http.Client
@@ -18,7 +24,7 @@ type Client struct {
 func NewClient(port int) *Client {
 	return &Client{
 		baseURL: fmt.Sprintf("http://localhost:%d", port),
-		client:  &http.Client{Timeout: 120 * time.Second},
+		client:  &http.Client{Timeout: httpClientTimeout},
 	}
 }
 
@@ -45,12 +51,16 @@ func (c *Client) EnsureDaemon() error {
 		fmt.Fprintf(os.Stderr, "  Waiting for daemon to start\n")
 	}
 
+	deadline := time.Now().Add(daemonStartTimeout)
 	for {
 		if c.IsAlive() {
 			fmt.Fprintf(os.Stderr, "  Daemon ready.\n")
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		if time.Now().After(deadline) {
+			return fmt.Errorf("daemon did not start within %s", daemonStartTimeout)
+		}
+		time.Sleep(daemonPollInterval)
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	verbose bool
 	jsonOut bool
 )
 
@@ -40,7 +39,6 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable debug-level logging")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "output as JSON")
 	rootCmd.Version = "0.1.0"
 }

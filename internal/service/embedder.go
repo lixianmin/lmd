@@ -18,7 +18,7 @@ type EmbedResult struct {
 type Embedder struct {
 	provider   embedding.EmbeddingProvider
 	batchSize  int
-	truncation int
+	truncation int // rune 截断上限，超过此长度的 chunk 文本会被截断后再送入 embedding 模型
 }
 
 func NewEmbedder(provider embedding.EmbeddingProvider, batchSize, truncation int) *Embedder {

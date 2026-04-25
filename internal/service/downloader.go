@@ -12,13 +12,21 @@ import (
 	"github.com/lixianmin/logo"
 )
 
+const (
+	downloadTimeout          = 30 * time.Minute       // 模型下载总超时
+	downloadHeaderTimeout    = 30 * time.Second       // 响应头超时
+	downloadBufSize          = 32 * 1024              // 下载缓冲区大小（32 KB）
+	downloadProgressInterval = 500 * time.Millisecond // 进度打印最小间隔
+	progressBarWidth         = 30                     // 进度条字符宽度
+)
+
 var downloadClient = &http.Client{
-	Timeout: 30 * time.Minute,
+	Timeout: downloadTimeout,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return nil
 	},
 	Transport: &http.Transport{
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: downloadHeaderTimeout,
 	},
 }
 
@@ -79,7 +87,7 @@ func downloadFile(targetPath, url string) error {
 	defer f.Close()
 
 	var written int64
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, downloadBufSize)
 	start := time.Now()
 	lastPrint := time.Time{}
 
@@ -95,7 +103,7 @@ func downloadFile(targetPath, url string) error {
 		}
 
 		now := time.Now()
-		if now.Sub(lastPrint) >= 500*time.Millisecond || readErr != nil {
+		if now.Sub(lastPrint) >= downloadProgressInterval || readErr != nil {
 			lastPrint = now
 			printDownloadProgress(written, total, start)
 		}
@@ -129,7 +137,7 @@ func printDownloadProgress(written, total int64, start time.Time) {
 	if total > 0 {
 		pct := float64(written) / float64(total)
 		remaining := time.Duration((float64(total-written) / speed) * float64(time.Second)).Truncate(time.Second)
-		bar := progressBar(pct, 30)
+		bar := progressBar(pct, progressBarWidth)
 		fmt.Fprintf(os.Stderr, "\r  %s %5.1f%% %s/%s %s/s ETA %s    ",
 			bar, pct*100, formatBytes(written), formatBytes(total), formatSpeed(speed), remaining)
 	} else {

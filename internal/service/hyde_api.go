@@ -16,6 +16,12 @@ const hydePromptTemplate = "Write a brief factual passage (50-150 words) that di
 
 const hydeTimeout = 60 * time.Second
 
+const (
+	hydePromptLogMaxRunes   = 500  // HyDE prompt 日志截断 rune 数
+	hydeResponseLogMaxRunes = 1000 // HyDE 原始响应日志截断 rune 数
+	hydeContentLogMaxRunes  = 300  // HyDE 提取内容日志截断 rune 数
+)
+
 type HyDEAPIClient struct {
 	baseURL   string
 	apiKey    string
@@ -41,21 +47,21 @@ func (my *HyDEAPIClient) Generate(ctx context.Context, query string) (string, er
 	defer cancel()
 
 	prompt := fmt.Sprintf(hydePromptTemplate, query)
-	logo.Info("HyDEAPIClient: prompt: %s", truncateString(prompt, 500))
+	logo.Info("HyDEAPIClient: prompt: %s", truncateString(prompt, hydePromptLogMaxRunes))
 
 	t0 := time.Now()
 	respBody, err := my.doRequest(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
-	logo.Info("HyDEAPIClient: raw response (%s): %s", time.Since(t0), truncateString(string(respBody), 1000))
+	logo.Info("HyDEAPIClient: raw response (%s): %s", time.Since(t0), truncateString(string(respBody), hydeResponseLogMaxRunes))
 
 	content, err := my.extractContent(respBody)
 	if err != nil {
 		return "", err
 	}
 
-	logo.Info("HyDEAPIClient: done (%s): %s", time.Since(t0), truncateString(content, 300))
+	logo.Info("HyDEAPIClient: done (%s): %s", time.Since(t0), truncateString(content, hydeContentLogMaxRunes))
 	return content, nil
 }
 

@@ -94,7 +94,7 @@ func createTables() error {
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
 			name            TEXT NOT NULL UNIQUE,
 			path            TEXT NOT NULL,
-			glob_pattern    TEXT DEFAULT '**/*.md',
+			glob_pattern    TEXT DEFAULT '**/*.{md,txt}',
 			ignore_patterns TEXT,
 			created_at      DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			updated_at      DATETIME DEFAULT (DATETIME('now', '+8 hours'))

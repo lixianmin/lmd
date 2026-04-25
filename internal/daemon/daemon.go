@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/got/convert"
+	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -26,6 +26,14 @@ import (
 	"github.com/lixianmin/logo"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+)
+
+const (
+	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
+	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
+	daemonIdleTimeout     = 60 * time.Minute // daemon 空闲自动关闭超时
+	serverShutdownTimeout = 5 * time.Second  // HTTP server 优雅关闭超时
+	memoryEmbedBatchSize  = 8                // Memory embedding 批量大小
 )
 
 var PidPath = func() string {
@@ -131,7 +139,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 func (my *Daemon) Stop() error {
 	my.stopOnce.Do(func() {
 		if my.server != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 			defer cancel()
 			my.server.Shutdown(shutdownCtx)
 		}
@@ -159,10 +167,10 @@ func (my *Daemon) touchActivity() {
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
-	var syncIndexTicker = later.NewTicker(60 * time.Second)
-	var embedTicker = later.NewTicker(5 * time.Second)
+	var syncIndexTicker = later.NewTicker(indexSyncInterval)
+	var embedTicker = later.NewTicker(embedTickInterval)
 	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
-	var idleTimeout = 60 * time.Minute
+	var idleTimeout = daemonIdleTimeout
 
 	var closeChan = my.wc.C()
 	for {
@@ -186,6 +194,9 @@ func (my *Daemon) goLoop(later loom.Later) {
 }
 
 func (my *Daemon) syncIndex() {
+	my.rebuildMu.Lock()
+	defer my.rebuildMu.Unlock()
+
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Error("indexPoller: list collections failed: %s", err)
@@ -226,7 +237,7 @@ func (my *Daemon) embedMemories() {
 	if count == 0 {
 		return
 	}
-	memories, err := dao.GetUnembeddedMemories(8)
+	memories, err := dao.GetUnembeddedMemories(memoryEmbedBatchSize)
 	if err != nil || len(memories) == 0 {
 		return
 	}
@@ -245,9 +256,12 @@ func (my *Daemon) embedMemories() {
 	for i, vec := range vecs {
 		blob, err := sqlite_vec.SerializeFloat32(vec)
 		if err != nil {
+			logo.Error("embedMemories: serialize failed for memory %d: %s", memories[i].Id, err)
 			continue
 		}
-		dao.UpdateMemoryEmbedding(memories[i].ID, blob)
+		if err := dao.UpdateMemoryEmbedding(memories[i].Id, blob); err != nil {
+			logo.Error("embedMemories: update failed for memory %d: %s", memories[i].Id, err)
+		}
 	}
 	logo.Info("embedMemories: embedded=%d", len(vecs))
 }
@@ -270,9 +284,15 @@ func acquireLock() error {
 		return fmt.Errorf("daemon already running (lock held on %s)", path)
 	}
 
-	f.Truncate(0)
-	f.Seek(0, 0)
-	f.WriteString(strconv.Itoa(os.Getpid()))
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("truncate pid file failed: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return fmt.Errorf("seek pid file failed: %w", err)
+	}
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		return fmt.Errorf("write pid file failed: %w", err)
+	}
 	f.Sync()
 
 	lockFile = f
@@ -317,7 +337,10 @@ func StartBackground() error {
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 
-	stderrR, _ := cmd.StderrPipe()
+	stderrR, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe failed: %w", err)
+	}
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {

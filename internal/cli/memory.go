@@ -86,7 +86,7 @@ var memoryQueryCmd = &cobra.Command{
 func init() {
 	memoryAddCmd.Flags().StringVar(&memoryType, "type", "episode", "memory type: fact|episode|relation")
 
-	memoryQueryCmd.Flags().IntVar(&memoryLimit, "limit", 10, "max results")
+	memoryQueryCmd.Flags().IntVar(&memoryLimit, "limit", cliMemoryQueryLimit, "max results")
 
 	memoryCmd.AddCommand(memoryAddCmd)
 	memoryCmd.AddCommand(memoryQueryCmd)

@@ -19,6 +19,14 @@ import (
 	"github.com/lixianmin/logo"
 )
 
+const (
+	defaultSearchLimit      = 5  // 搜索默认返回条数
+	defaultMemoryQueryLimit = 10 // Memory 查询默认返回条数
+	defaultVectorMinScore   = 0.3
+	overfetchMultiplier     = 3 // 混合搜索 pre-fusion 超取倍数
+	docPreviewMaxRunes      = 500
+)
+
 func (my *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -43,7 +51,7 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 5
+		req.Limit = defaultSearchLimit
 	}
 
 	results, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
@@ -74,10 +82,10 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 5
+		req.Limit = defaultSearchLimit
 	}
 	if req.MinScore == 0 {
-		req.MinScore = 0.3
+		req.MinScore = defaultVectorMinScore
 	}
 
 	results, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
@@ -108,16 +116,16 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 5
+		req.Limit = defaultSearchLimit
 	}
 
-	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*3, 0)
+	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -162,7 +170,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 5
+		req.Limit = defaultSearchLimit
 	}
 
 	resp := map[string]any{}
@@ -188,7 +196,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp["hyde_document"] = hydeDoc
-	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, 300))
+	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, docPreviewMaxRunes))
 
 	hydeVec, embedErr := my.provider.Embed(context.Background(), hydeDoc)
 	if embedErr != nil {
@@ -199,7 +207,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fetchLimit := req.Limit * 3
+	fetchLimit := req.Limit * overfetchMultiplier
 	hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
 	resp["hyde_hits"] = len(hydeHits)
 	logo.Info("handleHyde: hyde_hits=%d", len(hydeHits))
@@ -261,8 +269,9 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	body := doc.Body
 	if !req.Full {
-		if len(body) > 500 {
-			body = body[:500] + "..."
+		runes := []rune(body)
+		if len(runes) > docPreviewMaxRunes {
+			body = string(runes[:docPreviewMaxRunes]) + "..."
 		}
 	}
 	if req.From > 0 {
@@ -355,7 +364,7 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 
 	mask := req.Mask
 	if mask == "" {
-		mask = "**/*.md"
+		mask = "**/*.{md,txt}"
 	}
 
 	if err := dao.AddCollection(req.Name, absPath, mask, nil); err != nil {
@@ -562,7 +571,7 @@ func (my *Daemon) handleMemoryQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit <= 0 {
-		req.Limit = 10
+		req.Limit = defaultMemoryQueryLimit
 	}
 
 	results, err := my.memSvc.Query(req.Query, req.Limit)
@@ -631,7 +640,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		if req.Limit <= 0 {
-			req.Limit = 5
+			req.Limit = defaultSearchLimit
 		}
 		hits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, 0)
 		if err != nil {
@@ -650,13 +659,13 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		if req.Limit <= 0 {
-			req.Limit = 5
+			req.Limit = defaultSearchLimit
 		}
-		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*3, 0)
+		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
 		if err != nil {
 			return nil, err
 		}
-		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*3, 0)
+		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -688,10 +697,10 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		if req.Limit <= 0 {
-			req.Limit = 5
+			req.Limit = defaultSearchLimit
 		}
 		if req.MinScore == 0 {
-			req.MinScore = 0.3
+			req.MinScore = defaultVectorMinScore
 		}
 		hits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
 		if err != nil {
@@ -716,8 +725,11 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		body := doc.Body
-		if !req.Full && len(body) > 500 {
-			body = body[:500] + "..."
+		if !req.Full {
+			runes := []rune(body)
+			if len(runes) > docPreviewMaxRunes {
+				body = string(runes[:docPreviewMaxRunes]) + "..."
+			}
 		}
 		return map[string]interface{}{
 			"doc_id": dao.ShortDocId(doc.DocId), "title": doc.Title,
@@ -773,7 +785,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		if req.Limit <= 0 {
-			req.Limit = 10
+			req.Limit = defaultMemoryQueryLimit
 		}
 		return my.memSvc.Query(req.Query, req.Limit)
 

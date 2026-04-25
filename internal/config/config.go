@@ -29,7 +29,9 @@ type LlamaConfig struct {
 }
 
 type EmbeddingConfig struct {
-	BatchSize  int `yaml:"batch_size"`
+	BatchSize int `yaml:"batch_size"`
+	// 发送给 embedding 模型前，每个 chunk 文本的 rune 截断上限。
+	// 必须大于 chunker.hardMax (= chunkSize + chunkSize/2 = 450)，否则 overlap 拼接后的大 chunk 会被截断导致 embedding 丢信息。
 	Truncation int `yaml:"truncation"`
 }
 
@@ -73,7 +75,7 @@ func DefaultConfig() *Config {
 		},
 		Embedding: EmbeddingConfig{
 			BatchSize:  8,
-			Truncation: 300,
+			Truncation: 500,
 		},
 		HyDE: HyDEConfig{
 			BaseURL:   "https://api.siliconflow.cn/v1",

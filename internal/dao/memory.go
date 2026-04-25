@@ -6,10 +6,11 @@ import (
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	"github.com/lixianmin/logo"
 )
 
 type MemoryRecord struct {
-	ID        int64
+	Id        int64
 	Content   string
 	Type      string
 	Embedding []byte
@@ -38,7 +39,7 @@ func GetMemoryByID(id int64) (*MemoryRecord, error) {
 	)
 	var rec MemoryRecord
 	var embedding []byte
-	if err := row.Scan(&rec.ID, &rec.Content, &rec.Type, &embedding, &rec.CreatedAt); err != nil {
+	if err := row.Scan(&rec.Id, &rec.Content, &rec.Type, &embedding, &rec.CreatedAt); err != nil {
 		return nil, err
 	}
 	rec.Embedding = embedding
@@ -63,7 +64,7 @@ func SearchMemoryFTS(tokenizedQuery string, limit int) ([]MemoryRecord, error) {
 	for rows.Next() {
 		var rec MemoryRecord
 		var rawScore float64
-		if err := rows.Scan(&rec.ID, &rec.Content, &rec.Type, &rawScore, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.Id, &rec.Content, &rec.Type, &rawScore, &rec.CreatedAt); err != nil {
 			return nil, err
 		}
 		abs := math.Abs(rawScore)
@@ -99,11 +100,11 @@ func SearchMemoryVector(query []float32, limit int) ([]MemoryRecord, error) {
 			return nil, err
 		}
 		score := 1.0 - distance
-		results = append(results, MemoryRecord{ID: id, Score: score})
+		results = append(results, MemoryRecord{Id: id, Score: score})
 	}
 
 	for i := range results {
-		row := withQueryRow("SELECT content, type, created_at FROM memories WHERE id=?", results[i].ID)
+		row := withQueryRow("SELECT content, type, created_at FROM memories WHERE id=?", results[i].Id)
 		if err := row.Scan(&results[i].Content, &results[i].Type, &results[i].CreatedAt); err != nil {
 			continue
 		}
@@ -125,11 +126,13 @@ func UpdateMemoryEmbedding(id int64, vec []byte) error {
 
 func GetUnembeddedMemoryCount() int {
 	var count int
-	DB.db.QueryRow(`
+	if err := DB.db.QueryRow(`
 		SELECT COUNT(*) FROM memories m
 		LEFT JOIN memories_vec v ON m.id = v.memory_id
 		WHERE v.memory_id IS NULL
-	`).Scan(&count)
+	`).Scan(&count); err != nil {
+		logo.Error("GetUnembeddedMemoryCount: %s", err)
+	}
 	return count
 }
 
@@ -149,7 +152,7 @@ func GetUnembeddedMemories(limit int) ([]MemoryRecord, error) {
 	var results []MemoryRecord
 	for rows.Next() {
 		var rec MemoryRecord
-		if err := rows.Scan(&rec.ID, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.Id, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
 			return nil, err
 		}
 		results = append(results, rec)

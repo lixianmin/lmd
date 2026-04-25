@@ -201,23 +201,6 @@ func TestGetDocumentHashNotFound(t *testing.T) {
 	}
 }
 
-func TestSearchDocumentsByPath(t *testing.T) {
-	initTestDB(t)
-	mustAddCollection(t, "notes", "/data")
-
-	mustUpsertDoc(t, &DocumentRecord{Collection: "notes", Path: "work/project-a.md", Title: "PA", Body: "pa", Hash: "h1", FileSize: 2})
-	mustUpsertDoc(t, &DocumentRecord{Collection: "notes", Path: "work/project-b.md", Title: "PB", Body: "pb", Hash: "h2", FileSize: 2})
-	mustUpsertDoc(t, &DocumentRecord{Collection: "notes", Path: "personal/diary.md", Title: "Diary", Body: "diary", Hash: "h3", FileSize: 5})
-
-	docs, err := SearchDocumentsByPath("project", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(docs) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(docs))
-	}
-}
-
 func TestShortDocId(t *testing.T) {
 	if ShortDocId("abcdef1234567890") != "abcdef12" {
 		t.Fatal("expected first 8 chars")

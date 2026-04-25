@@ -140,7 +140,9 @@ func DeleteVectorsByDocId(docId int64) error {
 		var chunkIds []int64
 		for rows.Next() {
 			var chunkId int64
-			rows.Scan(&chunkId)
+			if err := rows.Scan(&chunkId); err != nil {
+				return err
+			}
 			chunkIds = append(chunkIds, chunkId)
 		}
 

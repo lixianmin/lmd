@@ -12,6 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	stopMaxRetries   = 20                     // 停止 daemon 时最大重试次数
+	stopPollInterval = 500 * time.Millisecond // 停止 daemon 时轮询间隔
+)
+
 var daemonStartCmd = &cobra.Command{
 	Use:    "daemon-start",
 	Short:  "Start daemon in foreground (internal)",
@@ -53,12 +58,12 @@ var stopCmd = &cobra.Command{
 			return fmt.Errorf("cannot stop daemon: %w", err)
 		}
 
-		for i := 0; i < 20; i++ {
+		for i := 0; i < stopMaxRetries; i++ {
 			if !daemon.IsRunning() {
 				fmt.Printf("daemon (pid %d) stopped\n", pid)
 				return nil
 			}
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(stopPollInterval)
 		}
 		os.Remove(pidFile)
 		return fmt.Errorf("timeout waiting for daemon (pid %d) to stop", pid)

@@ -67,8 +67,8 @@ func TestGetMemoryByID(t *testing.T) {
 	if rec.Type != "fact" {
 		t.Fatalf("expected fact, got %s", rec.Type)
 	}
-	if rec.ID != id {
-		t.Fatalf("expected id %d, got %d", id, rec.ID)
+	if rec.Id != id {
+		t.Fatalf("expected id %d, got %d", id, rec.Id)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestGetUnembeddedMemories(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	UpdateMemoryEmbedding(results[0].ID, makeSerializedVec(t))
+	UpdateMemoryEmbedding(results[0].Id, makeSerializedVec(t))
 
 	if count := GetUnembeddedMemoryCount(); count != 1 {
 		t.Fatalf("expected 1 unembedded after update, got %d", count)
@@ -193,7 +193,7 @@ func TestSearchMemoryVector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	UpdateMemoryEmbedding(results[0].ID, makeSerializedVec(t))
+	UpdateMemoryEmbedding(results[0].Id, makeSerializedVec(t))
 
 	queryVec := make([]float32, EmbeddingDim)
 	for i := range queryVec {
@@ -207,7 +207,7 @@ func TestSearchMemoryVector(t *testing.T) {
 	if len(vecResults) == 0 {
 		t.Fatal("expected at least 1 vector result")
 	}
-	if vecResults[0].ID != results[0].ID {
-		t.Fatalf("expected memory %d, got %d", results[0].ID, vecResults[0].ID)
+	if vecResults[0].Id != results[0].Id {
+		t.Fatalf("expected memory %d, got %d", results[0].Id, vecResults[0].Id)
 	}
 }

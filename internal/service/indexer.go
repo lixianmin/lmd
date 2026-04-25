@@ -15,6 +15,11 @@ import (
 	"github.com/lixianmin/logo"
 )
 
+const (
+	defaultChunkSize  = 300 // 每个分块的目标 rune 数
+	titleScanMaxLines = 20  // 提取标题时最多扫描的行数
+)
+
 type UpdateResult struct {
 	Indexed   int
 	Updated   int
@@ -23,15 +28,44 @@ type UpdateResult struct {
 }
 
 type Indexer struct {
-	tokenizer tokenizer.Tokenizer
-	chunker   chunker.Chunker
+	tokenizer       tokenizer.Tokenizer
+	markdownChunker chunker.Chunker
+	plainChunker    chunker.Chunker
 }
 
 func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
 	return &Indexer{
-		tokenizer: tok,
-		chunker:   chunker.NewMarkdownChunker(1200),
+		tokenizer:       tok,
+		markdownChunker: chunker.NewMarkdownChunker(defaultChunkSize),
+		plainChunker:    chunker.NewPlainTextChunker(defaultChunkSize),
 	}
+}
+
+func (idx *Indexer) chunkerForExt(ext string) chunker.Chunker {
+	switch ext {
+	case ".txt":
+		return idx.plainChunker
+	default:
+		return idx.markdownChunker
+	}
+}
+
+func expandGlobPattern(pattern string) []string {
+	start := strings.Index(pattern, "{")
+	end := strings.Index(pattern, "}")
+	if start < 0 || end < 0 || end <= start {
+		return []string{pattern}
+	}
+
+	prefix := pattern[:start]
+	suffix := pattern[end+1:]
+	alternatives := strings.Split(pattern[start+1:end], ",")
+
+	var result []string
+	for _, alt := range alternatives {
+		result = append(result, prefix+strings.TrimSpace(alt)+suffix)
+	}
+	return result
 }
 
 type docInfo struct {
@@ -44,8 +78,10 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 
 	pattern := globPattern
 	if pattern == "" {
-		pattern = "**/*.md"
+		pattern = "**/*.{md,txt}"
 	}
+
+	patterns := expandGlobPattern(pattern)
 
 	existingDocs, err := dao.ListDocumentsByCollection(collectionName)
 	if err != nil {
@@ -72,10 +108,15 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 		}
 
 		matched := false
-		if strings.Contains(pattern, "**/") {
-			matched, _ = filepath.Match(strings.TrimPrefix(pattern, "**/"), filepath.Base(relPath))
-		} else {
-			matched, _ = filepath.Match(pattern, filepath.Base(relPath))
+		for _, p := range patterns {
+			if strings.Contains(p, "**/") {
+				matched, _ = filepath.Match(strings.TrimPrefix(p, "**/"), filepath.Base(relPath))
+			} else {
+				matched, _ = filepath.Match(p, filepath.Base(relPath))
+			}
+			if matched {
+				break
+			}
 		}
 		if !matched {
 			return nil
@@ -140,7 +181,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 				return err
 			}
 
-			return idx.createChunks(doc.Id, body, hash)
+			ch := idx.chunkerForExt(filepath.Ext(relPath))
+			return idx.createChunks(doc.Id, body, hash, ch)
 		}
 
 		content, err := os.ReadFile(path)
@@ -168,7 +210,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 			return err
 		}
 
-		return idx.createChunks(doc.Id, body, hash)
+		ch := idx.chunkerForExt(filepath.Ext(relPath))
+		return idx.createChunks(doc.Id, body, hash, ch)
 	})
 	if err != nil {
 		return nil, err
@@ -189,8 +232,8 @@ func (idx *Indexer) UpdateCollection(collectionName, rootDir, globPattern string
 	return result, nil
 }
 
-func (idx *Indexer) createChunks(docId int64, body, hash string) error {
-	chunks, err := idx.chunker.Chunk(body)
+func (idx *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {
+	chunks, err := ch.Chunk(body)
 	if err != nil {
 		return err
 	}
@@ -221,7 +264,7 @@ func hashContent(content []byte) string {
 var headingRe = regexp.MustCompile(`^#\s+(.+)$`)
 
 func extractTitle(content, fallback string) string {
-	lines := strings.SplitN(content, "\n", 20)
+	lines := strings.SplitN(content, "\n", titleScanMaxLines)
 	for _, line := range lines {
 		m := headingRe.FindStringSubmatch(strings.TrimSpace(line))
 		if len(m) > 1 {

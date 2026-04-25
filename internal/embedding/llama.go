@@ -11,6 +11,11 @@ import (
 	llama "github.com/tcpipuk/llama-go"
 )
 
+const (
+	EmbeddingDim   = 1024 // Qwen3-Embedding-0.6B 输出维度
+	llamaBatchSize = 4096 // llama.cpp 内部批处理大小
+)
+
 type LlamaProvider struct {
 	modelPath string
 	gpuLayers int
@@ -30,7 +35,7 @@ func NewLlamaProvider(modelPath string, gpuLayers, threads, parallel int) *Llama
 		gpuLayers: gpuLayers,
 		threads:   threads,
 		parallel:  parallel,
-		dim:       1024,
+		dim:       EmbeddingDim,
 	}
 }
 
@@ -107,7 +112,7 @@ func (my *LlamaProvider) loadLocked() error {
 		llama.WithEmbeddings(),
 		llama.WithThreads(my.threads),
 		llama.WithParallel(my.parallel),
-		llama.WithBatch(4096),
+		llama.WithBatch(llamaBatchSize),
 	)
 	if err != nil {
 		model.Close()

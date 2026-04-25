@@ -20,11 +20,19 @@ type RRFParams struct {
 
 func DefaultRRFParams() RRFParams {
 	return RRFParams{
-		K:             60.0,
-		TopRankBonus1: 0.05,
-		TopRankBonus2: 0.02,
+		K:             rrfK,
+		TopRankBonus1: rrfTopRankBonus1,
+		TopRankBonus2: rrfTopRankBonus2,
 	}
 }
+
+const (
+	rrfK             = 60.0 // RRF 平滑常数，防止排名靠前的项目过度主导
+	rrfTopRankBonus1 = 0.05 // 排名第 1 的额外加分
+	rrfTopRankBonus2 = 0.02 // 排名第 2-3 的额外加分
+	rrfPrimaryWeight = 2.0  // 前两个检索列表（BM25 + 向量）的权重倍数
+	rrfPrimaryCount  = 2    // 享受 primary weight 的列表数量
+)
 
 func ReciprocalRankFusionGeneric(lists [][]RankedItem, params RRFParams) []RankedItem {
 	type entry struct {
@@ -42,8 +50,8 @@ func ReciprocalRankFusionGeneric(lists [][]RankedItem, params RRFParams) []Ranke
 		var weight float64
 		if i < len(params.Weights) {
 			weight = params.Weights[i]
-		} else if i < 2 {
-			weight = 2.0
+		} else if i < rrfPrimaryCount {
+			weight = rrfPrimaryWeight
 		} else {
 			weight = 1.0
 		}
@@ -68,7 +76,7 @@ func ReciprocalRankFusionGeneric(lists [][]RankedItem, params RRFParams) []Ranke
 	for _, e := range scores {
 		if e.bestRank == 0 {
 			e.score += params.TopRankBonus1
-		} else if e.bestRank <= 2 {
+		} else if e.bestRank <= rrfPrimaryCount {
 			e.score += params.TopRankBonus2
 		}
 	}

@@ -7,12 +7,30 @@ import (
 	"unicode/utf8"
 )
 
+const (
+	overlapPercent      = 15  // overlap 占 chunkSize 的百分比
+	minOverlapChars     = 30  // overlap 最少 rune 数
+	overlapWindowPad    = 50  // overlap 搜索窗口前后各留的 rune 数
+	breakScoreH1        = 100 // H1 标题断点评分
+	breakScoreH2        = 90  // H2 标题断点评分
+	breakScoreH3        = 80  // H3 标题断点评分
+	breakScoreH4        = 70  // H4 标题断点评分
+	breakScoreCodeFence = 80  // 代码块边界断点评分
+	breakScoreHR        = 60  // 水平线断点评分
+	breakScoreBlank     = 20  // 空行断点评分
+	breakPointDecay     = 0.7 // 断点评分的距离衰减系数
+	asciiThreshold      = 128 // ASCII 字符分界
+	tokensPerASCII      = 4   // 每 N 个 ASCII 字符 ≈ 1 token
+	tokensPerCJK        = 2   // 每 1 个 CJK 字符 ≈ N tokens
+)
+
+var base64ImgRe = regexp.MustCompile(`!\[[^\]]*\]\(data:image/[^;]+;base64,[^)]*\)`)
+
 type MarkdownChunker struct {
 	chunkSize    int
 	hardMax      int
 	overlapChars int
 	windowChars  int
-	decayFactor  float64
 	minChunkSize int
 }
 
@@ -20,21 +38,18 @@ func NewMarkdownChunker(chunkSize int) *MarkdownChunker {
 	if chunkSize <= 0 {
 		chunkSize = 300
 	}
-	overlapChars := chunkSize * 15 / 100
-	if overlapChars < 30 {
-		overlapChars = 30
+	overlapChars := chunkSize * overlapPercent / 100
+	if overlapChars < minOverlapChars {
+		overlapChars = minOverlapChars
 	}
 	return &MarkdownChunker{
 		chunkSize:    chunkSize,
 		hardMax:      chunkSize + chunkSize/2,
 		overlapChars: overlapChars,
 		windowChars:  chunkSize / 2,
-		decayFactor:  0.7,
 		minChunkSize: chunkSize / 4,
 	}
 }
-
-var base64ImgRe = regexp.MustCompile(`!\[[^\]]*\]\(data:image/[^;]+;base64,[^)]*\)`)
 
 type breakPoint struct {
 	pos   int
@@ -60,13 +75,13 @@ func scanBreakPoints(text string) []breakPoint {
 		score int
 	}
 	patterns := []pattern{
-		{h1Re, 100},
-		{h2Re, 90},
-		{h3Re, 80},
-		{h4Re, 70},
-		{codeFenceRe, 80},
-		{hrRe, 60},
-		{blankRe, 20},
+		{h1Re, breakScoreH1},
+		{h2Re, breakScoreH2},
+		{h3Re, breakScoreH3},
+		{h4Re, breakScoreH4},
+		{codeFenceRe, breakScoreCodeFence},
+		{hrRe, breakScoreHR},
+		{blankRe, breakScoreBlank},
 	}
 
 	seen := make(map[int]int)
@@ -156,7 +171,7 @@ func (my *MarkdownChunker) findBestCutoff(points []breakPoint, targetBytePos int
 		distance := float64(targetBytePos - bp.pos)
 		windowBytes := float64(targetBytePos-windowStart) + 1
 		normalizedDist := distance / windowBytes
-		multiplier := 1.0 - (normalizedDist * normalizedDist * my.decayFactor)
+		multiplier := 1.0 - (normalizedDist * normalizedDist * breakPointDecay)
 		finalScore := float64(bp.score) * multiplier
 		if finalScore > bestScore {
 			bestScore = finalScore
@@ -361,11 +376,11 @@ func (my *MarkdownChunker) addOverlap(chunks []Chunk) []Chunk {
 			continue
 		}
 
-		windowStart := len(runes) - my.overlapChars - 50
+		windowStart := len(runes) - my.overlapChars - overlapWindowPad
 		if windowStart < 0 {
 			windowStart = 0
 		}
-		windowEnd := len(runes) - my.overlapChars + 50
+		windowEnd := len(runes) - my.overlapChars + overlapWindowPad
 		if windowEnd > len(runes) {
 			windowEnd = len(runes)
 		}
@@ -429,11 +444,11 @@ func estimateTokens(text string) int {
 	ascii := 0
 	cjk := 0
 	for _, r := range text {
-		if r < 128 {
+		if r < asciiThreshold {
 			ascii++
 		} else {
 			cjk++
 		}
 	}
-	return ascii/4 + cjk*2
+	return ascii/tokensPerASCII + cjk*tokensPerCJK
 }

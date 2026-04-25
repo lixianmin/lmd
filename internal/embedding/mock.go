@@ -8,6 +8,8 @@ import (
 	"unicode"
 )
 
+const mockHashSlotSize = 8 // mock 向量每个 hash slot 的维度组大小
+
 type MockProvider struct {
 	dim int
 }
@@ -44,7 +46,7 @@ func (my *MockProvider) textToVector(text string) []float32 {
 		return vec
 	}
 
-	slotSize := 8
+	slotSize := mockHashSlotSize
 	numSlots := my.dim / slotSize
 	if numSlots < 1 {
 		numSlots = 1

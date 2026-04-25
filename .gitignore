@@ -1,3 +1,4 @@
 lmd
 vendor/
 coverage.out
+.DS_Store

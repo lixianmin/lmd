@@ -2,7 +2,6 @@ package embedding
 
 import (
 	"context"
-	"crypto/sha256"
 	"math"
 	"testing"
 )
@@ -78,5 +77,3 @@ func TestMockProviderModelName(t *testing.T) {
 		t.Fatalf("expected model name 'mock', got %s", p.ModelName())
 	}
 }
-
-var _ = sha256.Sum256(nil)

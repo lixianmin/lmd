@@ -52,7 +52,10 @@ func RemoveCollection(name string) error {
 		var docIds []int64
 		for docRows.Next() {
 			var id int64
-			docRows.Scan(&id)
+			if err := docRows.Scan(&id); err != nil {
+				docRows.Close()
+				return err
+			}
 			docIds = append(docIds, id)
 		}
 		docRows.Close()
@@ -65,7 +68,10 @@ func RemoveCollection(name string) error {
 			var chunkIds []int64
 			for chunkRows.Next() {
 				var id int64
-				chunkRows.Scan(&id)
+				if err := chunkRows.Scan(&id); err != nil {
+					chunkRows.Close()
+					return err
+				}
 				chunkIds = append(chunkIds, id)
 			}
 			chunkRows.Close()
@@ -142,7 +148,9 @@ func ListCollections() ([]CollectionRecord, error) {
 			return nil, err
 		}
 		if ignoreJSON != nil {
-			json.Unmarshal([]byte(*ignoreJSON), &c.IgnorePatterns)
+			if err := json.Unmarshal([]byte(*ignoreJSON), &c.IgnorePatterns); err != nil {
+				return nil, err
+			}
 		}
 		c.DocCount = docCount
 		cols = append(cols, c)

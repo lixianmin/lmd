@@ -8,6 +8,8 @@ import (
 	"log"
 )
 
+const mcpScannerBufSize = 1024 * 1024 // MCP JSON-RPC 扫描器缓冲区大小（1 MB）
+
 var toolDefs = []ToolDef{
 	{Name: "search", Description: "Hybrid search (BM25 + vector)"},
 	{Name: "search_lex", Description: "BM25 keyword search"},
@@ -70,7 +72,12 @@ func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 			Name   string          `json:"name"`
 			Params json.RawMessage `json:"arguments"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return JSONRPCResponse{
+				JSONRPC: "2.0", ID: req.ID,
+				Error: &JSONRPCError{Code: -32602, Message: "invalid params: " + err.Error()},
+			}
+		}
 		result, err := toolHandler(params.Name, params.Params)
 		if err != nil {
 			return JSONRPCResponse{
@@ -90,7 +97,7 @@ func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 
 func Serve(r io.Reader, w io.Writer) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, mcpScannerBufSize), mcpScannerBufSize)
 	for scanner.Scan() {
 		req, err := ParseLine(scanner.Bytes())
 		if err != nil || req == nil {

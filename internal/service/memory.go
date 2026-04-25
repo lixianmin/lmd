@@ -11,7 +11,13 @@ import (
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
 
-const forgetThreshold = 0.05
+const forgetThreshold = 0.05 // 衰变后分数低于此阈值的记忆被遗忘
+
+const (
+	decayBase        = 0.5   // 指数衰变底数：每过半衰期分数减半
+	episodeHalfLife  = 15.0  // episode 类型记忆半衰期（天）
+	relationHalfLife = 180.0 // relation 类型记忆半衰期（天）
+)
 
 type MemorySearchResult struct {
 	ID        int64   `json:"id"`
@@ -57,7 +63,7 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 
 	var ftsItems []RankedItem
 	for _, r := range ftsRecords {
-		ftsItems = append(ftsItems, RankedItem{Key: r.ID})
+		ftsItems = append(ftsItems, RankedItem{Key: r.Id})
 	}
 
 	var vecRecords []dao.MemoryRecord
@@ -70,18 +76,18 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 
 	var vecItems []RankedItem
 	for _, r := range vecRecords {
-		vecItems = append(vecItems, RankedItem{Key: r.ID})
+		vecItems = append(vecItems, RankedItem{Key: r.Id})
 	}
 
 	ranked := ReciprocalRankFusionGeneric([][]RankedItem{ftsItems, vecItems}, DefaultRRFParams())
 
 	recordMap := make(map[int64]dao.MemoryRecord)
 	for _, r := range ftsRecords {
-		recordMap[r.ID] = r
+		recordMap[r.Id] = r
 	}
 	for _, r := range vecRecords {
-		if _, ok := recordMap[r.ID]; !ok {
-			recordMap[r.ID] = r
+		if _, ok := recordMap[r.Id]; !ok {
+			recordMap[r.Id] = r
 		}
 	}
 
@@ -98,7 +104,7 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 		}
 
 		results = append(results, MemorySearchResult{
-			ID:        rec.ID,
+			ID:        rec.Id,
 			Content:   rec.Content,
 			Type:      rec.Type,
 			Score:     finalScore,
@@ -119,9 +125,9 @@ func decayFactor(memType string, ageDays float64) float64 {
 	case "fact":
 		return 1.0
 	case "episode":
-		return math.Pow(0.5, ageDays/15.0)
+		return math.Pow(decayBase, ageDays/episodeHalfLife)
 	case "relation":
-		return math.Pow(0.5, ageDays/180.0)
+		return math.Pow(decayBase, ageDays/relationHalfLife)
 	default:
 		return 1.0
 	}

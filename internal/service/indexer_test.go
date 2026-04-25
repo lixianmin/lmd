@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lixianmin/lmd/internal/chunker"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
@@ -188,6 +189,83 @@ func openTestServiceDB(t *testing.T) func() {
 	return func() {
 		if dao.DB != nil {
 			dao.DB.Close()
+			dao.DB = nil
 		}
+	}
+}
+
+func TestExpandGlobPattern(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"**/*.md", []string{"**/*.md"}},
+		{"**/*.{md,txt}", []string{"**/*.md", "**/*.txt"}},
+		{"*.{md,txt,html}", []string{"*.md", "*.txt", "*.html"}},
+		{"*.md", []string{"*.md"}},
+		{"**/*", []string{"**/*"}},
+	}
+	for _, tt := range tests {
+		result := expandGlobPattern(tt.input)
+		if len(result) != len(tt.expected) {
+			t.Fatalf("expandGlobPattern(%q): expected %v, got %v", tt.input, tt.expected, result)
+		}
+		for i, p := range result {
+			if p != tt.expected[i] {
+				t.Fatalf("expandGlobPattern(%q)[%d]: expected %q, got %q", tt.input, i, tt.expected[i], p)
+			}
+		}
+	}
+}
+
+func TestIndexTXTFiles(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	txtContent := ""
+	for i := 0; i < 50; i++ {
+		txtContent += "This is line " + string(rune('0'+i%10)) + " of the text file.\n"
+	}
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(txtContent), 0644)
+
+	if err := dao.AddCollection("test", dir, "*.{md,txt}", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	result, err := idx.UpdateCollection("test", dir, "*.{md,txt}", nil)
+	if err != nil {
+		t.Fatalf("UpdateCollection failed: %v", err)
+	}
+
+	if result.Indexed != 3 {
+		t.Fatalf("expected 3 indexed (2 md + 1 txt), got indexed=%d", result.Indexed)
+	}
+
+	docs, _ := dao.ListDocumentsByCollection("test")
+	if len(docs) != 3 {
+		t.Fatalf("expected 3 documents in db, got %d", len(docs))
+	}
+}
+
+func TestIndexerSelectsChunkerByExt(t *testing.T) {
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	mdChunker := idx.chunkerForExt(".md")
+	if _, ok := mdChunker.(*chunker.MarkdownChunker); !ok {
+		t.Fatal("expected MarkdownChunker for .md")
+	}
+
+	txtChunker := idx.chunkerForExt(".txt")
+	if _, ok := txtChunker.(*chunker.PlainTextChunker); !ok {
+		t.Fatal("expected PlainTextChunker for .txt")
+	}
+
+	defaultChunker := idx.chunkerForExt(".html")
+	if _, ok := defaultChunker.(*chunker.MarkdownChunker); !ok {
+		t.Fatal("expected MarkdownChunker for unknown ext")
 	}
 }

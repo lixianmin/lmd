@@ -41,7 +41,7 @@ var collectionAddCmd = &cobra.Command{
 
 		mask := collectionMask
 		if mask == "" {
-			mask = "**/*.md"
+			mask = "**/*.{md,txt}"
 		}
 
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -155,7 +155,7 @@ var collectionRenameCmd = &cobra.Command{
 
 func init() {
 	collectionAddCmd.Flags().StringVar(&collectionName, "name", "", "collection name (required)")
-	collectionAddCmd.Flags().StringVar(&collectionMask, "mask", "**/*.md", "file glob pattern")
+	collectionAddCmd.Flags().StringVar(&collectionMask, "mask", "**/*.{md,txt}", "file glob pattern")
 
 	collectionCmd.AddCommand(collectionAddCmd)
 	collectionCmd.AddCommand(collectionRemoveCmd)

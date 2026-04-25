@@ -29,8 +29,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Vector.Dimensions != 1024 {
 		t.Fatalf("expected dimensions 1024, got %d", cfg.Vector.Dimensions)
 	}
-	if cfg.Embedding.Truncation != 300 {
-		t.Fatalf("expected truncation 300, got %d", cfg.Embedding.Truncation)
+	if cfg.Embedding.Truncation != 500 {
+		t.Fatalf("expected truncation 500, got %d", cfg.Embedding.Truncation)
 	}
 	if cfg.Llama.ModelIdleTimeout != "10m" {
 		t.Fatalf("expected model_idle_timeout 10m, got %s", cfg.Llama.ModelIdleTimeout)

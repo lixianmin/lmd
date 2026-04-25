@@ -173,6 +173,7 @@ Agent 维护此文件，单条简短清晰（<200字）。包含 4 种数据：
 - 关键路径上，打印足够的日志，以方便排查 bug
 - 优先使用标准库，第三方库需有充足理由
 - 单个方法不超过 50 行
+- 每一个 magic number，都需注释说明为什么设定为该值
 - 参考 The Zen of Python (import this)
 - 参考项目优先：如果有对标的项目源码，在设计架构或遇到问题时优先参考，并可跟人类讨论，禁止闭门造车
 - 所有的时间使用东8区，包括但不限于 db 中、UI 上
@@ -200,10 +201,6 @@ prefer `docId` over `docID`
 func (my *Flag) AddFlag(flag int64) {
   ...
 }
-
-// json序列化使用 github.com/lixianmin/got/convert
-bts, err := convert.ToJsonE(user)
-err = convert.FromJsonE(bts, &user)
 
 // http请求使用 github.com/lixianmin/got/webx
 result, err := webx.Post(context.Background(), url, webx.WithRequestBuilder(func(req *http.Request) string {

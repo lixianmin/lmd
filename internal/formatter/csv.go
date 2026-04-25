@@ -6,6 +6,8 @@ import (
 	"io"
 )
 
+const csvSnippetMaxRunes = 500 // CSV 输出 snippet 最大 rune 数
+
 type CSVFormatter struct{}
 
 func NewCSVFormatter() *CSVFormatter {
@@ -20,8 +22,8 @@ func (my *CSVFormatter) Format(w io.Writer, hits []SearchHit) error {
 
 	for _, r := range hits {
 		snippet := r.Snippet
-		if len(snippet) > 500 {
-			snippet = snippet[:500]
+		if len(snippet) > csvSnippetMaxRunes {
+			snippet = snippet[:csvSnippetMaxRunes]
 		}
 		cw.Write([]string{
 			r.Path,

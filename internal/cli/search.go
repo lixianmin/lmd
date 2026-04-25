@@ -11,6 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	cliSearchLimit      = 5
+	cliVectorMinScore   = 0.3
+	cliMemoryQueryLimit = 10
+)
+
 var (
 	searchCollection string
 	searchLimit      int
@@ -46,7 +52,7 @@ var vsearchCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		minScore := searchMinScore
 		if !cmd.Flags().Changed("min-score") {
-			minScore = 0.3
+			minScore = cliVectorMinScore
 		}
 
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -151,7 +157,7 @@ func formatResults(w *os.File, hits []formatter.SearchHit) error {
 
 func init() {
 	searchCmd.Flags().StringVarP(&searchCollection, "collection", "c", "", "search in specific collection")
-	searchCmd.Flags().IntVarP(&searchLimit, "limit", "n", 5, "number of results")
+	searchCmd.Flags().IntVarP(&searchLimit, "limit", "n", cliSearchLimit, "number of results")
 	searchCmd.Flags().StringVar(&outputFormat, "format", "text", "output format: text, md, csv")
 	searchCmd.Flags().BoolVar(&searchFull, "full", false, "show full document content")
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "minimum score threshold")
