@@ -108,7 +108,7 @@ func TestHandleToolsCallError(t *testing.T) {
 }
 
 func TestHandleToolsCallNoHandler(t *testing.T) {
-	toolHandler = nil
+	RegisterHandler(nil)
 
 	req := JSONRPCRequest{
 		JSONRPC: "2.0",

@@ -58,7 +58,17 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	if err != nil {
 		return nil, err
 	}
-	return my.SearchVectorByEmbedding(queryVec, collection, limit), nil
+	hits := my.SearchVectorByEmbedding(queryVec, collection, limit)
+	if minScore > 0 {
+		var filtered []formatter.SearchHit
+		for _, h := range hits {
+			if h.Score >= minScore {
+				filtered = append(filtered, h)
+			}
+		}
+		return filtered, nil
+	}
+	return hits, nil
 }
 
 func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) []formatter.SearchHit {

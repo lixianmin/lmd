@@ -144,12 +144,6 @@ func (my *PlainTextChunker) buildChunks(rawChunks []rawChunk, lineStarts []int) 
 		}
 		startLine := byteOffsetToLine(rc.start, lineStarts)
 		endLine := byteOffsetToLine(rc.end-1, lineStarts)
-		if startLine > 0 {
-			startLine--
-		}
-		if endLine > 0 {
-			endLine--
-		}
 		chunks = append(chunks, Chunk{
 			Content:    content,
 			StartLine:  startLine,

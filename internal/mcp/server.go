@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"sync"
 )
 
 const mcpScannerBufSize = 1024 * 1024 // MCP JSON-RPC 扫描器缓冲区大小（1 MB）
@@ -24,10 +25,22 @@ var toolDefs = []ToolDef{
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)
 
-var toolHandler ToolHandler
+var (
+	toolHandlerMu sync.RWMutex
+	toolHandler   ToolHandler
+)
 
 func RegisterHandler(h ToolHandler) {
+	toolHandlerMu.Lock()
 	toolHandler = h
+	toolHandlerMu.Unlock()
+}
+
+func getToolHandler() ToolHandler {
+	toolHandlerMu.RLock()
+	h := toolHandler
+	toolHandlerMu.RUnlock()
+	return h
 }
 
 func ParseLine(line []byte) (*JSONRPCRequest, error) {
@@ -64,7 +77,8 @@ func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 		}
 
 	case "tools/call":
-		if toolHandler == nil {
+		h := getToolHandler()
+		if h == nil {
 			return JSONRPCResponse{
 				JSONRPC: "2.0", ID: req.ID,
 				Error: &JSONRPCError{Code: -32603, Message: "no tool handler registered"},
@@ -80,7 +94,7 @@ func HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 				Error: &JSONRPCError{Code: -32602, Message: "invalid params: " + err.Error()},
 			}
 		}
-		result, err := toolHandler(params.Name, params.Params)
+		result, err := h(params.Name, params.Params)
 		if err != nil {
 			return JSONRPCResponse{
 				JSONRPC: "2.0", ID: req.ID,

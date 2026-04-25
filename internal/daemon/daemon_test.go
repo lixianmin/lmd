@@ -99,10 +99,10 @@ func TestDaemon_Stop_WithoutStart(t *testing.T) {
 
 func TestDaemon_TouchActivity(t *testing.T) {
 	d := &Daemon{}
-	before := d.lastActive
+	before := d.lastActive.Load()
 	time.Sleep(10 * time.Millisecond)
 	d.touchActivity()
-	if !d.lastActive.After(before) {
+	if d.lastActive.Load() <= before {
 		t.Fatal("touchActivity should update lastActive")
 	}
 }

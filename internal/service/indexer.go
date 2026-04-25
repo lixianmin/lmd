@@ -151,7 +151,9 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 					FileSize:    int64(len(content)),
 					FileModTime: fileModTime,
 				}
-				_ = dao.UpsertDocument(doc)
+				if err := dao.UpsertDocument(doc); err != nil {
+					logo.Warn("indexer: upsert fileModTime for %s/%s failed: %s", collectionName, relPath, err)
+				}
 				result.Unchanged++
 				return nil
 			}
@@ -164,7 +166,9 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 			existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
 			if existingDoc != nil {
 				logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
-				dao.DeleteVectorsByDocId(existingDoc.Id)
+				if err := dao.DeleteVectorsByDocId(existingDoc.Id); err != nil {
+					return err
+				}
 			}
 
 			doc := &dao.DocumentRecord{

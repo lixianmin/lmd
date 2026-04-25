@@ -31,11 +31,6 @@ func Init(dbPath string) error {
 		return err
 	}
 
-	if _, err := DB.db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		DB.db.Close()
-		return err
-	}
-
 	if err := createTables(); err != nil {
 		return err
 	}
@@ -80,11 +75,7 @@ func withQuery(query string, args ...any) (*sql.Rows, error) {
 }
 
 func withQueryRow(query string, args ...any) *sql.Row {
-	stmt, err := DB.db.Prepare(query)
-	if err != nil {
-		return DB.db.QueryRow(query, args...)
-	}
-	return stmt.QueryRow(args...)
+	return DB.db.QueryRow(query, args...)
 }
 
 func createTables() error {
@@ -148,8 +139,7 @@ func createTables() error {
 			memory_id INTEGER PRIMARY KEY,
 			embedding float[1024] distance_metric=cosine
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path_unique ON documents(collection, path)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}
 	for _, s := range stmts {

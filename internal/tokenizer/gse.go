@@ -26,9 +26,8 @@ func (my *GseTokenizer) Cut(text string) []string {
 		return nil
 	}
 	my.mu.Lock()
-	result := my.seg.Cut(text)
-	my.mu.Unlock()
-	return result
+	defer my.mu.Unlock()
+	return my.seg.Cut(text)
 }
 
 func (my *GseTokenizer) CutForSearch(text string) []string {
@@ -36,9 +35,8 @@ func (my *GseTokenizer) CutForSearch(text string) []string {
 		return nil
 	}
 	my.mu.Lock()
-	result := my.seg.CutSearch(text)
-	my.mu.Unlock()
-	return result
+	defer my.mu.Unlock()
+	return my.seg.CutSearch(text)
 }
 
 func (my *GseTokenizer) TokenizeToString(text string) string {

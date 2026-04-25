@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -45,8 +46,8 @@ type Daemon struct {
 	cfg        *config.Config
 	server     *http.Server
 	wc         loom.WaitClose
-	lastActive time.Time
-	rebuildMu  sync.Mutex
+	lastActive atomic.Int64
+	rebuildMu  sync.RWMutex
 	stopOnce   sync.Once
 
 	tokenizer  tokenizer.Tokenizer
@@ -164,7 +165,7 @@ func (my *Daemon) Stop() error {
 }
 
 func (my *Daemon) touchActivity() {
-	my.lastActive = time.Now()
+	my.lastActive.Store(time.Now().UnixNano())
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
@@ -185,7 +186,8 @@ func (my *Daemon) goLoop(later loom.Later) {
 			my.embedMemories()
 			my.provider.ReleaseIfIdle(modelIdleTimeout)
 
-			if !my.lastActive.IsZero() && time.Since(my.lastActive) > idleTimeout {
+			last := time.Unix(0, my.lastActive.Load())
+			if !last.IsZero() && time.Since(last) > idleTimeout {
 				logo.Info("daemon: idle timeout reached, shutting down")
 				my.Stop()
 				return

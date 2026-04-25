@@ -9,6 +9,7 @@ import (
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/tokenizer"
+	"github.com/lixianmin/logo"
 )
 
 const forgetThreshold = 0.05 // 衰变后分数低于此阈值的 Episode 被遗忘
@@ -70,8 +71,12 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 	var vecRecords []dao.MemoryRecord
 	if my.provider != nil {
 		vec, embedErr := my.provider.Embed(context.Background(), query)
+		var vecErr error
 		if embedErr == nil {
-			vecRecords, _ = dao.SearchMemoryVector(vec, limit*3)
+			vecRecords, vecErr = dao.SearchMemoryVector(vec, limit*3)
+			if vecErr != nil {
+				logo.Warn("MemoryService.Query: vector search failed: %s", vecErr)
+			}
 		}
 	}
 

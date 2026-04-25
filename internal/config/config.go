@@ -125,5 +125,5 @@ func SaveDefault() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(configDir, "config.yaml"), data, 0644)
+	return os.WriteFile(filepath.Join(configDir, "config.yaml"), data, 0600)
 }

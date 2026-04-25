@@ -40,7 +40,9 @@ func registerRoutes(d *Daemon) http.Handler {
 					return
 				}
 				d.touchActivity()
+				d.rebuildMu.RLock()
 				h(d, w, r)
+				d.rebuildMu.RUnlock()
 			})
 		} else {
 			mux.HandleFunc(route.path, func(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +51,9 @@ func registerRoutes(d *Daemon) http.Handler {
 					return
 				}
 				d.touchActivity()
+				d.rebuildMu.RLock()
 				h(d, w, r)
+				d.rebuildMu.RUnlock()
 			})
 		}
 	}
