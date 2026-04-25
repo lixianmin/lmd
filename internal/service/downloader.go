@@ -18,11 +18,15 @@ const (
 	downloadBufSize          = 32 * 1024              // 下载缓冲区大小（32 KB）
 	downloadProgressInterval = 500 * time.Millisecond // 进度打印最小间隔
 	progressBarWidth         = 30                     // 进度条字符宽度
+	maxRedirects             = 10                     // 最大 HTTP 重定向次数
 )
 
 var downloadClient = &http.Client{
 	Timeout: downloadTimeout,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxRedirects)
+		}
 		return nil
 	},
 	Transport: &http.Transport{

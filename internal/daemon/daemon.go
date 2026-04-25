@@ -49,6 +49,7 @@ type Daemon struct {
 	lastActive atomic.Int64
 	rebuildMu  sync.RWMutex
 	stopOnce   sync.Once
+	stopCh     chan struct{}
 
 	tokenizer  tokenizer.Tokenizer
 	indexer    *service.Indexer
@@ -61,7 +62,8 @@ type Daemon struct {
 
 func NewDaemon(cfg *config.Config) *Daemon {
 	return &Daemon{
-		cfg: cfg,
+		cfg:    cfg,
+		stopCh: make(chan struct{}),
 	}
 }
 
@@ -132,6 +134,8 @@ func (my *Daemon) Start(ctx context.Context) error {
 		logo.Info("daemon: received signal, shutting down")
 	case <-ctx.Done():
 		logo.Info("daemon: context cancelled, shutting down")
+	case <-my.stopCh:
+		logo.Info("daemon: idle timeout, shutting down")
 	}
 
 	return my.Stop()
@@ -139,6 +143,14 @@ func (my *Daemon) Start(ctx context.Context) error {
 
 func (my *Daemon) Stop() error {
 	my.stopOnce.Do(func() {
+		if my.stopCh != nil {
+			select {
+			case <-my.stopCh:
+			default:
+				close(my.stopCh)
+			}
+		}
+
 		if my.server != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 			defer cancel()
@@ -146,8 +158,9 @@ func (my *Daemon) Stop() error {
 		}
 
 		if dao.DB != nil {
-			dao.DB.Close()
+			store := dao.DB
 			dao.DB = nil
+			store.Close()
 		}
 
 		if my.provider != nil {
@@ -189,7 +202,9 @@ func (my *Daemon) goLoop(later loom.Later) {
 			last := time.Unix(0, my.lastActive.Load())
 			if !last.IsZero() && time.Since(last) > idleTimeout {
 				logo.Info("daemon: idle timeout reached, shutting down")
-				my.Stop()
+				loom.Go(func(later loom.Later) {
+					my.Stop()
+				})
 				return
 			}
 		}
@@ -358,6 +373,7 @@ func StartBackground() error {
 		io.Copy(os.Stderr, stderrR)
 	})
 
+	logFile.Close()
 	cmd.Process.Release()
 	return nil
 }

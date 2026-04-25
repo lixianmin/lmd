@@ -208,7 +208,14 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fetchLimit := req.Limit * overfetchMultiplier
-	hydeHits := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
+	hydeHits, hydeErr := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
+	if hydeErr != nil {
+		logo.Warn("handleHyde: vector search failed: %s", hydeErr)
+		resp["hyde_error"] = hydeErr.Error()
+		resp["hits"] = []formatter.SearchHit{}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	resp["hyde_hits"] = len(hydeHits)
 	logo.Info("handleHyde: hyde_hits=%d", len(hydeHits))
 
@@ -374,7 +381,9 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 
 	var indexed int
 	if my.indexer != nil {
+		my.rebuildMu.RLock()
 		result, err := my.indexer.UpdateCollection(req.Name, absPath, mask, nil)
+		my.rebuildMu.RUnlock()
 		if err == nil {
 			indexed = result.Indexed + result.Updated
 			logo.Info("handleCollectionAdd: indexed %s +%d ~%d", req.Name, result.Indexed, result.Updated)
@@ -483,7 +492,9 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dao.DB.Close()
+	store := dao.DB
+	dao.DB = nil
+	store.Close()
 
 	dbPath := my.cfg.Database.Path
 	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {

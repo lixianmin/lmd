@@ -5,8 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log"
 	"sync"
+
+	"github.com/lixianmin/logo"
 )
 
 const mcpScannerBufSize = 1024 * 1024 // MCP JSON-RPC 扫描器缓冲区大小（1 MB）
@@ -124,7 +125,7 @@ func Serve(r io.Reader, w io.Writer) {
 			data, _ := json.Marshal(resp)
 			data = append(data, '\n')
 			if _, err := w.Write(data); err != nil {
-				log.Printf("mcp write error: %v", err)
+				logo.Warn("mcp write error: %s", err)
 				return
 			}
 		}

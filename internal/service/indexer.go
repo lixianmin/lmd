@@ -96,6 +96,7 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 
 	err = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			logo.Warn("indexer: walk error %s: %s", path, err)
 			return nil
 		}
 		if d.IsDir() {
@@ -104,6 +105,7 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 
 		relPath, err := filepath.Rel(rootDir, path)
 		if err != nil {
+			logo.Warn("indexer: rel path error %s: %s", path, err)
 			return nil
 		}
 
@@ -124,6 +126,7 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 
 		stat, err := os.Stat(path)
 		if err != nil {
+			logo.Warn("indexer: stat error %s: %s", path, err)
 			return nil
 		}
 		fileModTime := stat.ModTime().UnixNano()
@@ -139,6 +142,7 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 
 			content, err := os.ReadFile(path)
 			if err != nil {
+				logo.Warn("indexer: read error %s: %s", path, err)
 				return nil
 			}
 			hash := hashContent(content)
@@ -191,6 +195,7 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 
 		content, err := os.ReadFile(path)
 		if err != nil {
+			logo.Warn("indexer: read error %s: %s", path, err)
 			return nil
 		}
 

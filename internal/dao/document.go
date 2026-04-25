@@ -109,8 +109,33 @@ func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
 }
 
 func DeleteDocument(id int64) error {
-	_, err := WithExec("DELETE FROM documents WHERE id=?", id)
-	return err
+	return withTransaction(func(tx *sql.Tx) error {
+		chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", id)
+		if err != nil {
+			return err
+		}
+		var chunkIds []int64
+		for chunkRows.Next() {
+			var cid int64
+			if err := chunkRows.Scan(&cid); err != nil {
+				chunkRows.Close()
+				return err
+			}
+			chunkIds = append(chunkIds, cid)
+		}
+		chunkRows.Close()
+
+		for _, cid := range chunkIds {
+			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
+		return err
+	})
 }
 
 func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -58,7 +59,10 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	if err != nil {
 		return nil, err
 	}
-	hits := my.SearchVectorByEmbedding(queryVec, collection, limit)
+	hits, err := my.SearchVectorByEmbedding(queryVec, collection, limit)
+	if err != nil {
+		return nil, err
+	}
 	if minScore > 0 {
 		var filtered []formatter.SearchHit
 		for _, h := range hits {
@@ -71,10 +75,10 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	return hits, nil
 }
 
-func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) []formatter.SearchHit {
+func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) ([]formatter.SearchHit, error) {
 	vecResults, err := dao.QueryVectors(queryVec, limit)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("vector query failed: %w", err)
 	}
 
 	var hits []formatter.SearchHit
@@ -83,11 +87,13 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 
 		chunk, err := dao.GetChunkById(r.ChunkID)
 		if err != nil {
+			logo.Warn("SearchVectorByEmbedding: chunk %d not found: %s", r.ChunkID, err)
 			continue
 		}
 
 		doc, err := dao.GetDocumentById(chunk.DocId)
 		if err != nil {
+			logo.Warn("SearchVectorByEmbedding: doc %d not found: %s", chunk.DocId, err)
 			continue
 		}
 
@@ -107,5 +113,5 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 		})
 	}
 
-	return hits
+	return hits, nil
 }

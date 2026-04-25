@@ -12,6 +12,14 @@ import (
 	"github.com/lixianmin/logo"
 )
 
+var cst8 = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}()
+
 const forgetThreshold = 0.05 // 衰变后分数低于此阈值的 Episode 被遗忘
 
 const (
@@ -97,7 +105,7 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 		}
 	}
 
-	now := time.Now()
+	now := time.Now().In(cst8)
 	var results []MemorySearchResult
 	for _, r := range ranked {
 		rec := recordMap[r.Key]
