@@ -65,26 +65,32 @@ func UpsertDocument(doc *DocumentRecord) error {
 }
 
 func GetDocumentByDocId(docId string) (*DocumentRecord, error) {
-	var doc DocumentRecord
-
-	err := withQueryRow("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?", docId+"%").Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
-		&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, errors.New("document not found")
-	}
+	rows, err := withQuery("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE docid LIKE ?", docId+"%")
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	var count int
-	if err := withQueryRow("SELECT COUNT(*) FROM documents WHERE docid LIKE ?", docId+"%").Scan(&count); err != nil {
+	var docs []DocumentRecord
+	for rows.Next() {
+		var doc DocumentRecord
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+			&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			return nil, err
+		}
+		docs = append(docs, doc)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if count > 1 {
-		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docId, count)
-	}
 
-	return &doc, nil
+	if len(docs) == 0 {
+		return nil, errors.New("document not found")
+	}
+	if len(docs) > 1 {
+		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docId, len(docs))
+	}
+	return &docs[0], nil
 }
 
 func GetDocumentByPath(collection, path string) (*DocumentRecord, error) {
@@ -188,6 +194,9 @@ func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
 }
 
 func CountDocuments() (int, error) {
+	if DB == nil || DB.db == nil {
+		return 0, nil
+	}
 	var count int
 	err := DB.db.QueryRow("SELECT COUNT(*) FROM documents").Scan(&count)
 	return count, err

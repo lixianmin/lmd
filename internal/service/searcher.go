@@ -53,9 +53,9 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 	return hits, nil
 }
 
-func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	logo.Info("SearchVector: query=%q collection=%s limit=%d", query, collection, limit)
-	queryVec, err := provider.EmbedQuery(context.Background(), query)
+	queryVec, err := provider.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +75,15 @@ func (my *Searcher) SearchVector(provider embedding.EmbeddingProvider, query, co
 	return hits, nil
 }
 
+const vectorOverfetchFactor = 5 // 向量搜索全局取回后按 collection 过滤，需放大取回量以保证足够结果
+
 func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) ([]formatter.SearchHit, error) {
-	vecResults, err := dao.QueryVectors(queryVec, limit)
+	fetchLimit := limit
+	if collection != "" {
+		fetchLimit = limit * vectorOverfetchFactor
+	}
+
+	vecResults, err := dao.QueryVectors(queryVec, fetchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("vector query failed: %w", err)
 	}

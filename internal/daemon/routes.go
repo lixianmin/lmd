@@ -97,7 +97,7 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 		req.MinScore = defaultVectorMinScore
 	}
 
-	results, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	results, err := my.searcher.SearchVector(r.Context(), my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -134,7 +134,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+	vecHits, err := my.searcher.SearchVector(r.Context(), my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -193,7 +193,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t0 := time.Now()
-	hydeDoc, hydeErr := my.hydeClient.Generate(context.Background(), req.Query)
+	hydeDoc, hydeErr := my.hydeClient.Generate(r.Context(), req.Query)
 	hydeDur := time.Since(t0)
 	resp["hyde_generate_ms"] = hydeDur.Milliseconds()
 
@@ -207,7 +207,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	resp["hyde_document"] = hydeDoc
 	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, docPreviewMaxRunes))
 
-	hydeVec, embedErr := my.provider.Embed(context.Background(), hydeDoc)
+	hydeVec, embedErr := my.provider.Embed(r.Context(), hydeDoc)
 	if embedErr != nil {
 		logo.Warn("handleHyde: embed failed: %s", embedErr)
 		resp["hyde_embed_error"] = embedErr.Error()
@@ -284,16 +284,20 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := doc.Body
-	if req.From > 0 {
+	if req.From > 0 || req.Lines > 0 {
 		lines := strings.Split(body, "\n")
-		if req.From <= len(lines) {
-			body = strings.Join(lines[req.From-1:], "\n")
+		start := 0
+		end := len(lines)
+		if req.From > 0 && req.From <= len(lines) {
+			start = req.From - 1
 		}
-	}
-	if req.Lines > 0 {
-		lines := strings.Split(body, "\n")
-		if req.Lines < len(lines) {
-			body = strings.Join(lines[:req.Lines], "\n")
+		if req.Lines > 0 && req.Lines < end-start {
+			end = start + req.Lines
+		}
+		if start < end {
+			body = strings.Join(lines[start:end], "\n")
+		} else if start < len(lines) {
+			body = strings.Join(lines[start:], "\n")
 		}
 	}
 	if !req.Full {
@@ -485,33 +489,36 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 }
 
 func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
-	my.rebuildMu.Lock()
-	defer my.rebuildMu.Unlock()
-
 	start := time.Now()
 	logo.Info("handleRebuild: starting")
 
+	my.rebuildMu.Lock()
 	cols, err := dao.ListCollections()
 	if err != nil {
+		my.rebuildMu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	if len(cols) == 0 {
+		my.rebuildMu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]string{"status": "no collections"})
 		return
 	}
 
+	dao.CloseFTSStatements()
 	store := dao.DB
 	dao.DB = nil
 	store.Close()
 
 	dbPath := my.cfg.Database.Path
 	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		my.rebuildMu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if err := dao.Init(dbPath); err != nil {
+		my.rebuildMu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -521,8 +528,9 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 			logo.Error("handleRebuild: restore collection %s failed: %s", col.Name, err)
 		}
 	}
+	my.rebuildMu.Unlock()
 
-	my.syncIndexUnlocked()
+	my.syncIndex()
 
 	logo.Info("handleRebuild: collections restored, background embedTicker will handle embedding")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -713,7 +721,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if err != nil {
 			return nil, err
 		}
-		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+		vecHits, err := my.searcher.SearchVector(context.Background(), my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 		if err != nil {
 			return nil, err
 		}
@@ -750,7 +758,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if req.MinScore == 0 {
 			req.MinScore = defaultVectorMinScore
 		}
-		hits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+		hits, err := my.searcher.SearchVector(context.Background(), my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
 		if err != nil {
 			return nil, err
 		}

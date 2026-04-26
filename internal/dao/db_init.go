@@ -66,12 +66,7 @@ func WithExec(query string, args ...any) (sql.Result, error) {
 }
 
 func withQuery(query string, args ...any) (*sql.Rows, error) {
-	stmt, err := DB.db.Prepare(query)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-	return stmt.Query(args...)
+	return DB.db.Query(query, args...)
 }
 
 func withQueryRow(query string, args ...any) *sql.Row {

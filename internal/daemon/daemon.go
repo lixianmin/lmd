@@ -239,6 +239,9 @@ func (my *Daemon) syncIndexUnlocked() {
 }
 
 func (my *Daemon) embedChunks() {
+	if dao.GetUnembeddedCount() == 0 {
+		return
+	}
 	my.rebuildMu.Lock()
 	defer my.rebuildMu.Unlock()
 
@@ -256,6 +259,9 @@ func (my *Daemon) embedChunks() {
 }
 
 func (my *Daemon) embedMemories() {
+	if dao.GetUnembeddedMemoryCount() == 0 {
+		return
+	}
 	my.rebuildMu.Lock()
 	defer my.rebuildMu.Unlock()
 

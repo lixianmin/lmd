@@ -158,6 +158,9 @@ func UpdateMemoryEmbedding(id int64, vec []byte) error {
 }
 
 func GetUnembeddedMemoryCount() int {
+	if DB == nil || DB.db == nil {
+		return 0
+	}
 	var count int
 	if err := DB.db.QueryRow(`
 		SELECT COUNT(*) FROM memories m

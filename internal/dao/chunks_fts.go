@@ -20,6 +20,8 @@ var ftsSearchAll *sql.Stmt
 var ftsSearchByCollection *sql.Stmt
 
 func prepareFTSStatements() error {
+	closeFTSStatements()
+
 	var err error
 	ftsSearchAll, err = DB.db.Prepare(`
 		SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
@@ -44,6 +46,21 @@ func prepareFTSStatements() error {
 		ORDER BY rank LIMIT ?
 	`)
 	return err
+}
+
+func closeFTSStatements() {
+	if ftsSearchAll != nil {
+		ftsSearchAll.Close()
+		ftsSearchAll = nil
+	}
+	if ftsSearchByCollection != nil {
+		ftsSearchByCollection.Close()
+		ftsSearchByCollection = nil
+	}
+}
+
+func CloseFTSStatements() {
+	closeFTSStatements()
 }
 
 func SearchFTS(tokenizedQuery string, collection string, limit int) ([]FTSSearchResult, error) {
