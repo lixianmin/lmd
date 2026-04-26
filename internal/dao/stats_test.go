@@ -39,7 +39,7 @@ func TestGetUnembeddedCount(t *testing.T) {
 	}
 
 	vec := make([]float32, EmbeddingDim)
-	InsertVector(records[0].ID, vec)
+	InsertVector(records[0].Id, vec)
 
 	if count := GetUnembeddedCount(); count != 1 {
 		t.Fatalf("expected 1 after embedding one, got %d", count)

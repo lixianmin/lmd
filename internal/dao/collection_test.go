@@ -130,6 +130,38 @@ func TestRenameCollection(t *testing.T) {
 	}
 }
 
+func TestRenameCollectionUpdatesDocuments(t *testing.T) {
+	initTestDB(t)
+
+	mustAddCollection(t, "old", "/data")
+
+	mustUpsertDoc(t, &DocumentRecord{
+		Collection: "old", Path: "a.md", Title: "A",
+		Body: "body a", Hash: "hash_a", FileSize: 10,
+	})
+	mustUpsertDoc(t, &DocumentRecord{
+		Collection: "old", Path: "b.md", Title: "B",
+		Body: "body b", Hash: "hash_b", FileSize: 20,
+	})
+
+	if err := RenameCollection("old", "new"); err != nil {
+		t.Fatal(err)
+	}
+
+	docs, err := ListDocumentsByCollection("new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 documents in 'new', got %d", len(docs))
+	}
+
+	oldDocs, _ := ListDocumentsByCollection("old")
+	if len(oldDocs) != 0 {
+		t.Fatalf("expected 0 documents in 'old' after rename, got %d", len(oldDocs))
+	}
+}
+
 func TestRenameCollectionNotFound(t *testing.T) {
 	initTestDB(t)
 

@@ -10,6 +10,7 @@ import (
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
+
 type Searcher struct {
 	tokenizer tokenizer.Tokenizer
 }
@@ -94,7 +95,7 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 
 	chunkIds := make([]int64, len(vecResults))
 	for i, r := range vecResults {
-		chunkIds[i] = r.ChunkID
+		chunkIds[i] = r.ChunkId
 	}
 
 	chunks, err := dao.GetChunksByIds(chunkIds)
@@ -117,7 +118,7 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 
 	chunkMap := make(map[int64]*dao.ChunkRecord)
 	for i := range chunks {
-		chunkMap[chunks[i].ID] = &chunks[i]
+		chunkMap[chunks[i].Id] = &chunks[i]
 	}
 	docMap := make(map[int64]*dao.DocumentRecord)
 	for i := range docs {
@@ -126,12 +127,12 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 
 	distanceMap := make(map[int64]float64)
 	for _, r := range vecResults {
-		distanceMap[r.ChunkID] = r.Distance
+		distanceMap[r.ChunkId] = r.Distance
 	}
 
 	var hits []formatter.SearchHit
 	for _, r := range vecResults {
-		chunk, ok := chunkMap[r.ChunkID]
+		chunk, ok := chunkMap[r.ChunkId]
 		if !ok {
 			continue
 		}
@@ -145,12 +146,12 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 		}
 
 		hits = append(hits, formatter.SearchHit{
-			ChunkId:    r.ChunkID,
+			ChunkId:    r.ChunkId,
 			DocId:      dao.ShortDocId(doc.DocId),
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,
-			Score:      dao.SimilarityToScore(distanceMap[r.ChunkID]),
+			Score:      dao.SimilarityToScore(distanceMap[r.ChunkId]),
 			Snippet:    chunk.Content,
 			Line:       chunk.Position,
 		})

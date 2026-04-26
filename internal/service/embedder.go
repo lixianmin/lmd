@@ -79,7 +79,7 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 			Embedding []float32
 		}, len(vecs))
 		for i, vec := range vecs {
-			items[i].ChunkId = batch[i].ID
+			items[i].ChunkId = batch[i].Id
 			items[i].Embedding = vec
 		}
 

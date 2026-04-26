@@ -21,7 +21,7 @@ type ChunkData struct {
 }
 
 type ChunkRecord struct {
-	ID         int64
+	Id         int64
 	DocId      int64
 	Seq        int
 	Content    string
@@ -31,7 +31,7 @@ type ChunkRecord struct {
 }
 
 type VectorSearchResult struct {
-	ChunkID  int64
+	ChunkId  int64
 	Distance float64
 }
 
@@ -75,7 +75,7 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 			}
 
 			records = append(records, ChunkRecord{
-				ID: id, DocId: docId, Seq: i,
+				Id: id, DocId: docId, Seq: i,
 				Content: c.Content, Position: c.Position,
 				TokenCount: c.TokenCount, Hash: c.Hash,
 			})
@@ -200,7 +200,7 @@ func QueryVectors(query []float32, limit int) ([]VectorSearchResult, error) {
 	var results []VectorSearchResult
 	for rows.Next() {
 		var r VectorSearchResult
-		if err := rows.Scan(&r.ChunkID, &r.Distance); err != nil {
+		if err := rows.Scan(&r.ChunkId, &r.Distance); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -231,7 +231,7 @@ func GetUnembeddedChunks(limit int) ([]ChunkRecord, error) {
 	var chunks []ChunkRecord
 	for rows.Next() {
 		var c ChunkRecord
-		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+		if err := rows.Scan(&c.Id, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, c)
@@ -249,7 +249,7 @@ func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
 	var chunks []ChunkRecord
 	for rows.Next() {
 		var c ChunkRecord
-		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+		if err := rows.Scan(&c.Id, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
 			return nil, err
 		}
 		chunks = append(chunks, c)
@@ -259,7 +259,7 @@ func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
 
 func GetChunkById(chunkId int64) (*ChunkRecord, error) {
 	var c ChunkRecord
-	err := withQueryRow("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?", chunkId).Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
+	err := withQueryRow("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id=?", chunkId).Scan(&c.Id, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("chunk not found")
 	}
@@ -286,7 +286,7 @@ func GetChunksByIds(ids []int64) ([]ChunkRecord, error) {
 	var results []ChunkRecord
 	for rows.Next() {
 		var c ChunkRecord
-		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+		if err := rows.Scan(&c.Id, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
 			return nil, err
 		}
 		results = append(results, c)

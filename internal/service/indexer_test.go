@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,5 +268,43 @@ func TestIndexerSelectsChunkerByExt(t *testing.T) {
 	defaultChunker := idx.chunkerForExt(".html")
 	if _, ok := defaultChunker.(*chunker.MarkdownChunker); !ok {
 		t.Fatal("expected MarkdownChunker for unknown ext")
+	}
+}
+
+func TestIgnorePatternsExcludeFiles(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	os.WriteFile(filepath.Join(dir, "important.md"), []byte("# Important\n\nThis should be indexed."), 0644)
+	os.WriteFile(filepath.Join(dir, "draft.tmp"), []byte("# Draft\n\nThis is a temp file."), 0644)
+	os.WriteFile(filepath.Join(dir, "notes.log"), []byte("log file content"), 0644)
+
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("git config"), 0644)
+
+	_ = dao.AddCollection("test", dir, "*.md", []string{"*.tmp", "*.log", ".git"})
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	result, err := idx.UpdateCollection("test", dir, "*.md", []string{"*.tmp", "*.log", ".git"})
+	if err != nil {
+		t.Fatalf("UpdateCollection failed: %v", err)
+	}
+
+	docs, _ := dao.ListDocumentsByCollection("test")
+	for _, d := range docs {
+		if filepath.Ext(d.Path) == ".tmp" {
+			t.Fatalf("ignore pattern '*.tmp' should exclude %s", d.Path)
+		}
+		if filepath.Ext(d.Path) == ".log" {
+			t.Fatalf("ignore pattern '*.log' should exclude %s", d.Path)
+		}
+		if strings.HasPrefix(d.Path, ".git") {
+			t.Fatalf("ignore pattern '.git' should exclude %s", d.Path)
+		}
+	}
+
+	if result.Indexed < 1 {
+		t.Fatalf("expected at least 1 .md file indexed, got indexed=%d", result.Indexed)
 	}
 }

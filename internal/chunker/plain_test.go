@@ -1,6 +1,7 @@
 package chunker
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -144,6 +145,42 @@ func TestPlainChunkStartEndLine(t *testing.T) {
 		if c.EndLine < c.StartLine {
 			t.Fatalf("chunk %d: EndLine %d < StartLine %d", i, c.EndLine, c.StartLine)
 		}
+	}
+}
+
+func TestPlainChunkLineNumbersNotOffByOne(t *testing.T) {
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, "line "+fmt.Sprintf("%02d", i))
+	}
+	text := strings.Join(lines, "\n")
+
+	chunks, err := NewPlainTextChunker(100).Chunk(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 chunks, got %d", len(chunks))
+	}
+
+	first := chunks[0]
+	if first.StartLine != 0 {
+		t.Fatalf("expected first chunk StartLine=0, got %d", first.StartLine)
+	}
+
+	for i, c := range chunks {
+		if c.EndLine < c.StartLine {
+			t.Fatalf("chunk %d: EndLine %d < StartLine %d", i, c.EndLine, c.StartLine)
+		}
+	}
+
+	if chunks[0].EndLine <= 0 {
+		t.Fatalf("expected first chunk EndLine > 0, got %d", chunks[0].EndLine)
+	}
+
+	lastChunk := chunks[len(chunks)-1]
+	if lastChunk.EndLine < 55 {
+		t.Fatalf("expected last chunk EndLine >= 55, got %d", lastChunk.EndLine)
 	}
 }
 

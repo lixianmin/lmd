@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 var sampleHits = []SearchHit{
@@ -161,6 +162,37 @@ func TestCSVFormatterTruncatesLongSnippet(t *testing.T) {
 	records, _ := reader.ReadAll()
 	if len(records[1][5]) != 500 {
 		t.Fatalf("expected snippet truncated to 500, got %d", len(records[1][5]))
+	}
+}
+
+func TestCSVFormatterCJKTruncation(t *testing.T) {
+	f := NewCSVFormatter()
+	cjkChar := "中"
+	longCJK := strings.Repeat(cjkChar, 600)
+	hits := []SearchHit{
+		{DocId: "a", Path: "f.md", Title: "T", Score: 0.5, Snippet: longCJK, Line: 1},
+	}
+	var buf bytes.Buffer
+	err := f.Format(&buf, hits)
+	if err != nil {
+		t.Fatalf("CJK truncation should not error: %v", err)
+	}
+
+	reader := csv.NewReader(&buf)
+	records, readErr := reader.ReadAll()
+	if readErr != nil {
+		t.Fatalf("CSV parse failed (likely invalid UTF-8 from byte truncation): %v", readErr)
+	}
+
+	snippet := records[1][5]
+	runeCount := utf8.RuneCountInString(snippet)
+	if runeCount != 500 {
+		t.Fatalf("expected 500 CJK runes, got %d", runeCount)
+	}
+	for _, r := range snippet {
+		if r == utf8.RuneError {
+			t.Fatal("found RuneError in snippet — byte-level truncation corrupted CJK characters")
+		}
 	}
 }
 

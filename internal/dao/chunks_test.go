@@ -116,7 +116,7 @@ func TestInsertVectorAndGetUnembedded(t *testing.T) {
 	for i := range vec {
 		vec[i] = 0.1
 	}
-	if err := InsertVector(records[0].ID, vec); err != nil {
+	if err := InsertVector(records[0].Id, vec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,7 +143,7 @@ func TestQueryVectors(t *testing.T) {
 	for i := range vec {
 		vec[i] = float32(i%10) * 0.1
 	}
-	if err := InsertVector(records[0].ID, vec); err != nil {
+	if err := InsertVector(records[0].Id, vec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,8 +154,8 @@ func TestQueryVectors(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 vector result, got %d", len(results))
 	}
-	if results[0].ChunkID != records[0].ID {
-		t.Fatalf("expected chunkID %d, got %d", records[0].ID, results[0].ChunkID)
+	if results[0].ChunkId != records[0].Id {
+		t.Fatalf("expected chunkID %d, got %d", records[0].Id, results[0].ChunkId)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestGetChunkById(t *testing.T) {
 	chunks := []ChunkData{{Content: "single", Position: 0, TokenCount: 1, Hash: "h1"}}
 	_, records := mustInsertDocWithChunks(t, "notes", "one.md", chunks)
 
-	got, err := GetChunkById(records[0].ID)
+	got, err := GetChunkById(records[0].Id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestGetEmbeddingsByChunkIds(t *testing.T) {
 		{Content: "test content", Position: 0, TokenCount: 2, Hash: "h1"},
 	}
 	_, records := mustInsertDocWithChunks(t, "notes", "emb_test.md", chunks)
-	chunkId := records[0].ID
+	chunkId := records[0].Id
 
 	vec := make([]float32, EmbeddingDim)
 	for i := range vec {

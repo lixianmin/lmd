@@ -138,6 +138,54 @@ func TestDeleteDocument(t *testing.T) {
 	}
 }
 
+func TestDeleteDocumentCleansUpChunks(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+
+	doc := &DocumentRecord{
+		Collection: "notes", Path: "del.md", Title: "Del",
+		Body: "delete me", Hash: "hashDel", FileSize: 9,
+	}
+	mustUpsertDoc(t, doc)
+
+	chunks := []ChunkData{
+		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "h1"},
+		{Content: "chunk two", Position: 1, TokenCount: 2, Hash: "h2"},
+	}
+	var tokenized []string
+	for _, c := range chunks {
+		tokenized = append(tokenized, c.Content)
+	}
+	_, err := InsertChunks(doc.Id, chunks, tokenized)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vec := make([]float32, EmbeddingDim)
+	for i := range vec {
+		vec[i] = 0.1
+	}
+	remaining, _ := GetUnembeddedChunks(0)
+	chunkId := remaining[len(remaining)-2].Id
+	if err := InsertVector(chunkId, vec); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteDocument(doc.Id); err != nil {
+		t.Fatal(err)
+	}
+
+	gotChunks, _ := GetChunksByDocId(doc.Id)
+	if len(gotChunks) != 0 {
+		t.Fatalf("expected 0 chunks after document delete, got %d", len(gotChunks))
+	}
+
+	_, err = GetDocumentById(doc.Id)
+	if err == nil {
+		t.Fatal("expected error after delete")
+	}
+}
+
 func TestListDocumentsByCollection(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "a", "/a")
