@@ -32,9 +32,8 @@ func registerRoutes(d *Daemon) http.Handler {
 
 	for _, rt := range routes {
 		h := rt.handler
-		route := rt
-		if route.method == "GET" {
-			mux.HandleFunc(route.path, func(w http.ResponseWriter, r *http.Request) {
+		if rt.method == "GET" {
+			mux.HandleFunc(rt.path, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet {
 					writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 					return
@@ -45,7 +44,7 @@ func registerRoutes(d *Daemon) http.Handler {
 				d.rebuildMu.RUnlock()
 			})
 		} else {
-			mux.HandleFunc(route.path, func(w http.ResponseWriter, r *http.Request) {
+			mux.HandleFunc(rt.path, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost {
 					writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 					return

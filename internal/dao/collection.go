@@ -61,66 +61,64 @@ func RemoveCollection(name string) error {
 		docRows.Close()
 
 		if len(docIds) > 0 {
-			chunkRows, err := tx.Query(buildInQuery("SELECT id FROM chunks WHERE doc_id IN (", len(docIds), ")"), int64SliceToAny(docIds)...)
-			if err != nil {
+			if err := removeChunksByDocIds(tx, docIds); err != nil {
 				return err
 			}
-			var chunkIds []int64
-			for chunkRows.Next() {
-				var id int64
-				if err := chunkRows.Scan(&id); err != nil {
-					chunkRows.Close()
-					return err
-				}
-				chunkIds = append(chunkIds, id)
-			}
-			chunkRows.Close()
-
-			if len(chunkIds) > 0 {
-				delVecStmt, err := tx.Prepare(buildInQuery("DELETE FROM chunks_vec WHERE chunk_id IN (", len(chunkIds), ")"))
-				if err != nil {
-					return err
-				}
-				if _, err := delVecStmt.Exec(int64SliceToAny(chunkIds)...); err != nil {
-					delVecStmt.Close()
-					return err
-				}
-				delVecStmt.Close()
-
-				delFtsStmt, err := tx.Prepare(buildInQuery("DELETE FROM chunks_fts WHERE rowid IN (", len(chunkIds), ")"))
-				if err != nil {
-					return err
-				}
-				if _, err := delFtsStmt.Exec(int64SliceToAny(chunkIds)...); err != nil {
-					delFtsStmt.Close()
-					return err
-				}
-				delFtsStmt.Close()
-			}
-
-			delChunksStmt, err := tx.Prepare(buildInQuery("DELETE FROM chunks WHERE doc_id IN (", len(docIds), ")"))
-			if err != nil {
+			if err := removeDocsByCollection(tx, name); err != nil {
 				return err
 			}
-			if _, err := delChunksStmt.Exec(int64SliceToAny(docIds)...); err != nil {
-				delChunksStmt.Close()
-				return err
-			}
-			delChunksStmt.Close()
-
-			delDocsStmt, err := tx.Prepare("DELETE FROM documents WHERE collection=?")
-			if err != nil {
-				return err
-			}
-			if _, err := delDocsStmt.Exec(name); err != nil {
-				delDocsStmt.Close()
-				return err
-			}
-			delDocsStmt.Close()
 		}
 
 		return nil
 	})
+}
+
+func removeChunksByDocIds(tx *sql.Tx, docIds []int64) error {
+	chunkRows, err := tx.Query(buildInQuery("SELECT id FROM chunks WHERE doc_id IN (", len(docIds), ")"), int64SliceToAny(docIds)...)
+	if err != nil {
+		return err
+	}
+	var chunkIds []int64
+	for chunkRows.Next() {
+		var id int64
+		if err := chunkRows.Scan(&id); err != nil {
+			chunkRows.Close()
+			return err
+		}
+		chunkIds = append(chunkIds, id)
+	}
+	chunkRows.Close()
+
+	if len(chunkIds) > 0 {
+		if err := execInQuery(tx, "DELETE FROM chunks_vec WHERE chunk_id IN (", chunkIds); err != nil {
+			return err
+		}
+		if err := execInQuery(tx, "DELETE FROM chunks_fts WHERE rowid IN (", chunkIds); err != nil {
+			return err
+		}
+	}
+
+	return execInQuery(tx, "DELETE FROM chunks WHERE doc_id IN (", docIds)
+}
+
+func removeDocsByCollection(tx *sql.Tx, name string) error {
+	stmt, err := tx.Prepare("DELETE FROM documents WHERE collection=?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(name)
+	return err
+}
+
+func execInQuery(tx *sql.Tx, prefix string, ids []int64) error {
+	stmt, err := tx.Prepare(buildInQuery(prefix, len(ids), ")"))
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(int64SliceToAny(ids)...)
+	return err
 }
 
 func ListCollections() ([]CollectionRecord, error) {

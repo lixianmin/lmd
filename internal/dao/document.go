@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -136,6 +137,35 @@ func DeleteDocument(id int64) error {
 		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
 		return err
 	})
+}
+
+func GetDocumentsByIds(ids []int64) ([]DocumentRecord, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf("SELECT id, docid, collection, path, title, body, hash, file_size, created_at, updated_at FROM documents WHERE id IN (%s)", strings.Join(placeholders, ","))
+	rows, err := withQuery(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []DocumentRecord
+	for rows.Next() {
+		var doc DocumentRecord
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+			&doc.Hash, &doc.FileSize, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, doc)
+	}
+	return results, rows.Err()
 }
 
 func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {

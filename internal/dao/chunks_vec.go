@@ -266,6 +266,34 @@ func GetChunkById(chunkId int64) (*ChunkRecord, error) {
 	return &c, err
 }
 
+func GetChunksByIds(ids []int64) ([]ChunkRecord, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE id IN (%s)", strings.Join(placeholders, ","))
+	rows, err := withQuery(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ChunkRecord
+	for rows.Next() {
+		var c ChunkRecord
+		if err := rows.Scan(&c.ID, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
+			return nil, err
+		}
+		results = append(results, c)
+	}
+	return results, rows.Err()
+}
+
 func SimilarityToScore(distance float64) float64 {
 	return 1.0 - distance
 }

@@ -20,12 +20,21 @@ import (
 )
 
 const (
-	defaultSearchLimit      = 5  // 搜索默认返回条数
-	defaultMemoryQueryLimit = 10 // Memory 查询默认返回条数
-	defaultVectorMinScore   = 0.3
-	overfetchMultiplier     = 3 // 混合搜索 pre-fusion 超取倍数
-	docPreviewMaxRunes      = 500
+	defaultSearchLimit      = 5    // 搜索默认返回条数
+	defaultMemoryQueryLimit = 10   // Memory 查询默认返回条数
+	defaultVectorMinScore   = 0.3  // 向量搜索最低分数阈值
+	overfetchMultiplier     = 3    // 混合搜索 pre-fusion 超取倍数
+	docPreviewMaxRunes      = 500  // 文档预览最大 rune 数
+	maxOverfetchLimit       = 1000 // overfetch 上限，防止 int 溢出
 )
+
+func safeOverfetch(limit int) int {
+	fetch := limit * overfetchMultiplier
+	if fetch <= 0 || fetch > maxOverfetchLimit {
+		return maxOverfetchLimit
+	}
+	return fetch
+}
 
 func (my *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -119,13 +128,13 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		req.Limit = defaultSearchLimit
 	}
 
-	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
+	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
+	vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -207,7 +216,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fetchLimit := req.Limit * overfetchMultiplier
+	fetchLimit := safeOverfetch(req.Limit)
 	hydeHits, hydeErr := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
 	if hydeErr != nil {
 		logo.Warn("handleHyde: vector search failed: %s", hydeErr)
@@ -275,12 +284,6 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := doc.Body
-	if !req.Full {
-		runes := []rune(body)
-		if len(runes) > docPreviewMaxRunes {
-			body = string(runes[:docPreviewMaxRunes]) + "..."
-		}
-	}
 	if req.From > 0 {
 		lines := strings.Split(body, "\n")
 		if req.From <= len(lines) {
@@ -291,6 +294,12 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 		lines := strings.Split(body, "\n")
 		if req.Lines < len(lines) {
 			body = strings.Join(lines[:req.Lines], "\n")
+		}
+	}
+	if !req.Full {
+		runes := []rune(body)
+		if len(runes) > docPreviewMaxRunes {
+			body = string(runes[:docPreviewMaxRunes]) + "..."
 		}
 	}
 
@@ -700,11 +709,11 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if req.Limit <= 0 {
 			req.Limit = defaultSearchLimit
 		}
-		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
+		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 		if err != nil {
 			return nil, err
 		}
-		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, req.Limit*overfetchMultiplier, 0)
+		vecHits, err := my.searcher.SearchVector(my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 		if err != nil {
 			return nil, err
 		}

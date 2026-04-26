@@ -76,7 +76,10 @@ func (my *HyDEAPIClient) doRequest(ctx context.Context, prompt string) ([]byte, 
 		"enable_thinking": false,
 	}
 
-	body, _ := convert.ToJsonE(payload)
+	body, err := convert.ToJsonE(payload)
+	if err != nil {
+		return nil, fmt.Errorf("hyde marshal failed: %w", err)
+	}
 	respBody, err := webx.Post(ctx, my.baseURL+"/chat/completions", webx.WithRequestBuilder(func(req *http.Request) string {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+my.apiKey)

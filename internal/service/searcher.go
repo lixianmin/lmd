@@ -81,19 +81,55 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 		return nil, fmt.Errorf("vector query failed: %w", err)
 	}
 
+	if len(vecResults) == 0 {
+		return nil, nil
+	}
+
+	chunkIds := make([]int64, len(vecResults))
+	for i, r := range vecResults {
+		chunkIds[i] = r.ChunkID
+	}
+
+	chunks, err := dao.GetChunksByIds(chunkIds)
+	if err != nil {
+		return nil, fmt.Errorf("fetch chunks failed: %w", err)
+	}
+
+	docIds := make(map[int64]struct{})
+	for _, c := range chunks {
+		docIds[c.DocId] = struct{}{}
+	}
+	docIdSlice := make([]int64, 0, len(docIds))
+	for id := range docIds {
+		docIdSlice = append(docIdSlice, id)
+	}
+	docs, err := dao.GetDocumentsByIds(docIdSlice)
+	if err != nil {
+		return nil, fmt.Errorf("fetch docs failed: %w", err)
+	}
+
+	chunkMap := make(map[int64]*dao.ChunkRecord)
+	for i := range chunks {
+		chunkMap[chunks[i].ID] = &chunks[i]
+	}
+	docMap := make(map[int64]*dao.DocumentRecord)
+	for i := range docs {
+		docMap[docs[i].Id] = &docs[i]
+	}
+
+	distanceMap := make(map[int64]float64)
+	for _, r := range vecResults {
+		distanceMap[r.ChunkID] = r.Distance
+	}
+
 	var hits []formatter.SearchHit
 	for _, r := range vecResults {
-		score := dao.SimilarityToScore(r.Distance)
-
-		chunk, err := dao.GetChunkById(r.ChunkID)
-		if err != nil {
-			logo.Warn("SearchVectorByEmbedding: chunk %d not found: %s", r.ChunkID, err)
+		chunk, ok := chunkMap[r.ChunkID]
+		if !ok {
 			continue
 		}
-
-		doc, err := dao.GetDocumentById(chunk.DocId)
-		if err != nil {
-			logo.Warn("SearchVectorByEmbedding: doc %d not found: %s", chunk.DocId, err)
+		doc, ok := docMap[chunk.DocId]
+		if !ok {
 			continue
 		}
 
@@ -107,7 +143,7 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,
-			Score:      score,
+			Score:      dao.SimilarityToScore(distanceMap[r.ChunkID]),
 			Snippet:    chunk.Content,
 			Line:       chunk.Position,
 		})

@@ -26,7 +26,7 @@ func Init(dbPath string) error {
 
 	var err error
 	DB = &Store{}
-	DB.db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=wal&_foreign_keys=on")
+	DB.db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=wal&_foreign_keys=on&_busy_timeout=5000")
 	if err != nil {
 		return err
 	}

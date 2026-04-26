@@ -92,6 +92,8 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 		existingPaths[d.Path] = docInfo{hash: d.Hash, fileModTime: d.FileModTime}
 	}
 
+	ignoreMatcher := newIgnoreMatcher(ignorePatterns)
+
 	foundPaths := make(map[string]bool)
 
 	err = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
@@ -100,6 +102,13 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 			return nil
 		}
 		if d.IsDir() {
+			if ignoreMatcher.matchDir(path) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		if ignoreMatcher.matchFile(path) {
 			return nil
 		}
 
@@ -231,7 +240,6 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 			doc, err := dao.GetDocumentByPath(collectionName, path)
 			if err == nil {
 				logo.Info("indexer: removing deleted file %s/%s", collectionName, path)
-				dao.DeleteVectorsByDocId(doc.Id)
 				dao.DeleteDocument(doc.Id)
 				result.Removed++
 			}
@@ -281,4 +289,34 @@ func extractTitle(content, fallback string) string {
 		}
 	}
 	return strings.TrimSuffix(filepath.Base(fallback), filepath.Ext(fallback))
+}
+
+type ignoreMatcher struct {
+	patterns []string
+}
+
+func newIgnoreMatcher(patterns []string) ignoreMatcher {
+	return ignoreMatcher{patterns: patterns}
+}
+
+func (m ignoreMatcher) matchDir(path string) bool {
+	for _, p := range m.patterns {
+		if filepath.Base(path) == p {
+			return true
+		}
+	}
+	return false
+}
+
+func (m ignoreMatcher) matchFile(path string) bool {
+	name := filepath.Base(path)
+	for _, p := range m.patterns {
+		if matched, _ := filepath.Match(p, name); matched {
+			return true
+		}
+		if name == p {
+			return true
+		}
+	}
+	return false
 }

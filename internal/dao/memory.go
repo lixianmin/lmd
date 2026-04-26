@@ -129,6 +129,7 @@ func SearchMemoryVector(q []float32, limit int) ([]MemoryRecord, error) {
 	for contentRows.Next() {
 		var rec MemoryRecord
 		if err := contentRows.Scan(&rec.Id, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
+			logo.Warn("SearchMemoryVector: scan content row failed: %s", err)
 			continue
 		}
 		contentMap[rec.Id] = rec

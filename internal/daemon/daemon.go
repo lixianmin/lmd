@@ -30,11 +30,12 @@ import (
 )
 
 const (
-	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
-	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
-	daemonIdleTimeout     = 60 * time.Minute // daemon 空闲自动关闭超时
-	serverShutdownTimeout = 5 * time.Second  // HTTP server 优雅关闭超时
-	memoryEmbedBatchSize  = 8                // Memory embedding 批量大小
+	indexSyncInterval     = 60 * time.Second  // 索引轮询间隔
+	embedTickInterval     = 5 * time.Second   // embedding 轮询间隔
+	daemonIdleTimeout     = 60 * time.Minute  // daemon 空闲自动关闭超时
+	serverShutdownTimeout = 5 * time.Second   // HTTP server 优雅关闭超时
+	memoryEmbedBatchSize  = 8                 // Memory embedding 批量大小
+	embedTimeout          = 5 * time.Minute   // 背景嵌入操作超时
 )
 
 var PidPath = func() string {
@@ -120,7 +121,9 @@ func (my *Daemon) Start(ctx context.Context) error {
 	}
 
 	loom.Go(func(later loom.Later) {
-		my.server.Serve(listener)
+		if err := my.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logo.Error("daemon: serve error: %s", err)
+		}
 	})
 	logo.Info("daemon: listening on %s", addr)
 	my.touchActivity()
@@ -157,6 +160,10 @@ func (my *Daemon) Stop() error {
 			my.server.Shutdown(shutdownCtx)
 		}
 
+		my.wc.Close(func() error {
+			return nil
+		})
+
 		if dao.DB != nil {
 			store := dao.DB
 			dao.DB = nil
@@ -166,10 +173,6 @@ func (my *Daemon) Stop() error {
 		if my.provider != nil {
 			my.provider.Close()
 		}
-
-		my.wc.Close(func() error {
-			return nil
-		})
 
 		releaseLock()
 		logo.Info("daemon: stopped")
@@ -244,7 +247,9 @@ func (my *Daemon) embedChunks() {
 		return
 	}
 
-	_, err := my.embedder.EmbedBatch(context.Background(), 0)
+	ctx, cancel := context.WithTimeout(context.Background(), embedTimeout)
+	defer cancel()
+	_, err := my.embedder.EmbedBatch(ctx, 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
 	}
@@ -268,9 +273,17 @@ func (my *Daemon) embedMemories() {
 		texts[i] = m.Content
 	}
 
-	vecs, err := my.provider.EmbedBatch(context.Background(), texts)
+	memCtx, memCancel := context.WithTimeout(context.Background(), embedTimeout)
+	defer memCancel()
+
+	vecs, err := my.provider.EmbedBatch(memCtx, texts)
 	if err != nil {
 		logo.Error("embedMemories: %s", err)
+		return
+	}
+
+	if len(vecs) != len(memories) {
+		logo.Error("embedMemories: vec count mismatch: got %d, expected %d", len(vecs), len(memories))
 		return
 	}
 

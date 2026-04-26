@@ -58,6 +58,18 @@ func (my *MemoryService) Add(content, memType string) (int64, error) {
 }
 
 func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, error) {
+	ftsRecords, vecRecords := my.searchBoth(query, limit*3)
+
+	ftsItems := recordsToRankedItems(ftsRecords)
+	vecItems := recordsToRankedItems(vecRecords)
+
+	ranked := ReciprocalRankFusionGeneric([][]RankedItem{ftsItems, vecItems}, DefaultRRFParams())
+
+	recordMap := buildRecordMap(ftsRecords, vecRecords)
+	return my.applyTimePenalty(ranked, recordMap, limit), nil
+}
+
+func (my *MemoryService) searchBoth(query string, fetchLimit int) (ftsRecords, vecRecords []dao.MemoryRecord) {
 	ftsQuery := query
 	if my.tokenizer != nil {
 		tokenized := my.tokenizer.TokenizeToString(query)
@@ -66,45 +78,43 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 		}
 	}
 
-	ftsRecords, err := dao.SearchMemoryFTS(ftsQuery, limit*3)
-	if err != nil {
-		return nil, err
-	}
+	ftsRecords, _ = dao.SearchMemoryFTS(ftsQuery, fetchLimit)
 
-	var ftsItems []RankedItem
-	for _, r := range ftsRecords {
-		ftsItems = append(ftsItems, RankedItem{Key: r.Id})
-	}
-
-	var vecRecords []dao.MemoryRecord
 	if my.provider != nil {
 		vec, embedErr := my.provider.Embed(context.Background(), query)
-		var vecErr error
 		if embedErr == nil {
-			vecRecords, vecErr = dao.SearchMemoryVector(vec, limit*3)
+			var vecErr error
+			vecRecords, vecErr = dao.SearchMemoryVector(vec, fetchLimit)
 			if vecErr != nil {
 				logo.Warn("MemoryService.Query: vector search failed: %s", vecErr)
 			}
 		}
 	}
+	return
+}
 
-	var vecItems []RankedItem
-	for _, r := range vecRecords {
-		vecItems = append(vecItems, RankedItem{Key: r.Id})
+func recordsToRankedItems(records []dao.MemoryRecord) []RankedItem {
+	items := make([]RankedItem, len(records))
+	for i, r := range records {
+		items[i] = RankedItem{Key: r.Id}
 	}
+	return items
+}
 
-	ranked := ReciprocalRankFusionGeneric([][]RankedItem{ftsItems, vecItems}, DefaultRRFParams())
-
-	recordMap := make(map[int64]dao.MemoryRecord)
+func buildRecordMap(ftsRecords, vecRecords []dao.MemoryRecord) map[int64]dao.MemoryRecord {
+	m := make(map[int64]dao.MemoryRecord, len(ftsRecords)+len(vecRecords))
 	for _, r := range ftsRecords {
-		recordMap[r.Id] = r
+		m[r.Id] = r
 	}
 	for _, r := range vecRecords {
-		if _, ok := recordMap[r.Id]; !ok {
-			recordMap[r.Id] = r
+		if _, ok := m[r.Id]; !ok {
+			m[r.Id] = r
 		}
 	}
+	return m
+}
 
+func (my *MemoryService) applyTimePenalty(ranked []RankedItem, recordMap map[int64]dao.MemoryRecord, limit int) []MemorySearchResult {
 	now := time.Now().In(cst8)
 	var results []MemorySearchResult
 	for _, r := range ranked {
@@ -130,8 +140,7 @@ func (my *MemoryService) Query(query string, limit int) ([]MemorySearchResult, e
 	if limit > 0 && len(results) > limit {
 		results = results[:limit]
 	}
-
-	return results, nil
+	return results
 }
 
 // timePenalty 根据记忆类型返回时间修正因子：
