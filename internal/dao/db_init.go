@@ -99,6 +99,7 @@ func migrateMemories() error {
 			for _, m := range mems {
 				contentHash := sha256.Sum256([]byte(m.content))
 				hashStr := hex.EncodeToString(contentHash[:])
+				// 使用 hash 前 12 位（48 bits）作为唯一标识，冲突概率极低
 				shortHash := hashStr[:12]
 
 				collection := "@knowledge"
@@ -109,6 +110,7 @@ func migrateMemories() error {
 				docid := "mem-" + shortHash
 				path := "/@memory/" + shortHash
 				title := m.content
+				// 标题截取前 80 个字符，用于列表展示
 				if len(title) > 80 {
 					title = title[:80]
 				}
@@ -122,7 +124,7 @@ func migrateMemories() error {
 					continue
 				}
 
-				res, err = chunkStmt.Exec(docId, m.content, hashStr)
+				_, err = chunkStmt.Exec(docId, m.content, hashStr)
 				if err != nil {
 					return err
 				}
@@ -134,9 +136,11 @@ func migrateMemories() error {
 		}
 	}
 
-	DB.db.Exec("DROP TABLE IF EXISTS memories_vec")
-	DB.db.Exec("DROP TABLE IF EXISTS memories_fts")
-	DB.db.Exec("DROP TABLE IF EXISTS memories")
+	for _, tbl := range []string{"memories_vec", "memories_fts", "memories"} {
+		if _, err := DB.db.Exec("DROP TABLE IF EXISTS " + tbl); err != nil {
+			logo.Warn("drop %s: %v", tbl, err)
+		}
+	}
 	logo.Info("migrated %d memories to documents+chunks", len(mems))
 	return nil
 }
