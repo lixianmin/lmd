@@ -730,6 +730,25 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if req.Limit <= 0 {
 			req.Limit = defaultSearchLimit
 		}
+		hits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"hits": hits}, nil
+
+	case "query":
+		var req struct {
+			Query      string  `json:"query"`
+			Collection string  `json:"collection"`
+			Limit      int     `json:"limit"`
+			MinScore   float64 `json:"min_score"`
+		}
+		if err := convert.FromJsonE(params, &req); err != nil {
+			return nil, err
+		}
+		if req.Limit <= 0 {
+			req.Limit = defaultSearchLimit
+		}
 		lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 		if err != nil {
 			return nil, err
@@ -739,7 +758,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, err
 		}
 		results := service.FuseResults(lexHits, vecHits)
-		logo.Info("handleToolCall: search query=%q lex=%d vec=%d results=%d",
+		logo.Info("handleToolCall: query query=%q lex=%d vec=%d results=%d",
 			req.Query, len(lexHits), len(vecHits), len(results))
 		if req.MinScore > 0 {
 			var filtered []formatter.SearchHit
