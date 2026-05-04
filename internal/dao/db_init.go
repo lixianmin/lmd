@@ -1,11 +1,14 @@
 package dao
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	"github.com/lixianmin/logo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -34,6 +37,9 @@ func Init(dbPath string) error {
 	if err := createTables(); err != nil {
 		return err
 	}
+	if err := migrateMemories(); err != nil {
+		return err
+	}
 	return prepareFTSStatements()
 }
 
@@ -41,6 +47,108 @@ func (my *Store) Close() error {
 	if my.db != nil {
 		return my.db.Close()
 	}
+	return nil
+}
+
+func migrateMemories() error {
+	var tableCount int
+	err := DB.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories'").Scan(&tableCount)
+	if err != nil {
+		return err
+	}
+	if tableCount == 0 {
+		return nil
+	}
+
+	rows, err := withQuery("SELECT id, content, type FROM memories")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type memRow struct {
+		content string
+		mType   string
+	}
+	var mems []memRow
+	for rows.Next() {
+		var m memRow
+		if err := rows.Scan(new(int64), &m.content, &m.mType); err != nil {
+			return err
+		}
+		mems = append(mems, m)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(mems) > 0 {
+		err = withTransaction(func(tx *sql.Tx) error {
+			docStmt, err := tx.Prepare(`INSERT OR IGNORE INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time) VALUES (?, ?, ?, ?, ?, ?, 0, 0)`)
+			if err != nil {
+				return err
+			}
+			defer docStmt.Close()
+
+			chunkStmt, err := tx.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)")
+			if err != nil {
+				return err
+			}
+			defer chunkStmt.Close()
+
+			ftsStmt, err := tx.Prepare("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)")
+			if err != nil {
+				return err
+			}
+			defer ftsStmt.Close()
+
+			for _, m := range mems {
+				contentHash := sha256.Sum256([]byte(m.content))
+				hashStr := hex.EncodeToString(contentHash[:])
+				shortHash := hashStr[:12]
+
+				collection := "@knowledge"
+				if m.mType == "episode" {
+					collection = "@episodic"
+				}
+
+				docid := "mem-" + shortHash
+				path := "/@memory/" + shortHash
+				title := m.content
+				if len(title) > 80 {
+					title = title[:80]
+				}
+
+				res, err := docStmt.Exec(docid, collection, path, title, m.content, hashStr)
+				if err != nil {
+					return err
+				}
+				docId, _ := res.LastInsertId()
+				if docId == 0 {
+					continue
+				}
+
+				res, err = chunkStmt.Exec(docId, m.content, hashStr)
+				if err != nil {
+					return err
+				}
+				chunkId, _ := res.LastInsertId()
+
+				if _, err := ftsStmt.Exec(chunkId, m.content); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	DB.db.Exec("DROP TABLE IF EXISTS memories_vec")
+	DB.db.Exec("DROP TABLE IF EXISTS memories_fts")
+	DB.db.Exec("DROP TABLE IF EXISTS memories")
+	logo.Info("migrated %d memories to documents+chunks", len(mems))
 	return nil
 }
 
@@ -115,23 +223,6 @@ func createTables() error {
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
 			chunk_id INTEGER PRIMARY KEY,
-			embedding float[1024] distance_metric=cosine
-		)`,
-		`CREATE TABLE IF NOT EXISTS memories (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			content     TEXT NOT NULL,
-			type        TEXT NOT NULL DEFAULT 'episode',
-			embedding   BLOB,
-			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
-		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-			content,
-			content='memories',
-			content_rowid='id',
-			tokenize='porter unicode61'
-		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
-			memory_id INTEGER PRIMARY KEY,
 			embedding float[1024] distance_metric=cosine
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
