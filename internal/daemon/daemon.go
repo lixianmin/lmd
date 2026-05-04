@@ -25,8 +25,6 @@ import (
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
-
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
 const (
@@ -34,7 +32,6 @@ const (
 	embedTickInterval     = 5 * time.Second   // embedding 轮询间隔
 	daemonIdleTimeout     = 60 * time.Minute  // daemon 空闲自动关闭超时
 	serverShutdownTimeout = 5 * time.Second   // HTTP server 优雅关闭超时
-	memoryEmbedBatchSize  = 8                 // Memory embedding 批量大小
 	embedTimeout          = 5 * time.Minute   // 背景嵌入操作超时
 )
 
@@ -199,7 +196,6 @@ func (my *Daemon) goLoop(later loom.Later) {
 			my.syncIndex()
 		case <-embedTicker.C:
 			my.embedChunks()
-			my.embedMemories()
 			my.provider.ReleaseIfIdle(modelIdleTimeout)
 
 			last := time.Unix(0, my.lastActive.Load())
@@ -256,54 +252,6 @@ func (my *Daemon) embedChunks() {
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
 	}
-}
-
-func (my *Daemon) embedMemories() {
-	if dao.GetUnembeddedMemoryCount() == 0 {
-		return
-	}
-	my.rebuildMu.Lock()
-	defer my.rebuildMu.Unlock()
-
-	count := dao.GetUnembeddedMemoryCount()
-	if count == 0 {
-		return
-	}
-	memories, err := dao.GetUnembeddedMemories(memoryEmbedBatchSize)
-	if err != nil || len(memories) == 0 {
-		return
-	}
-
-	texts := make([]string, len(memories))
-	for i, m := range memories {
-		texts[i] = m.Content
-	}
-
-	memCtx, memCancel := context.WithTimeout(context.Background(), embedTimeout)
-	defer memCancel()
-
-	vecs, err := my.provider.EmbedBatch(memCtx, texts)
-	if err != nil {
-		logo.Error("embedMemories: %s", err)
-		return
-	}
-
-	if len(vecs) != len(memories) {
-		logo.Error("embedMemories: vec count mismatch: got %d, expected %d", len(vecs), len(memories))
-		return
-	}
-
-	for i, vec := range vecs {
-		blob, err := sqlite_vec.SerializeFloat32(vec)
-		if err != nil {
-			logo.Error("embedMemories: serialize failed for memory %d: %s", memories[i].Id, err)
-			continue
-		}
-		if err := dao.UpdateMemoryEmbedding(memories[i].Id, blob); err != nil {
-			logo.Error("embedMemories: update failed for memory %d: %s", memories[i].Id, err)
-		}
-	}
-	logo.Info("embedMemories: embedded=%d", len(vecs))
 }
 
 var lockFile *os.File

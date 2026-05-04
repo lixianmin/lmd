@@ -369,6 +369,10 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
+	if strings.HasPrefix(req.Name, "@") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "collection name cannot start with '@'"})
+		return
+	}
 
 	absPath := req.Path
 	if !filepath.IsAbs(absPath) {
@@ -422,6 +426,10 @@ func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request)
 	}
 	if err := convert.FromJsonE(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.HasPrefix(req.Name, "@") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot remove system collection"})
 		return
 	}
 
@@ -607,6 +615,39 @@ func (my *Daemon) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (my *Daemon) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID      int64  `json:"id"`
+		Content string `json:"content"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if req.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	if req.Content == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
+		return
+	}
+
+	if err := my.memSvc.Update(req.ID, req.Content); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	logo.Info("handleMemoryUpdate: id=%d", req.ID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 func (my *Daemon) handleMCP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -773,9 +814,12 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Glob     string `json:"glob"`
 			DocCount int    `json:"doc_count"`
 		}
-		result := make([]colInfo, len(cols))
-		for i, c := range cols {
-			result[i] = colInfo{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount}
+		result := make([]colInfo, 0, len(cols))
+		for _, c := range cols {
+			if strings.HasPrefix(c.Name, "@") {
+				continue
+			}
+			result = append(result, colInfo{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount})
 		}
 		return result, nil
 
@@ -809,6 +853,25 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			return nil, fmt.Errorf("memory not found: %d", req.ID)
 		}
 		return map[string]string{"status": "deleted"}, nil
+
+	case "memory_update":
+		var req struct {
+			ID      int64  `json:"id"`
+			Content string `json:"content"`
+		}
+		if err := convert.FromJsonE(params, &req); err != nil {
+			return nil, err
+		}
+		if req.ID <= 0 {
+			return nil, fmt.Errorf("id is required")
+		}
+		if req.Content == "" {
+			return nil, fmt.Errorf("content is required")
+		}
+		if err := my.memSvc.Update(req.ID, req.Content); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "updated"}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
