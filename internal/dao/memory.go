@@ -47,7 +47,7 @@ func InsertMemory(content string) (int64, error) {
 		docId, _ = res.LastInsertId()
 
 		res, err = tx.Exec(
-			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)",
+			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 1, ?, 0, 0, ?)",
 			docId, content, hash,
 		)
 		if err != nil {
@@ -156,7 +156,7 @@ func UpdateMemory(docId int64, content string) error {
 
 		// Insert new chunk
 		res, err := tx.Exec(
-			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)",
+			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 1, ?, 0, 0, ?)",
 			docId, content, hash,
 		)
 		if err != nil {

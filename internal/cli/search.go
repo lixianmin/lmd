@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	cliSearchLimit      = 5
-	cliVectorMinScore   = 0.3
-	cliMemoryQueryLimit = 10
+	cliSearchLimit    = 5
+	cliVectorMinScore = 0.3
 )
 
 var (

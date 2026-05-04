@@ -486,6 +486,11 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if strings.HasPrefix(req.New, "@") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "collection name cannot start with '@'"})
+		return
+	}
+
 	if err := dao.RenameCollection(req.Old, req.New); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -606,7 +611,7 @@ func (my *Daemon) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dao.DeleteMemory(req.ID); err != nil {
+	if err := my.memSvc.Delete(req.ID); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "memory not found"})
 		return
 	}
@@ -814,12 +819,9 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 			Glob     string `json:"glob"`
 			DocCount int    `json:"doc_count"`
 		}
-		result := make([]colInfo, 0, len(cols))
-		for _, c := range cols {
-			if strings.HasPrefix(c.Name, "@") {
-				continue
-			}
-			result = append(result, colInfo{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount})
+		result := make([]colInfo, len(cols))
+		for i, c := range cols {
+			result[i] = colInfo{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount}
 		}
 		return result, nil
 

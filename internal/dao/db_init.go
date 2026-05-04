@@ -109,11 +109,12 @@ func migrateMemories() error {
 
 				docid := "mem-" + shortHash
 				path := "/@memory/" + shortHash
-				title := m.content
-				// 标题截取前 80 个字符，用于列表展示
-				if len(title) > 80 {
-					title = title[:80]
-				}
+			title := m.content
+			// 标题截取前 80 个字符，用于列表展示
+			runes := []rune(title)
+			if len(runes) > 80 {
+				title = string(runes[:80])
+			}
 
 				res, err := docStmt.Exec(docid, collection, path, title, m.content, hashStr)
 				if err != nil {
@@ -124,10 +125,14 @@ func migrateMemories() error {
 					continue
 				}
 
-				_, err = chunkStmt.Exec(docId, m.content, hashStr)
-				if err != nil {
-					return err
-				}
+			chunkRes, err := chunkStmt.Exec(docId, m.content, hashStr)
+			if err != nil {
+				return err
+			}
+			chunkId, _ := chunkRes.LastInsertId()
+			if _, err := tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, m.content); err != nil {
+				return err
+			}
 			}
 			return nil
 		})

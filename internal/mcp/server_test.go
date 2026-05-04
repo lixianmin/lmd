@@ -56,7 +56,7 @@ func TestHandleToolsList(t *testing.T) {
 	for _, tool := range result.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"search", "search_lex", "search_vector", "get", "status", "list_collections", "memory_add", "memory_query"} {
+	for _, name := range []string{"search", "search_lex", "search_vector", "get", "status", "list_collections", "memory_add", "memory_update"} {
 		if !names[name] {
 			t.Fatalf("expected '%s' tool", name)
 		}
@@ -149,6 +149,31 @@ func TestHandleUnknownMethod(t *testing.T) {
 	}
 	if resp.Error.Code != -32601 {
 		t.Fatalf("expected code -32601, got %d", resp.Error.Code)
+	}
+}
+
+func TestHandleMemoryUpdateToolCall(t *testing.T) {
+	called := false
+	RegisterHandler(func(method string, params json.RawMessage) (interface{}, error) {
+		if method == "memory_update" {
+			called = true
+		}
+		return map[string]string{"status": "updated"}, nil
+	})
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      json.Number("6"),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"memory_update","arguments":{"id":1,"content":"updated"}}`),
+	}
+
+	resp := HandleRequest(req)
+	if resp.Error != nil {
+		t.Fatalf("memory_update call failed: %v", resp.Error.Message)
+	}
+	if !called {
+		t.Fatal("expected memory_update handler to be called")
 	}
 }
 
