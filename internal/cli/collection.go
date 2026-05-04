@@ -124,9 +124,9 @@ var collectionListCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("%-15s %-8s %-12s %s\n", "COLLECTION", "DOCS", "GLOB", "PATH")
+		fmt.Printf("%-15s %8s %-12s %s\n", "COLLECTION", "DOCS", "GLOB", "PATH")
 		for _, c := range cols {
-			fmt.Printf("%-15s %-8d %-12s %s\n", c.Name, c.DocCount, c.Glob, c.Path)
+			fmt.Printf("%-15s %8d %-12s %s\n", c.Name, c.DocCount, c.Glob, c.Path)
 		}
 		return nil
 	},

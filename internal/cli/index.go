@@ -49,9 +49,9 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("Pending:    %d\n", resp.Pending)
 		if len(resp.Collections) > 0 {
 			fmt.Println()
-			fmt.Printf("%-15s %-8s %s\n", "COLLECTION", "DOCS", "PATH")
-			for _, c := range resp.Collections {
-				fmt.Printf("%-15s %-8d %s\n", c.Name, c.DocCount, c.Path)
+fmt.Printf("%-15s %8s %s\n", "COLLECTION", "DOCS", "PATH")
+		for _, c := range resp.Collections {
+			fmt.Printf("%-15s %8d %s\n", c.Name, c.DocCount, c.Path)
 			}
 		}
 		return nil

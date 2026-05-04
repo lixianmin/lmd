@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -28,11 +29,11 @@ import (
 )
 
 const (
-	indexSyncInterval     = 60 * time.Second  // 索引轮询间隔
-	embedTickInterval     = 5 * time.Second   // embedding 轮询间隔
-	daemonIdleTimeout     = 60 * time.Minute  // daemon 空闲自动关闭超时
-	serverShutdownTimeout = 5 * time.Second   // HTTP server 优雅关闭超时
-	embedTimeout          = 5 * time.Minute   // 背景嵌入操作超时
+	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
+	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
+	daemonIdleTimeout     = 60 * time.Minute // daemon 空闲自动关闭超时
+	serverShutdownTimeout = 5 * time.Second  // HTTP server 优雅关闭超时
+	embedTimeout          = 5 * time.Minute  // 背景嵌入操作超时
 )
 
 var PidPath = func() string {
@@ -223,6 +224,9 @@ func (my *Daemon) syncIndexUnlocked() {
 		return
 	}
 	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "@") {
+			continue // 系统 collection，由 memory 接口管理，不参与文件同步
+		}
 		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 		if err != nil {
 			logo.Error("indexPoller: %s failed: %s", col.Name, err)
