@@ -96,12 +96,6 @@ func migrateMemories() error {
 			}
 			defer chunkStmt.Close()
 
-			ftsStmt, err := tx.Prepare("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)")
-			if err != nil {
-				return err
-			}
-			defer ftsStmt.Close()
-
 			for _, m := range mems {
 				contentHash := sha256.Sum256([]byte(m.content))
 				hashStr := hex.EncodeToString(contentHash[:])
@@ -130,11 +124,6 @@ func migrateMemories() error {
 
 				res, err = chunkStmt.Exec(docId, m.content, hashStr)
 				if err != nil {
-					return err
-				}
-				chunkId, _ := res.LastInsertId()
-
-				if _, err := ftsStmt.Exec(chunkId, m.content); err != nil {
 					return err
 				}
 			}
