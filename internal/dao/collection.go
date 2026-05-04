@@ -153,6 +153,39 @@ func ListCollections() ([]CollectionRecord, error) {
 		c.DocCount = docCount
 		cols = append(cols, c)
 	}
+	sysRows, err := withQuery(`
+		SELECT collection, COUNT(*) as doc_count
+		FROM documents
+		WHERE collection LIKE '@%'
+		GROUP BY collection
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer sysRows.Close()
+
+	for sysRows.Next() {
+		var name string
+		var docCount int
+		if err := sysRows.Scan(&name, &docCount); err != nil {
+			continue
+		}
+		exists := false
+		for _, c := range cols {
+			if c.Name == name {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			cols = append(cols, CollectionRecord{
+				Name:     name,
+				Path:     "(system)",
+				DocCount: docCount,
+			})
+		}
+	}
+
 	return cols, rows.Err()
 }
 
