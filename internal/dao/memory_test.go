@@ -2,212 +2,142 @@ package dao
 
 import (
 	"testing"
-	"time"
-
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
-func makeSerializedVec(t *testing.T) []byte {
-	t.Helper()
-	vec := make([]float32, EmbeddingDim)
-	for i := range vec {
-		vec[i] = 0.01
-	}
-	serialized, err := sqlite_vec.SerializeFloat32(vec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return serialized
-}
-
-func TestInsertMemory(t *testing.T) {
+func TestInsertMemoryContent(t *testing.T) {
 	initTestDB(t)
 
-	id, err := InsertMemory("user prefers dark mode", "fact")
+	id, err := InsertMemory("user prefers dark mode")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id <= 0 {
 		t.Fatalf("expected positive id, got %d", id)
 	}
-}
 
-func TestInsertMemoryDefaultType(t *testing.T) {
-	initTestDB(t)
-
-	id, err := InsertMemory("something happened", "episode")
+	rec, err := GetMemoryByID(id)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if rec.Content != "user prefers dark mode" {
+		t.Fatalf("expected 'user prefers dark mode', got %q", rec.Content)
+	}
+	if rec.Collection != "@episodic" {
+		t.Fatalf("expected '@episodic', got %q", rec.Collection)
+	}
+}
+
+func TestGetMemoryByIDNotFound(t *testing.T) {
+	initTestDB(t)
+
+	_, err := GetMemoryByID(99999)
+	if err == nil {
+		t.Fatal("expected error for non-existent memory")
+	}
+}
+
+func TestDeleteMemory(t *testing.T) {
+	initTestDB(t)
+
+	doc := &DocumentRecord{
+		DocId:      "test-delete-doc",
+		Collection: "@episodic",
+		Path:       "/@memory/test-delete",
+		Hash:       "test-delete-hash",
+		Body:       "delete me",
+	}
+	if err := UpsertDocument(doc); err != nil {
+		t.Fatal(err)
+	}
+
+	chunks, err := InsertChunks(doc.Id, []ChunkData{{
+		Content: "delete me", Position: 1, TokenCount: 2, Hash: "test-delete-hash",
+	}}, []string{"delete me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteMemory(doc.Id); err != nil {
+		t.Fatalf("DeleteMemory failed: %v", err)
+	}
+
+	_, err = GetMemoryByID(doc.Id)
+	if err == nil {
+		t.Fatal("memory should not exist after delete")
+	}
+
+	_, err = GetChunkById(chunks[0].Id)
+	if err == nil {
+		t.Fatal("chunks should be deleted")
+	}
+}
+
+func TestDeleteMemoryNotFound(t *testing.T) {
+	initTestDB(t)
+
+	err := DeleteMemory(99999)
+	if err == nil {
+		t.Fatal("expected error for non-existent memory")
+	}
+}
+
+func TestUpdateMemory(t *testing.T) {
+	initTestDB(t)
+
+	id, err := InsertMemory("original content")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateMemory(id, "updated content"); err != nil {
+		t.Fatalf("UpdateMemory failed: %v", err)
 	}
 
 	rec, err := GetMemoryByID(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Type != "episode" {
-		t.Fatalf("expected type episode, got %s", rec.Type)
+	if rec.Content != "updated content" {
+		t.Fatalf("expected 'updated content', got %q", rec.Content)
 	}
 }
 
-func TestGetMemoryByID(t *testing.T) {
+func TestListMemories(t *testing.T) {
 	initTestDB(t)
 
-	id, err := InsertMemory("test content", "fact")
+	InsertMemory("first memory")
+	InsertMemory("second memory")
+	InsertMemory("third memory")
+
+	results, err := ListMemories(2)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	rec, err := GetMemoryByID(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rec.Content != "test content" {
-		t.Fatalf("expected 'test content', got %q", rec.Content)
-	}
-	if rec.Type != "fact" {
-		t.Fatalf("expected fact, got %s", rec.Type)
-	}
-	if rec.Id != id {
-		t.Fatalf("expected id %d, got %d", id, rec.Id)
-	}
-}
-
-func TestSearchMemoryFTS(t *testing.T) {
-	initTestDB(t)
-
-	InsertMemory("user prefers dark mode in editor", "fact")
-	InsertMemory("user had lunch at noon", "episode")
-	InsertMemory("dark roast coffee is favorite", "relation")
-
-	results, err := SearchMemoryFTS("dark", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) < 2 {
-		t.Fatalf("expected at least 2 results for 'dark', got %d", len(results))
-	}
-
-	for _, r := range results {
-		if r.Score <= 0 {
-			t.Fatalf("expected positive score, got %f", r.Score)
-		}
-	}
-}
-
-func TestMemoryFTSScoreDecay(t *testing.T) {
-	initTestDB(t)
-
-	id1, _ := InsertMemory("recent event", "episode")
-
-	oldTime := time.Now().Add(-30 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	_, _ = WithExec(
-		"UPDATE memories SET created_at=? WHERE id=?",
-		oldTime, id1,
-	)
-
-	results, err := SearchMemoryFTS("recent event", 10)
-	if err != nil {
-		t.Fatal(err)
+	if len(results) > 2 {
+		t.Fatalf("expected at most 2 results, got %d", len(results))
 	}
 	if len(results) == 0 {
 		t.Fatal("expected at least 1 result")
 	}
-
-	rec, _ := GetMemoryByID(id1)
-	ageDays := time.Since(rec.CreatedAt).Hours() / 24
-	if ageDays < 29 {
-		t.Fatalf("expected ~30 days old, got %.1f", ageDays)
+	if results[0].Id == 0 {
+		t.Fatal("expected non-zero id")
+	}
+	if results[0].Content == "" {
+		t.Fatal("expected non-empty content")
 	}
 }
 
-func TestUpdateMemoryEmbedding(t *testing.T) {
+func TestCountMemories(t *testing.T) {
 	initTestDB(t)
 
-	id, err := InsertMemory("test embedding", "fact")
+	InsertMemory("memory 1")
+	InsertMemory("memory 2")
+
+	count, err := CountMemories()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	vec := make([]float32, EmbeddingDim)
-	vec[0] = 1.0
-	serialized, err := sqlite_vec.SerializeFloat32(vec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UpdateMemoryEmbedding(id, serialized); err != nil {
-		t.Fatal(err)
-	}
-
-	rec, err := GetMemoryByID(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rec.Embedding) == 0 {
-		t.Fatal("expected embedding to be set")
-	}
-
-	count := 0
-	DB.db.QueryRow("SELECT COUNT(*) FROM memories_vec WHERE memory_id=?", id).Scan(&count)
-	if count != 1 {
-		t.Fatalf("expected 1 row in memories_vec, got %d", count)
-	}
-}
-
-func TestGetUnembeddedMemories(t *testing.T) {
-	initTestDB(t)
-
-	if count := GetUnembeddedMemoryCount(); count != 0 {
-		t.Fatalf("expected 0 unembedded, got %d", count)
-	}
-
-	InsertMemory("unembedded memory 1", "fact")
-	InsertMemory("unembedded memory 2", "episode")
-
-	if count := GetUnembeddedMemoryCount(); count != 2 {
-		t.Fatalf("expected 2 unembedded, got %d", count)
-	}
-
-	results, err := GetUnembeddedMemories(10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-
-	UpdateMemoryEmbedding(results[0].Id, makeSerializedVec(t))
-
-	if count := GetUnembeddedMemoryCount(); count != 1 {
-		t.Fatalf("expected 1 unembedded after update, got %d", count)
-	}
-}
-
-func TestSearchMemoryVector(t *testing.T) {
-	initTestDB(t)
-
-	InsertMemory("user likes coffee", "relation")
-	InsertMemory("python is great", "fact")
-
-	results, err := GetUnembeddedMemories(10)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	UpdateMemoryEmbedding(results[0].Id, makeSerializedVec(t))
-
-	queryVec := make([]float32, EmbeddingDim)
-	for i := range queryVec {
-		queryVec[i] = 0.01
-	}
-
-	vecResults, err := SearchMemoryVector(queryVec, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(vecResults) == 0 {
-		t.Fatal("expected at least 1 vector result")
-	}
-	if vecResults[0].Id != results[0].Id {
-		t.Fatalf("expected memory %d, got %d", results[0].Id, vecResults[0].Id)
+	if count < 2 {
+		t.Fatalf("expected at least 2 memories, got %d", count)
 	}
 }
