@@ -13,15 +13,15 @@ import (
 const mcpScannerBufSize = 1024 * 1024 // MCP JSON-RPC 扫描器缓冲区大小（1 MB）
 
 var toolDefs = []ToolDef{
-	{Name: "search", Description: "Hybrid search (BM25 + vector)"},
+	{Name: "search", Description: "Hybrid search (BM25 + vector) across all documents and memories"},
 	{Name: "search_lex", Description: "BM25 keyword search"},
 	{Name: "search_vector", Description: "Vector semantic search"},
 	{Name: "get", Description: "Retrieve document by path or docid"},
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},
-	{Name: "memory_add", Description: "Add agent memory"},
-	{Name: "memory_query", Description: "Query agent memories with hybrid search"},
-	{Name: "memory_delete", Description: "Delete an agent memory by id"},
+	{Name: "memory_add", Description: "Add a memory"},
+	{Name: "memory_delete", Description: "Delete a memory by id"},
+	{Name: "memory_update", Description: "Update a memory by id"},
 }
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)

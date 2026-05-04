@@ -174,22 +174,21 @@ func (my *Client) Rebuild() ([]byte, error) {
 	return my.Post("/rebuild", nil)
 }
 
-func (my *Client) MemoryAdd(content, memType string) ([]byte, error) {
+func (my *Client) MemoryAdd(content string) ([]byte, error) {
 	return my.Post("/memory/add", map[string]interface{}{
 		"content": content,
-		"type":    memType,
-	})
-}
-
-func (my *Client) MemoryQuery(query string, limit int) ([]byte, error) {
-	return my.Post("/memory/query", map[string]interface{}{
-		"query": query,
-		"limit": limit,
 	})
 }
 
 func (my *Client) MemoryDelete(id int64) ([]byte, error) {
 	return my.Post("/memory/delete", map[string]interface{}{
 		"id": id,
+	})
+}
+
+func (my *Client) MemoryUpdate(id int64, content string) ([]byte, error) {
+	return my.Post("/memory/update", map[string]interface{}{
+		"id":      id,
+		"content": content,
 	})
 }
