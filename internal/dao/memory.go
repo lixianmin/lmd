@@ -1,210 +1,112 @@
 package dao
 
 import (
+	"crypto/sha256"
 	"database/sql"
-	"math"
-	"strings"
+	"encoding/hex"
 	"time"
-
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/lixianmin/logo"
 )
 
+// MemoryRecord stores the document-level metadata for a memory entry
 type MemoryRecord struct {
-	Id        int64
-	Content   string
-	Type      string
-	Embedding []byte
-	Score     float64
-	CreatedAt time.Time
+	Id         int64
+	Content    string
+	Collection string
+	CreatedAt  time.Time
 }
 
-func InsertMemory(content, memType string) (int64, error) {
-	var id int64
+const memoryCollectionEpisodic = "@episodic"
+
+// sha256Hash returns SHA-256 hash of data as bytes
+func sha256Hash(data []byte) []byte {
+	h := sha256.Sum256(data)
+	return h[:]
+}
+
+// InsertMemory creates a document + single chunk for a memory.
+// Follows the same pattern as InsertChunks: inserts into documents, chunks, and chunks_fts
+// in a single transaction.
+func InsertMemory(content string) (int64, error) {
+	hash := hex.EncodeToString(sha256Hash([]byte(content)))
+	docid := "mem-" + hash[:12] // 使用 hash 前 12 位（48 bits）作为唯一标识
+	path := "/@memory/" + hash[:12]
+	title := content
+	if len([]rune(title)) > 80 { // 截取前 80 字符用于列表展示
+		title = string([]rune(title)[:80])
+	}
+
+	var docId int64
 	err := withTransaction(func(tx *sql.Tx) error {
-		res, err := tx.Exec("INSERT INTO memories (content, type) VALUES (?, ?)", content, memType)
+		res, err := tx.Exec(
+			"INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time) VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
+			docid, memoryCollectionEpisodic, path, title, content, hash,
+		)
 		if err != nil {
 			return err
 		}
-		id, _ = res.LastInsertId()
-		_, err = tx.Exec("INSERT INTO memories_fts (rowid, content) VALUES (?, ?)", id, content)
+		docId, _ = res.LastInsertId()
+
+		res, err = tx.Exec(
+			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)",
+			docId, content, hash,
+		)
+		if err != nil {
+			return err
+		}
+		chunkId, _ := res.LastInsertId()
+
+		// Explicit FTS insert — matched to InsertChunks pattern in chunks_vec.go:73
+		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, content)
 		return err
 	})
-	return id, err
+	return docId, err
 }
 
-func GetMemoryByID(id int64) (*MemoryRecord, error) {
+// GetMemoryByID fetches a memory record by document id
+func GetMemoryByID(docId int64) (*MemoryRecord, error) {
 	row := withQueryRow(
-		"SELECT id, content, type, embedding, created_at FROM memories WHERE id=?",
-		id,
+		"SELECT id, body, collection, created_at FROM documents WHERE id=?",
+		docId,
 	)
 	var rec MemoryRecord
-	var embedding []byte
-	if err := row.Scan(&rec.Id, &rec.Content, &rec.Type, &embedding, &rec.CreatedAt); err != nil {
+	if err := row.Scan(&rec.Id, &rec.Content, &rec.Collection, &rec.CreatedAt); err != nil {
 		return nil, err
 	}
-	rec.Embedding = embedding
 	return &rec, nil
 }
 
-func SearchMemoryFTS(tokenizedQuery string, limit int) ([]MemoryRecord, error) {
-	query := `
-		SELECT m.id, m.content, m.type, abs(f.rank) as raw_score, m.created_at
-		FROM memories_fts f
-		JOIN memories m ON m.id = f.rowid
-		WHERE f.content MATCH ?
-		ORDER BY rank LIMIT ?
-	`
-	rows, err := withQuery(query, tokenizedQuery, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []MemoryRecord
-	for rows.Next() {
-		var rec MemoryRecord
-		var rawScore float64
-		if err := rows.Scan(&rec.Id, &rec.Content, &rec.Type, &rawScore, &rec.CreatedAt); err != nil {
-			return nil, err
-		}
-		abs := math.Abs(rawScore)
-		rec.Score = abs / (1.0 + abs)
-		results = append(results, rec)
-	}
-	return results, rows.Err()
-}
-
-func SearchMemoryVector(q []float32, limit int) ([]MemoryRecord, error) {
-	blob, err := sqlite_vec.SerializeFloat32(q)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := withQuery(`
-		SELECT v.memory_id, v.distance
-		FROM memories_vec v
-		WHERE v.embedding MATCH ?
-		ORDER BY v.distance
-		LIMIT ?
-	`, blob, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []MemoryRecord
-	for rows.Next() {
-		var id int64
-		var distance float64
-		if err := rows.Scan(&id, &distance); err != nil {
-			return nil, err
-		}
-		score := 1.0 - distance
-		results = append(results, MemoryRecord{Id: id, Score: score})
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	if len(results) == 0 {
-		return results, nil
-	}
-
-	ids := make([]any, len(results))
-	placeholders := make([]string, len(results))
-	for i, r := range results {
-		ids[i] = r.Id
-		placeholders[i] = "?"
-	}
-	query := "SELECT id, content, type, created_at FROM memories WHERE id IN (" +
-		strings.Join(placeholders, ",") + ")"
-	contentRows, err := withQuery(query, ids...)
-	if err != nil {
-		return nil, err
-	}
-	defer contentRows.Close()
-
-	contentMap := make(map[int64]MemoryRecord)
-	for contentRows.Next() {
-		var rec MemoryRecord
-		if err := contentRows.Scan(&rec.Id, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
-			logo.Warn("SearchMemoryVector: scan content row failed: %s", err)
-			continue
-		}
-		contentMap[rec.Id] = rec
-	}
-
-	for i := range results {
-		if rec, ok := contentMap[results[i].Id]; ok {
-			results[i].Content = rec.Content
-			results[i].Type = rec.Type
-			results[i].CreatedAt = rec.CreatedAt
-		}
-	}
-
-	return results, nil
-}
-
-func UpdateMemoryEmbedding(id int64, vec []byte) error {
+// DeleteMemory deletes a memory and all associated chunks/vectors/fts entries.
+// Uses ON DELETE CASCADE: deleting from documents cascades to chunks,
+// but we manually clean chunks_vec and chunks_fts first.
+func DeleteMemory(docId int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
-		_, err := tx.Exec("UPDATE memories SET embedding=? WHERE id=?", vec, id)
+		chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", docId)
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec("INSERT OR REPLACE INTO memories_vec(memory_id, embedding) VALUES (?, ?)", id, vec)
-		return err
-	})
-}
 
-func GetUnembeddedMemoryCount() int {
-	if DB == nil || DB.db == nil {
-		return 0
-	}
-	var count int
-	if err := DB.db.QueryRow(`
-		SELECT COUNT(*) FROM memories m
-		LEFT JOIN memories_vec v ON m.id = v.memory_id
-		WHERE v.memory_id IS NULL
-	`).Scan(&count); err != nil {
-		logo.Error("GetUnembeddedMemoryCount: %s", err)
-	}
-	return count
-}
-
-func GetUnembeddedMemories(limit int) ([]MemoryRecord, error) {
-	rows, err := withQuery(`
-		SELECT m.id, m.content, m.type, m.created_at
-		FROM memories m
-		LEFT JOIN memories_vec v ON m.id = v.memory_id
-		WHERE v.memory_id IS NULL
-		LIMIT ?
-	`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []MemoryRecord
-	for rows.Next() {
-		var rec MemoryRecord
-		if err := rows.Scan(&rec.Id, &rec.Content, &rec.Type, &rec.CreatedAt); err != nil {
-			return nil, err
+		var chunkIds []int64
+		for chunkRows.Next() {
+			var cid int64
+			if err := chunkRows.Scan(&cid); err != nil {
+				chunkRows.Close()
+				return err
+			}
+			chunkIds = append(chunkIds, cid)
 		}
-		results = append(results, rec)
-	}
-	return results, rows.Err()
-}
+		chunkRows.Close()
 
-func DeleteMemory(id int64) error {
-	return withTransaction(func(tx *sql.Tx) error {
-		if _, err := tx.Exec("DELETE FROM memories_vec WHERE memory_id=?", id); err != nil {
-			return err
+		for _, cid := range chunkIds {
+			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec("DELETE FROM memories_fts WHERE rowid=?", id); err != nil {
-			return err
-		}
-		res, err := tx.Exec("DELETE FROM memories WHERE id=?", id)
+		tx.Exec("DELETE FROM chunks WHERE doc_id=?", docId)
+
+		res, err := tx.Exec("DELETE FROM documents WHERE id=?", docId)
 		if err != nil {
 			return err
 		}
@@ -214,4 +116,99 @@ func DeleteMemory(id int64) error {
 		}
 		return nil
 	})
+}
+
+// UpdateMemory updates a memory's content, replacing its chunk
+func UpdateMemory(docId int64, content string) error {
+	hash := hex.EncodeToString(sha256Hash([]byte(content)))
+	docid := "mem-" + hash[:12] // 使用 hash 前 12 位（48 bits）作为唯一标识
+	title := content
+	if len([]rune(title)) > 80 { // 截取前 80 字符用于列表展示
+		title = string([]rune(title)[:80])
+	}
+
+	return withTransaction(func(tx *sql.Tx) error {
+		// Delete old chunks
+		chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", docId)
+		if err != nil {
+			return err
+		}
+		var chunkIds []int64
+		for chunkRows.Next() {
+			var cid int64
+			if err := chunkRows.Scan(&cid); err != nil {
+				chunkRows.Close()
+				return err
+			}
+			chunkIds = append(chunkIds, cid)
+		}
+		chunkRows.Close()
+
+		for _, cid := range chunkIds {
+			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
+				return err
+			}
+		}
+		tx.Exec("DELETE FROM chunks WHERE doc_id=?", docId)
+
+		// Insert new chunk
+		res, err := tx.Exec(
+			"INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)",
+			docId, content, hash,
+		)
+		if err != nil {
+			return err
+		}
+		chunkId, _ := res.LastInsertId()
+
+		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, content)
+		if err != nil {
+			return err
+		}
+
+		// Update document
+		_, err = tx.Exec(
+			"UPDATE documents SET docid=?, body=?, hash=?, title=?, updated_at=DATETIME('now', '+8 hours') WHERE id=?",
+			docid, content, hash, title, docId,
+		)
+		return err
+	})
+}
+
+// ListMemories returns memories ordered by creation time descending
+func ListMemories(limit int) ([]MemoryRecord, error) {
+	query := "SELECT id, body, collection, created_at FROM documents WHERE collection = ? ORDER BY created_at DESC"
+	args := []any{memoryCollectionEpisodic}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := withQuery(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []MemoryRecord
+	for rows.Next() {
+		var rec MemoryRecord
+		if err := rows.Scan(&rec.Id, &rec.Content, &rec.Collection, &rec.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, rec)
+	}
+	return results, rows.Err()
+}
+
+// CountMemories returns the total number of memory documents
+func CountMemories() (int, error) {
+	var count int
+	err := withQueryRow(
+		"SELECT COUNT(*) FROM documents WHERE collection = ?",
+		memoryCollectionEpisodic,
+	).Scan(&count)
+	return count, err
 }
