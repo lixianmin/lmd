@@ -1,10 +1,8 @@
 package service
 
 import (
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lixianmin/lmd/internal/dao"
 )
@@ -24,9 +22,9 @@ func initMemoryTestDB(t *testing.T) {
 
 func TestMemoryAdd(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
+	svc := NewMemoryService()
 
-	id, err := svc.Add("user prefers dark mode", "fact")
+	id, err := svc.Add("user prefers dark mode")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,169 +33,42 @@ func TestMemoryAdd(t *testing.T) {
 	}
 }
 
-func TestMemoryQueryNoDecay(t *testing.T) {
+func TestMemoryAddEmptyContent(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
+	svc := NewMemoryService()
 
-	svc.Add("user prefers dark mode", "fact")
-	svc.Add("light theme is default", "fact")
-
-	results, err := svc.Query("dark", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 result")
-	}
-	if results[0].Score <= 0 {
-		t.Fatalf("expected positive score, got %f", results[0].Score)
-	}
-	if results[0].Type != "fact" {
-		t.Fatalf("expected type fact, got %s", results[0].Type)
-	}
-}
-
-func TestMemoryQueryFactNoDecay(t *testing.T) {
-	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
-
-	id, _ := svc.Add("important fact here", "fact")
-	oldTime := time.Now().Add(-365 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
-
-	results, err := svc.Query("important fact", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 result")
-	}
-	if results[0].Score <= 0 {
-		t.Fatalf("fact should have no decay, got score %f", results[0].Score)
-	}
-}
-
-func TestMemoryQueryEpisodeDecay(t *testing.T) {
-	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
-
-	id, _ := svc.Add("episode event happened", "episode")
-	oldTime := time.Now().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
-
-	results, err := svc.Query("episode event", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 result")
-	}
-
-	rec, _ := dao.GetMemoryByID(id)
-	ageDays := time.Since(rec.CreatedAt).Hours() / 24
-	expectedDecay := 0.5
-	approx := results[0].Score / results[0].RawScore
-	if approx < expectedDecay-0.1 || approx > expectedDecay+0.1 {
-		t.Fatalf("expected decay factor ~0.5 for 15-day episode, got %.3f (age=%.1f days)", approx, ageDays)
-	}
-}
-
-func TestMemoryQueryRelationRecencyBoost(t *testing.T) {
-	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
-
-	id, _ := svc.Add("user likes coffee", "relation")
-	oldTime := time.Now().Add(-365 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
-
-	results, err := svc.Query("coffee", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) == 0 {
-		t.Fatal("relation should never be forgotten")
-	}
-
-	approx := results[0].Score / results[0].RawScore
-	if approx < relationRecencyBase-0.05 {
-		t.Fatalf("1-year-old relation should have recencyBoost >= %.2f, got %.3f", relationRecencyBase, approx)
-	}
-}
-
-func TestMemoryQueryHardForget(t *testing.T) {
-	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
-
-	id, _ := svc.Add("old episode", "episode")
-	oldTime := time.Now().Add(-100 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	dao.WithExec("UPDATE memories SET created_at=? WHERE id=?", oldTime, id)
-
-	results, err := svc.Query("old episode", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range results {
-		if r.ID == id {
-			t.Fatal("100-day-old episode should be forgotten (hard forget)")
-		}
-	}
-}
-
-func TestMemoryAddInvalidType(t *testing.T) {
-	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
-
-	_, err := svc.Add("test", "invalid")
+	_, err := svc.Add("")
 	if err == nil {
-		t.Fatal("expected error for invalid type")
+		t.Fatal("expected error for empty content")
 	}
-	if !strings.Contains(err.Error(), "invalid memory type") {
+	if !strings.Contains(err.Error(), "content is required") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestTimePenalty(t *testing.T) {
-	tests := []struct {
-		memType string
-		ageDays float64
-		want    float64
-		delta   float64
-	}{
-		{"fact", 365, 1.0, 0},
-		{"fact", 0, 1.0, 0},
-		{"episode", 15, 0.5, 0.01},
-		{"episode", 30, 0.25, 0.01},
-		{"episode", 0, 1.0, 0.01},
-		{"relation", 0, 1.0, 0.01},
-		{"relation", 365, 0.85, 0.02},
-		{"relation", 3650, 0.7, 0.02},
-	}
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%s/%.0fd", tt.memType, tt.ageDays), func(t *testing.T) {
-			got := timePenalty(tt.memType, tt.ageDays)
-			if got < tt.want-tt.delta || got > tt.want+tt.delta {
-				t.Fatalf("timePenalty(%s, %.0f) = %.4f, want %.4f±%.4f", tt.memType, tt.ageDays, got, tt.want, tt.delta)
-			}
-		})
 	}
 }
 
 func TestMemoryDelete(t *testing.T) {
 	initMemoryTestDB(t)
-	svc := NewMemoryService(nil, nil)
+	svc := NewMemoryService()
 
-	id, _ := svc.Add("to be deleted", "fact")
+	id, _ := svc.Add("to be deleted")
 
-	results, _ := svc.Query("to be deleted", 10)
-	if len(results) == 0 {
+	results, _ := svc.List(10)
+	found := false
+	for _, r := range results {
+		if r.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Fatal("memory should exist before delete")
 	}
 
-	if err := dao.DeleteMemory(id); err != nil {
-		t.Fatalf("DeleteMemory failed: %v", err)
+	if err := svc.Delete(id); err != nil {
+		t.Fatalf("Delete failed: %v", err)
 	}
 
-	results, _ = svc.Query("to be deleted", 10)
+	results, _ = svc.List(10)
 	for _, r := range results {
 		if r.ID == id {
 			t.Fatal("memory should not appear after delete")
@@ -211,5 +82,66 @@ func TestMemoryDeleteNotFound(t *testing.T) {
 	err := dao.DeleteMemory(99999)
 	if err == nil {
 		t.Fatal("expected error for nonexistent memory")
+	}
+}
+
+func TestMemoryUpdate(t *testing.T) {
+	initMemoryTestDB(t)
+	svc := NewMemoryService()
+
+	id, _ := svc.Add("original content")
+
+	if err := svc.Update(id, "updated content"); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	rec, _ := dao.GetMemoryByID(id)
+	if rec == nil {
+		t.Fatal("memory should exist after update")
+	}
+	if rec.Content != "updated content" {
+		t.Fatalf("expected 'updated content', got %q", rec.Content)
+	}
+}
+
+func TestMemoryUpdateEmptyContent(t *testing.T) {
+	initMemoryTestDB(t)
+	svc := NewMemoryService()
+
+	err := svc.Update(1, "")
+	if err == nil {
+		t.Fatal("expected error for empty content")
+	}
+	if !strings.Contains(err.Error(), "content is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMemoryList(t *testing.T) {
+	initMemoryTestDB(t)
+	svc := NewMemoryService()
+
+	svc.Add("first memory")
+	svc.Add("second memory")
+	svc.Add("third memory")
+
+	results, err := svc.List(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) > 2 {
+		t.Fatalf("expected at most 2 results, got %d", len(results))
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+	if results[0].ID <= 0 {
+		t.Fatalf("expected positive id, got %d", results[0].ID)
+	}
+	if results[0].Content == "" {
+		t.Fatal("expected non-empty content")
+	}
+	if results[0].CreatedAt == "" {
+		t.Fatal("expected non-empty created_at")
 	}
 }

@@ -103,7 +103,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
-	my.memSvc = service.NewMemoryService(tok, my.provider)
+	my.memSvc = service.NewMemoryService()
 
 	my.hydeClient = service.NewHyDEAPIClient(
 		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,

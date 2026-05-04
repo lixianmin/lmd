@@ -20,10 +20,9 @@ import (
 )
 
 const (
-	defaultSearchLimit      = 5    // 搜索默认返回条数
-	defaultMemoryQueryLimit = 10   // Memory 查询默认返回条数
-	defaultVectorMinScore   = 0.3  // 向量搜索最低分数阈值
-	overfetchMultiplier     = 3    // 混合搜索 pre-fusion 超取倍数
+	defaultSearchLimit    = 5   // 搜索默认返回条数
+	defaultVectorMinScore = 0.3 // 向量搜索最低分数阈值
+	overfetchMultiplier   = 3   // 混合搜索 pre-fusion 超取倍数
 	docPreviewMaxRunes      = 500  // 文档预览最大 rune 数
 	maxOverfetchLimit       = 1000 // overfetch 上限，防止 int 溢出
 )
@@ -542,7 +541,6 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 func (my *Daemon) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Content string `json:"content"`
-		Type    string `json:"type"`
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -559,57 +557,26 @@ func (my *Daemon) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Type == "" {
-		req.Type = "episode"
-	}
-
-	id, err := my.memSvc.Add(req.Content, req.Type)
+	id, err := my.memSvc.Add(req.Content)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	rec, _ := dao.GetMemoryByID(id)
+	collection := ""
 	createdAt := ""
 	if rec != nil {
+		collection = rec.Collection
 		createdAt = rec.CreatedAt.Format("2006-01-02 15:04:05")
 	}
 
-	logo.Info("handleMemoryAdd: id=%d type=%s", id, req.Type)
+	logo.Info("handleMemoryAdd: id=%d", id)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":         id,
-		"type":       req.Type,
+		"collection": collection,
 		"created_at": createdAt,
 	})
-}
-
-func (my *Daemon) handleMemoryQuery(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := convert.FromJsonE(body, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if req.Limit <= 0 {
-		req.Limit = defaultMemoryQueryLimit
-	}
-
-	results, err := my.memSvc.Query(req.Query, req.Limit)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	logo.Info("handleMemoryQuery: query=%q results=%d", req.Query, len(results))
-	writeJSON(w, http.StatusOK, results)
 }
 
 func (my *Daemon) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
@@ -815,7 +782,6 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 	case "memory_add":
 		var req struct {
 			Content string `json:"content"`
-			Type    string `json:"type"`
 		}
 		if err := convert.FromJsonE(params, &req); err != nil {
 			return nil, err
@@ -823,27 +789,11 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		if req.Content == "" {
 			return nil, fmt.Errorf("content is required")
 		}
-		if req.Type == "" {
-			req.Type = "episode"
-		}
-		id, err := my.memSvc.Add(req.Content, req.Type)
+		id, err := my.memSvc.Add(req.Content)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]interface{}{"id": id, "type": req.Type}, nil
-
-	case "memory_query":
-		var req struct {
-			Query string `json:"query"`
-			Limit int    `json:"limit"`
-		}
-		if err := convert.FromJsonE(params, &req); err != nil {
-			return nil, err
-		}
-		if req.Limit <= 0 {
-			req.Limit = defaultMemoryQueryLimit
-		}
-		return my.memSvc.Query(req.Query, req.Limit)
+		return map[string]interface{}{"id": id}, nil
 
 	case "memory_delete":
 		var req struct {
