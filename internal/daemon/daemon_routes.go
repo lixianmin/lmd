@@ -32,6 +32,22 @@ func safeOverfetch(limit int) int {
 	return fetch
 }
 
+func filterAndLimit(hits []formatter.SearchHit, minScore float64, limit int) []formatter.SearchHit {
+	if minScore > 0 {
+		var filtered []formatter.SearchHit
+		for _, h := range hits {
+			if h.Score >= minScore {
+				filtered = append(filtered, h)
+			}
+		}
+		hits = filtered
+	}
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits
+}
+
 func (my *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -137,20 +153,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := service.FuseResults(lexHits, vecHits)
-
-	if req.MinScore > 0 {
-		var filtered []formatter.SearchHit
-		for _, h := range results {
-			if h.Score >= req.MinScore {
-				filtered = append(filtered, h)
-			}
-		}
-		results = filtered
-	}
-
-	if req.Limit > 0 && len(results) > req.Limit {
-		results = results[:req.Limit]
-	}
+	results = filterAndLimit(results, req.MinScore, req.Limit)
 
 	logo.Info("handleQuery: query=%q collection=%s lex=%d vec=%d results=%d",
 		req.Query, req.Collection, len(lexHits), len(vecHits), len(results))
@@ -224,21 +227,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	resp["hyde_hits"] = len(hydeHits)
 	logo.Info("handleHyde: hyde_hits=%d", len(hydeHits))
 
-	results := hydeHits
-	if req.MinScore > 0 {
-		var filtered []formatter.SearchHit
-		for _, h := range results {
-			if h.Score >= req.MinScore {
-				filtered = append(filtered, h)
-			}
-		}
-		results = filtered
-	}
-	if req.Limit > 0 && len(results) > req.Limit {
-		results = results[:req.Limit]
-	}
-
-	resp["hits"] = results
+	resp["hits"] = filterAndLimit(hydeHits, req.MinScore, req.Limit)
 	writeJSON(w, http.StatusOK, resp)
 }
 
