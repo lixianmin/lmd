@@ -699,24 +699,6 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 
 func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (interface{}, error) {
 	switch toolName {
-	case "search_lex":
-		var req struct {
-			Query      string `json:"query"`
-			Collection string `json:"collection"`
-			Limit      int    `json:"limit"`
-		}
-		if err := convert.FromJsonE(params, &req); err != nil {
-			return nil, err
-		}
-		if req.Limit <= 0 {
-			req.Limit = defaultSearchLimit
-		}
-		hits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, 0)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]interface{}{"hits": hits}, nil
-
 	case "search":
 		var req struct {
 			Query      string  `json:"query"`
@@ -774,7 +756,7 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		}
 		return map[string]interface{}{"hits": results}, nil
 
-	case "search_vector":
+	case "vsearch":
 		var req struct {
 			Query      string  `json:"query"`
 			Collection string  `json:"collection"`
