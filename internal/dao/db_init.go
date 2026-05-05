@@ -236,6 +236,8 @@ func createTables() error {
 		}
 	}
 
+	// Recreate index as UNIQUE — old installations may have a non-unique version of this index
+	DB.db.Exec("DROP INDEX IF EXISTS idx_documents_collection_path")
 	_, _ = DB.db.Exec("ALTER TABLE documents ADD COLUMN file_mod_time INTEGER DEFAULT 0")
 	return nil
 }
