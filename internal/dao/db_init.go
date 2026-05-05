@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -151,6 +152,9 @@ func migrateMemories() error {
 }
 
 func withTransaction(fn func(tx *sql.Tx) error) error {
+	if DB == nil || DB.db == nil {
+		return fmt.Errorf("database not initialized or already closed")
+	}
 	tx, err := DB.db.Begin()
 	if err != nil {
 		return err

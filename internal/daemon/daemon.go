@@ -49,6 +49,7 @@ type Daemon struct {
 	rebuildMu  sync.RWMutex
 	stopOnce   sync.Once
 	stopCh     chan struct{}
+	goLoopWg   sync.WaitGroup
 
 	tokenizer  tokenizer.Tokenizer
 	indexer    *service.Indexer
@@ -125,6 +126,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	})
 	logo.Info("daemon: listening on %s", addr)
 	my.touchActivity()
+	my.goLoopWg.Add(1)
 	loom.Go(my.goLoop)
 
 	sigCh := make(chan os.Signal, 1)
@@ -161,6 +163,7 @@ func (my *Daemon) Stop() error {
 		my.wc.Close(func() error {
 			return nil
 		})
+		my.goLoopWg.Wait()
 
 		if dao.DB != nil {
 			store := dao.DB
@@ -183,6 +186,8 @@ func (my *Daemon) touchActivity() {
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
+	defer my.goLoopWg.Done()
+
 	var syncIndexTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
 	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
