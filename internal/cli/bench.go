@@ -62,7 +62,7 @@ func benchLongMemEval(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("tokenizer: %w", err)
 	}
 	embedModel := filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "models", "Qwen3-Embedding-0.6B-Q8_0.gguf")
-	provider := embedding.NewLlamaProvider(embedModel, 0, 4, 1)
+	provider := embedding.NewLlamaProvider(embedModel, 99, 4, 8)
 
 	modes := []string{mode}
 	if mode == "all" {
@@ -312,7 +312,19 @@ func benchVectorSearch(provider *embedding.LlamaProvider, question string, conte
 	if len(contents) == 0 || provider == nil {
 		return nil
 	}
-	vecs, err := provider.EmbedBatch(context.Background(), append([]string{question}, contents...))
+	// Truncate each session text to avoid batch overflow (llama batch=4096)
+	truncated := make([]string, 0, len(contents))
+	for _, c := range contents {
+		runes := []rune(c)
+		if len(runes) > 500 {
+			c = string(runes[:500])
+		}
+		truncated = append(truncated, c)
+	}
+	allTexts := append([]string{question}, truncated...)
+	fmt.Fprintf(os.Stderr, "\r[bench] embedding %d texts...", len(allTexts))
+	vecs, err := provider.EmbedBatch(context.Background(), allTexts)
+	fmt.Fprintf(os.Stderr, " done (err=%v, len=%d)\n", err, len(vecs))
 	if err != nil || len(vecs) < 2 {
 		return nil
 	}
