@@ -51,7 +51,7 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 
 	var records []ChunkRecord
 	err := withTransaction(func(tx *sql.Tx) error {
-		stmt, err := tx.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
+		stmt, err := tx.Prepare("INSERT OR IGNORE INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, ?, ?, ?, ?, ?)")
 		if err != nil {
 			return err
 		}
@@ -67,6 +67,11 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 			res, err := stmt.Exec(docId, i, c.Content, c.Position, c.TokenCount, c.Hash)
 			if err != nil {
 				return err
+			}
+			// INSERT OR IGNORE 跳过冲突行时 RowsAffected = 0
+			rows, _ := res.RowsAffected()
+			if rows == 0 {
+				continue
 			}
 			id, _ := res.LastInsertId()
 

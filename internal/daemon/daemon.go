@@ -217,8 +217,8 @@ func (my *Daemon) goLoop(later loom.Later) {
 }
 
 func (my *Daemon) syncIndex() {
-	my.rebuildMu.Lock()
-	defer my.rebuildMu.Unlock()
+	my.rebuildMu.RLock()
+	defer my.rebuildMu.RUnlock()
 	my.syncIndexUnlocked()
 }
 
@@ -232,10 +232,7 @@ func (my *Daemon) syncIndexUnlocked() {
 		if strings.HasPrefix(col.Name, "@") {
 			continue // 系统 collection，由 memory 接口管理，不参与文件同步
 		}
-		// Release lock during per-collection indexing to avoid blocking HTTP handlers
-		my.rebuildMu.Unlock()
 		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		my.rebuildMu.Lock()
 		if err != nil {
 			logo.Error("indexPoller: %s failed: %s", col.Name, err)
 			continue
@@ -250,9 +247,6 @@ func (my *Daemon) embedChunks() {
 	if dao.GetUnembeddedCount() == 0 {
 		return
 	}
-	my.rebuildMu.Lock()
-	defer my.rebuildMu.Unlock()
-
 	count := dao.GetUnembeddedCount()
 	if count == 0 {
 		return

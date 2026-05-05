@@ -289,3 +289,38 @@ func TestGetEmbeddingsByChunkIdsEmpty(t *testing.T) {
 		t.Fatalf("expected 0 results for empty input, got %d", len(results))
 	}
 }
+
+func TestInsertChunksIgnoreDuplicate(t *testing.T) {
+	initTestDB(t)
+
+	chunks := []ChunkData{
+		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "h1"},
+		{Content: "chunk two", Position: 1, TokenCount: 2, Hash: "h2"},
+	}
+	doc, records1 := mustInsertDocWithChunks(t, "notes", "dup.md", chunks)
+
+	if len(records1) != 2 {
+		t.Fatalf("first insert: expected 2 records, got %d", len(records1))
+	}
+
+	var tokenized []string
+	for _, c := range chunks {
+		tokenized = append(tokenized, c.Content)
+	}
+	records2, err := InsertChunks(doc.Id, chunks, tokenized)
+	if err != nil {
+		t.Fatalf("InsertChunks on duplicate should not error: %v", err)
+	}
+	// INSERT OR IGNORE 跳过冲突行，返回的 records 不应包含跳过的行
+	if len(records2) != 0 {
+		t.Fatalf("duplicate insert: expected 0 records (all ignored), got %d", len(records2))
+	}
+
+	got, err := GetChunksByDocId(doc.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected still 2 chunks after duplicate insert, got %d", len(got))
+	}
+}
