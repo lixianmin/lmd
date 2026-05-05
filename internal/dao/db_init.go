@@ -184,6 +184,9 @@ func withQueryRow(query string, args ...any) *sql.Row {
 }
 
 func createTables() error {
+	// Recreate index as UNIQUE — old installations may have a non-unique version of this index
+	DB.db.Exec("DROP INDEX IF EXISTS idx_documents_collection_path")
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS collections (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,7 +208,8 @@ func createTables() error {
 			file_size   INTEGER,
 			modified_at DATETIME,
 			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
-			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
+			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
+			file_mod_time INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS chunks (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,8 +240,6 @@ func createTables() error {
 		}
 	}
 
-	// Recreate index as UNIQUE — old installations may have a non-unique version of this index
-	DB.db.Exec("DROP INDEX IF EXISTS idx_documents_collection_path")
 	_, _ = DB.db.Exec("ALTER TABLE documents ADD COLUMN file_mod_time INTEGER DEFAULT 0")
 	return nil
 }
