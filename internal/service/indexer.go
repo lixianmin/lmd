@@ -299,8 +299,8 @@ func newIgnoreMatcher(patterns []string) ignoreMatcher {
 	return ignoreMatcher{patterns: patterns}
 }
 
-func (m ignoreMatcher) matchDir(path string) bool {
-	for _, p := range m.patterns {
+func (my ignoreMatcher) matchDir(path string) bool {
+	for _, p := range my.patterns {
 		if filepath.Base(path) == p {
 			return true
 		}
@@ -308,9 +308,9 @@ func (m ignoreMatcher) matchDir(path string) bool {
 	return false
 }
 
-func (m ignoreMatcher) matchFile(path string) bool {
+func (my ignoreMatcher) matchFile(path string) bool {
 	name := filepath.Base(path)
-	for _, p := range m.patterns {
+	for _, p := range my.patterns {
 		if matched, _ := filepath.Match(p, name); matched {
 			return true
 		}

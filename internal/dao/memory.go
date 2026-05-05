@@ -95,6 +95,9 @@ func DeleteMemory(docId int64) error {
 			chunkIds = append(chunkIds, cid)
 		}
 		chunkRows.Close()
+		if err := chunkRows.Err(); err != nil {
+			return err
+		}
 
 		for _, cid := range chunkIds {
 			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
@@ -143,6 +146,9 @@ func UpdateMemory(docId int64, content string) error {
 			chunkIds = append(chunkIds, cid)
 		}
 		chunkRows.Close()
+		if err := chunkRows.Err(); err != nil {
+			return err
+		}
 
 		for _, cid := range chunkIds {
 			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {

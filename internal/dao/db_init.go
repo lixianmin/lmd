@@ -1,15 +1,12 @@
 package dao
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/lixianmin/logo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -38,9 +35,6 @@ func Init(dbPath string) error {
 	if err := createTables(); err != nil {
 		return err
 	}
-	if err := migrateMemories(); err != nil {
-		return err
-	}
 	return prepareFTSStatements()
 }
 
@@ -48,106 +42,6 @@ func (my *Store) Close() error {
 	if my.db != nil {
 		return my.db.Close()
 	}
-	return nil
-}
-
-func migrateMemories() error {
-	var tableCount int
-	err := DB.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories'").Scan(&tableCount)
-	if err != nil {
-		return err
-	}
-	if tableCount == 0 {
-		return nil
-	}
-
-	rows, err := withQuery("SELECT id, content, type FROM memories")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	type memRow struct {
-		content string
-		mType   string
-	}
-	var mems []memRow
-	for rows.Next() {
-		var m memRow
-		if err := rows.Scan(new(int64), &m.content, &m.mType); err != nil {
-			return err
-		}
-		mems = append(mems, m)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	if len(mems) > 0 {
-		err = withTransaction(func(tx *sql.Tx) error {
-			docStmt, err := tx.Prepare(`INSERT OR IGNORE INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time) VALUES (?, ?, ?, ?, ?, ?, 0, 0)`)
-			if err != nil {
-				return err
-			}
-			defer docStmt.Close()
-
-			chunkStmt, err := tx.Prepare("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)")
-			if err != nil {
-				return err
-			}
-			defer chunkStmt.Close()
-
-			for _, m := range mems {
-				contentHash := sha256.Sum256([]byte(m.content))
-				hashStr := hex.EncodeToString(contentHash[:])
-				// 使用 hash 前 12 位（48 bits）作为唯一标识，冲突概率极低
-				shortHash := hashStr[:12]
-
-				collection := "@knowledge"
-				if m.mType == "episode" {
-					collection = "@episodic"
-				}
-
-				docid := "mem-" + shortHash
-				path := "/@memory/" + shortHash
-			title := m.content
-			// 标题截取前 80 个字符，用于列表展示
-			runes := []rune(title)
-			if len(runes) > 80 {
-				title = string(runes[:80])
-			}
-
-				res, err := docStmt.Exec(docid, collection, path, title, m.content, hashStr)
-				if err != nil {
-					return err
-				}
-				docId, _ := res.LastInsertId()
-				if docId == 0 {
-					continue
-				}
-
-			chunkRes, err := chunkStmt.Exec(docId, m.content, hashStr)
-			if err != nil {
-				return err
-			}
-			chunkId, _ := chunkRes.LastInsertId()
-			if _, err := tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, m.content); err != nil {
-				return err
-			}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, tbl := range []string{"memories_vec", "memories_fts", "memories"} {
-		if _, err := DB.db.Exec("DROP TABLE IF EXISTS " + tbl); err != nil {
-			logo.Warn("drop %s: %v", tbl, err)
-		}
-	}
-	logo.Info("migrated %d memories to documents+chunks", len(mems))
 	return nil
 }
 

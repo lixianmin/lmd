@@ -131,6 +131,9 @@ func DeleteDocument(id int64) error {
 			chunkIds = append(chunkIds, cid)
 		}
 		chunkRows.Close()
+		if err := chunkRows.Err(); err != nil {
+			return err
+		}
 
 		for _, cid := range chunkIds {
 			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {

@@ -150,6 +150,9 @@ func DeleteVectorsByDocId(docId int64) error {
 			}
 			chunkIds = append(chunkIds, chunkId)
 		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
 
 		if len(chunkIds) > 0 {
 			delVecStmt, err := tx.Prepare("DELETE FROM chunks_vec WHERE chunk_id=?")

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/lixianmin/logo"
 )
 
 type CollectionRecord struct {
@@ -59,6 +61,9 @@ func RemoveCollection(name string) error {
 			docIds = append(docIds, id)
 		}
 		docRows.Close()
+		if err := docRows.Err(); err != nil {
+			return err
+		}
 
 		if len(docIds) > 0 {
 			if err := removeChunksByDocIds(tx, docIds); err != nil {
@@ -79,15 +84,18 @@ func removeChunksByDocIds(tx *sql.Tx, docIds []int64) error {
 		return err
 	}
 	var chunkIds []int64
-	for chunkRows.Next() {
-		var id int64
-		if err := chunkRows.Scan(&id); err != nil {
-			chunkRows.Close()
+		for chunkRows.Next() {
+			var id int64
+			if err := chunkRows.Scan(&id); err != nil {
+				chunkRows.Close()
+				return err
+			}
+			chunkIds = append(chunkIds, id)
+		}
+		chunkRows.Close()
+		if err := chunkRows.Err(); err != nil {
 			return err
 		}
-		chunkIds = append(chunkIds, id)
-	}
-	chunkRows.Close()
 
 	if len(chunkIds) > 0 {
 		if err := execInQuery(tx, "DELETE FROM chunks_vec WHERE chunk_id IN (", chunkIds); err != nil {
@@ -168,6 +176,7 @@ func ListCollections() ([]CollectionRecord, error) {
 		var name string
 		var docCount int
 		if err := sysRows.Scan(&name, &docCount); err != nil {
+			logo.Error("ListCollections: scan @-collection row failed: %s", err)
 			continue
 		}
 		exists := false
@@ -186,7 +195,13 @@ func ListCollections() ([]CollectionRecord, error) {
 		}
 	}
 
-	return cols, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := sysRows.Err(); err != nil {
+		logo.Error("ListCollections: sysRows iteration error: %s", err)
+	}
+	return cols, nil
 }
 
 func RenameCollection(oldName, newName string) error {
