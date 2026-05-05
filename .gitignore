@@ -2,3 +2,5 @@ lmd
 vendor/
 coverage.out
 .DS_Store
+benchmarks/longmemeval/
+logs/*.log
