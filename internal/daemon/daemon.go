@@ -50,6 +50,8 @@ type Daemon struct {
 	stopOnce   sync.Once
 	stopCh     chan struct{}
 	goLoopWg   sync.WaitGroup
+	etaStartAt atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
+	etaStartNum atomic.Int64 // ETA 基准已嵌入数 (启动时记录)
 
 	tokenizer  tokenizer.Tokenizer
 	indexer    *service.Indexer
@@ -128,6 +130,11 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.touchActivity()
 	my.goLoopWg.Add(1)
 	loom.Go(my.goLoop)
+
+	// ETA baseline: record embedded count at startup for average speed calculation
+	_, embedded := dao.GetChunkCounts()
+	my.etaStartAt.Store(time.Now().UnixNano())
+	my.etaStartNum.Store(int64(embedded))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

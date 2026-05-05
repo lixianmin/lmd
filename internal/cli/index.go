@@ -30,11 +30,13 @@ var statusCmd = &cobra.Command{
 			Chunks      int    `json:"chunks"`
 			Embedded    int    `json:"embedded"`
 			Pending     int    `json:"pending"`
+			ETA         string `json:"eta"`
 			Collections []struct {
-				Name     string `json:"name"`
-				Path     string `json:"path"`
-				Glob     string `json:"glob"`
-				DocCount int    `json:"doc_count"`
+				Name       string `json:"name"`
+				Path       string `json:"path"`
+				Glob       string `json:"glob"`
+				DocCount   int    `json:"doc_count"`
+				ChunkCount int    `json:"chunk_count"`
 			} `json:"collections"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
@@ -47,11 +49,14 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("Chunks:     %d\n", resp.Chunks)
 		fmt.Printf("Embedded:   %d\n", resp.Embedded)
 		fmt.Printf("Pending:    %d\n", resp.Pending)
+		if resp.Pending > 0 && resp.ETA != "" {
+			fmt.Printf("ETA:        %s\n", resp.ETA)
+		}
 		if len(resp.Collections) > 0 {
 			fmt.Println()
-fmt.Printf("%-15s %8s %s\n", "COLLECTION", "DOCS", "PATH")
-		for _, c := range resp.Collections {
-			fmt.Printf("%-15s %8d %s\n", c.Name, c.DocCount, c.Path)
+			fmt.Printf("%-15s %8s %8s %s\n", "COLLECTION", "DOCS", "CHUNKS", "PATH")
+			for _, c := range resp.Collections {
+				fmt.Printf("%-15s %8d %8d %s\n", c.Name, c.DocCount, c.ChunkCount, c.Path)
 			}
 		}
 		return nil

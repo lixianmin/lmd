@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -309,6 +310,8 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chunkCounts := dao.GetChunkCountsByCollection()
+
 	totalDocs := 0
 	collections := make([]map[string]interface{}, len(cols))
 	for i, c := range cols {
@@ -317,6 +320,7 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"path":       c.Path,
 			"glob":       c.GlobPattern,
 			"doc_count":  c.DocCount,
+			"chunk_count": chunkCounts[c.Name],
 			"ignore":     c.IgnorePatterns,
 			"created_at": c.CreatedAt,
 		}
@@ -324,15 +328,53 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunkCount, embedCount := dao.GetChunkCounts()
+	pending := chunkCount - embedCount
+
+	var eta string
+	if pending > 0 {
+		startNum := my.etaStartNum.Load()
+		startAt := my.etaStartAt.Load()
+		if startAt > 0 {
+			delta := int64(embedCount) - startNum
+			elapsed := time.Since(time.Unix(0, startAt)).Seconds()
+			if elapsed > 0 && delta > 0 {
+				speed := float64(delta) / elapsed
+				eta = formatETA(time.Duration(float64(pending)/speed) * time.Second)
+			}
+		}
+	}
+	if eta == "" {
+		eta = "calculating..."
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"database":    my.cfg.Database.Path,
 		"documents":   totalDocs,
 		"chunks":      chunkCount,
 		"embedded":    embedCount,
-		"pending":     chunkCount - embedCount,
+		"pending":     pending,
+		"eta":         eta,
 		"collections": collections,
 	})
+}
+
+func formatETA(d time.Duration) string {
+	if d <= 0 {
+		return "<1s"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	// 超过 1 小时只显示 h 和 m
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if m > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	return fmt.Sprintf("%dh", h)
 }
 
 func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {

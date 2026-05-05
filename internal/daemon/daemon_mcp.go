@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/dao"
@@ -17,24 +18,47 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	chunkCounts := dao.GetChunkCountsByCollection()
+
 	totalDocs := 0
 	type colStat struct {
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-		Glob     string `json:"glob"`
-		DocCount int    `json:"doc_count"`
+		Name       string `json:"name"`
+		Path       string `json:"path"`
+		Glob       string `json:"glob"`
+		DocCount   int    `json:"doc_count"`
+		ChunkCount int    `json:"chunk_count"`
 	}
 	stats := make([]colStat, len(cols))
 	for i, c := range cols {
-		stats[i] = colStat{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount}
+		stats[i] = colStat{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount, ChunkCount: chunkCounts[c.Name]}
 		totalDocs += c.DocCount
 	}
 	chunkCount, embedCount := dao.GetChunkCounts()
+	pending := chunkCount - embedCount
+
+	var eta string
+	if pending > 0 {
+		startNum := my.etaStartNum.Load()
+		startAt := my.etaStartAt.Load()
+		if startAt > 0 {
+			delta := int64(embedCount) - startNum
+			elapsed := time.Since(time.Unix(0, startAt)).Seconds()
+			if elapsed > 0 && delta > 0 {
+				speed := float64(delta) / elapsed
+				eta = formatETA(time.Duration(float64(pending)/speed) * time.Second)
+			}
+		}
+	}
+	if eta == "" {
+		eta = "calculating..."
+	}
+
 	return map[string]interface{}{
 		"documents":   totalDocs,
 		"chunks":      chunkCount,
 		"embedded":    embedCount,
-		"pending":     chunkCount - embedCount,
+		"pending":     pending,
+		"eta":         eta,
 		"collections": stats,
 	}, nil
 }
