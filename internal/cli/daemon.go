@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	stopMaxRetries   = 20                     // 停止 daemon 时最大重试次数
-	stopPollInterval = 500 * time.Millisecond // 停止 daemon 时轮询间隔
+	stopMaxRetries   = 30                     // 停止 daemon 时最大重试次数 (15s)
+	stopPollInterval = 500 * time.Millisecond  // 停止 daemon 时轮询间隔
 )
 
 var daemonStartCmd = &cobra.Command{
@@ -65,8 +65,8 @@ var stopCmd = &cobra.Command{
 			}
 			time.Sleep(stopPollInterval)
 		}
-		os.Remove(pidFile)
-		return fmt.Errorf("timeout waiting for daemon (pid %d) to stop", pid)
+		fmt.Printf("daemon (pid %d) is stopping, it may take a few seconds\n", pid)
+		return nil
 	},
 }
 

@@ -48,6 +48,12 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 
 	start := 0
 	for start < len(chunks) {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
 		end := start + batchSize
 		if end > len(chunks) {
 			end = len(chunks)

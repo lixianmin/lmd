@@ -261,6 +261,16 @@ func (my *Daemon) embedChunks() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), embedTimeout)
 	defer cancel()
+
+	// Cancel embedding context when daemon is shutting down
+	go func() {
+		select {
+		case <-my.stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	_, err := my.embedder.EmbedBatch(ctx, 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
