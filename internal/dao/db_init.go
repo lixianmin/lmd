@@ -171,6 +171,10 @@ func WithExec(query string, args ...any) (sql.Result, error) {
 	return stmt.Exec(args...)
 }
 
+func WithQuery(query string, args ...any) (*sql.Rows, error) {
+	return DB.db.Query(query, args...)
+}
+
 func withQuery(query string, args ...any) (*sql.Rows, error) {
 	return DB.db.Query(query, args...)
 }

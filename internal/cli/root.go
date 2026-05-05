@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("config load failed: %w", err)
 		}
 
-		if cmd == daemonStartCmd || cmd == stopCmd {
+		if cmd == daemonStartCmd || cmd == stopCmd || cmd == benchLongMemEvalCmd {
 			return nil
 		}
 
