@@ -46,3 +46,7 @@ func (my *GseTokenizer) TokenizeToString(text string) string {
 	}
 	return strings.Join(tokens, " ")
 }
+
+func (my *GseTokenizer) GetIDF(word string) float64 {
+	return GetIDF(word)
+}

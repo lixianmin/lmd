@@ -18,7 +18,7 @@ func TestSearchBM25(t *testing.T) {
 
 	searcher := NewSearcher(tok)
 
-	results, err := searcher.SearchLex("搜索引擎", "", 10, 0)
+	results, err := searcher.SearchLex("搜索引擎", "", 10, 0, "")
 	if err != nil {
 		t.Fatalf("SearchLex failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSearchBM25WithCollection(t *testing.T) {
 
 	searcher := NewSearcher(tok)
 
-	results, err := searcher.SearchLex("搜索引擎", "nonexistent", 10, 0)
+	results, err := searcher.SearchLex("搜索引擎", "nonexistent", 10, 0, "")
 	if err != nil {
 		t.Fatalf("SearchLex failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestSearchBM25English(t *testing.T) {
 
 	searcher := NewSearcher(tok)
 
-	results, err := searcher.SearchLex("Hello", "", 10, 0)
+	results, err := searcher.SearchLex("Hello", "", 10, 0, "")
 	if err != nil {
 		t.Fatalf("SearchLex failed: %v", err)
 	}

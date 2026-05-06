@@ -61,6 +61,7 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		MinScore   float64 `json:"min_score"`
 		Format     string  `json:"format"`
 		JSON       bool    `json:"json"`
+		Strategy   string  `json:"strategy"` // FTS 查询策略: "or"(默认) 或 "df"
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -76,7 +77,7 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		req.Limit = defaultSearchLimit
 	}
 
-	results, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
+	results, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -126,6 +127,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Collection string  `json:"collection"`
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
+		Strategy   string  `json:"strategy"` // FTS 查询策略: "or"(默认) 或 "df"
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -141,7 +143,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		req.Limit = defaultSearchLimit
 	}
 
-	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0, req.Strategy)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

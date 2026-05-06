@@ -90,3 +90,55 @@ func SearchFTS(tokenizedQuery string, collection string, limit int) ([]FTSSearch
 
 	return results, rows.Err()
 }
+
+func SearchFTSBM25(tokenizedQuery string, collection string, limit int) ([]FTSSearchResult, error) {
+	var query string
+	var args []any
+	if collection != "" {
+		query = `SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
+			abs(bm25(chunks_fts, 1.5, 4.0, 1.0)) as raw_score, c.position
+		FROM chunks_fts
+		JOIN chunks c ON c.id = chunks_fts.rowid
+		JOIN documents d ON d.id = c.doc_id
+		WHERE chunks_fts MATCH ? AND d.collection = ?
+		ORDER BY rank LIMIT ?`
+		args = []any{tokenizedQuery, collection, limit}
+	} else {
+		query = `SELECT c.id, d.docid, d.collection, d.path, d.title, c.content,
+			abs(bm25(chunks_fts, 1.5, 4.0, 1.0)) as raw_score, c.position
+		FROM chunks_fts
+		JOIN chunks c ON c.id = chunks_fts.rowid
+		JOIN documents d ON d.id = c.doc_id
+		WHERE chunks_fts MATCH ?
+		ORDER BY rank LIMIT ?`
+		args = []any{tokenizedQuery, limit}
+	}
+
+	rows, err := withQuery(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []FTSSearchResult
+	for rows.Next() {
+		var r FTSSearchResult
+		if err := rows.Scan(&r.ChunkID, &r.DocId, &r.Collection, &r.Path, &r.Title, &r.Content, &r.Score, &r.Line); err != nil {
+			return nil, err
+		}
+		abs := math.Abs(r.Score)
+		r.Score = abs / (1.0 + abs)
+		results = append(results, r)
+	}
+
+	return results, rows.Err()
+}
+
+func GetTermCount(term string) int {
+	if DB == nil || DB.db == nil {
+		return 0
+	}
+	var cnt int
+	DB.db.QueryRow("SELECT COUNT(*) FROM chunks_fts WHERE chunks_fts MATCH ?", term).Scan(&cnt)
+	return cnt
+}

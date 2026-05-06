@@ -10,10 +10,10 @@ LMD combines **BM25 keyword search** (via FTS5 + gse segmentation) with **vector
 
 - **Hybrid search**: BM25 + vector search with RRF fusion
 - **HyDE search**: Hypothetical Document Embedding via SiliconFlow API for improved recall
-- **Chinese-first**: gse tokenizer provides accurate Chinese word segmentation
+- **Chinese-first**: gse tokenizer provides accurate Chinese word segmentation, includes GSE IDF dictionary for keyword extraction
 - **Markdown-aware**: Chunks respect heading and code block boundaries (300 rune target)
 - **Agent-ready**: MCP server + JSON output for AI agent integration
-- **Agent memory**: Fact/episode/relation memory with time-decay scoring
+- **Agent memory**: Unified memory storage in documents+chunks, queryable through `/query` endpoint with `@episodic` / `@knowledge` system collections
 
 ## Install
 
@@ -45,7 +45,8 @@ lmd get "#abc123"
 
 # Agent memory
 lmd memory add "Go uses goroutines for lightweight concurrency" --type fact
-lmd memory search "concurrency"
+lmd memory delete 3
+lmd memory update 5 "Updated content"
 
 # Daemon management
 lmd status
@@ -61,14 +62,15 @@ lmd rebuild
 | `collection list` | List all collections |
 | `collection remove <name>` | Remove a collection |
 | `collection rename <old> <new>` | Rename a collection |
-| `search <query>` | BM25 keyword search |
+| `search <query>` | BM25 keyword search (DF rare keyword extraction by default) |
 | `vsearch <query>` | Vector semantic search |
 | `query <query>` | Hybrid search (BM25 + vector + RRF fusion) |
 | `hyde <query>` | HyDE search (vector search via hypothetical document) |
 | `get <collection/path>` or `get <#docid>` | Retrieve a document |
 | `memory add <content> --type <t>` | Add a memory (fact\|episode\|relation) |
-| `memory search <query>` | Search memories |
-| `status` | Show index status |
+| `memory delete <id>` | Delete a memory by ID |
+| `memory update <id> <content>` | Update a memory by ID |
+| `status` | Show index status (ETA + per-collection chunks) |
 | `rebuild` | Drop all data and rebuild from scratch |
 | `stop` | Stop the running daemon |
 
@@ -118,7 +120,7 @@ llama:
 
 embedding:
   batch_size: 8
-  truncation: 300
+  truncation: 500
 
 hyde:
   base_url: https://api.siliconflow.cn/v1

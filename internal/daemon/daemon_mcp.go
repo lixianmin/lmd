@@ -101,7 +101,7 @@ func (my *Daemon) handleToolSearch(params json.RawMessage) (interface{}, error) 
 	if req.Limit <= 0 {
 		req.Limit = defaultSearchLimit
 	}
-	hits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore)
+	hits, err := my.searcher.SearchLex(req.Query, req.Collection, req.Limit, req.MinScore, "")
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +114,7 @@ func (my *Daemon) handleToolQuery(params json.RawMessage) (interface{}, error) {
 		Collection string  `json:"collection"`
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
+		Strategy   string  `json:"strategy"`
 	}
 	if err := convert.FromJsonE(params, &req); err != nil {
 		return nil, err
@@ -121,7 +122,7 @@ func (my *Daemon) handleToolQuery(params json.RawMessage) (interface{}, error) {
 	if req.Limit <= 0 {
 		req.Limit = defaultSearchLimit
 	}
-	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+	lexHits, err := my.searcher.SearchLex(req.Query, req.Collection, safeOverfetch(req.Limit), 0, req.Strategy)
 	if err != nil {
 		return nil, err
 	}
