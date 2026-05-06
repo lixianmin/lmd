@@ -25,15 +25,7 @@ func NewSearcher(tok tokenizer.Tokenizer) *Searcher {
 }
 
 func (my *Searcher) SearchLex(query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
-	ftsQuery := query
-	if my.tokenizer != nil {
-		ftsQuery = my.tokenizer.TokenizeToString(query)
-		if ftsQuery == "" {
-			ftsQuery = query
-		}
-	}
-	// FTS5 不允许 ? [] {} 等特殊字符, 保留字母数字 * " 和空格
-	ftsQuery = strings.TrimSpace(ftsSafeRe.ReplaceAllString(ftsQuery, ""))
+	ftsQuery := buildFTSQuery(query)
 	if ftsQuery == "" {
 		return nil, nil
 	}
@@ -62,6 +54,29 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 	}
 
 	return hits, nil
+}
+
+// buildFTSQuery 参考 VBFS agent-memory-store: 去非字母数字、分词、去单字、OR 连接
+func buildFTSQuery(raw string) string {
+	// 1. 保留字母数字和空格（含 CJK）
+	s := ftsSafeRe.ReplaceAllString(raw, " ")
+	// 2. 按空白分词
+	words := strings.Fields(s)
+	// 3. 去掉单字母词
+	var terms []string
+	for _, w := range words {
+		if len(w) > 1 {
+			terms = append(terms, w)
+		}
+	}
+	if len(terms) == 0 {
+		return ""
+	}
+	// 4. OR 连接（上限 256 个词防止查询过长）
+	if len(terms) > 256 {
+		terms = terms[:256]
+	}
+	return strings.Join(terms, " OR ")
 }
 
 func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
