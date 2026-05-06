@@ -31,7 +31,6 @@ import (
 const (
 	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
 	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
-	serverShutdownTimeout = 5 * time.Second  // HTTP server 优雅关闭超时
 	embedTimeout          = 5 * time.Minute  // 背景嵌入操作超时
 )
 var PidPath = func() string {
@@ -42,11 +41,9 @@ var PidPath = func() string {
 type Daemon struct {
 	cfg        *config.Config
 	server     *http.Server
-	wc         loom.WaitClose
 	rebuildMu  sync.RWMutex
 	stopOnce   sync.Once
 	stopCh     chan struct{}
-	goLoopWg   sync.WaitGroup
 	etaStartAt atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
 	etaStartNum atomic.Int64 // ETA 基准已嵌入数 (启动时记录)
 
@@ -124,7 +121,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 		}
 	})
 	logo.Info("daemon: listening on %s", addr)
-	my.goLoopWg.Add(1)
 	loom.Go(my.goLoop)
 
 	// ETA baseline: record embedded count at startup for average speed calculation
@@ -140,8 +136,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 		logo.Info("daemon: received signal, shutting down")
 	case <-ctx.Done():
 		logo.Info("daemon: context cancelled, shutting down")
-	case <-my.stopCh:
-		logo.Info("daemon: idle timeout, shutting down")
 	}
 
 	return my.Stop()
@@ -158,24 +152,13 @@ func (my *Daemon) Stop() error {
 		}
 
 		if my.server != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
-			defer cancel()
-			my.server.Shutdown(shutdownCtx)
+			my.server.Close()
 		}
-
-		my.wc.Close(func() error {
-			return nil
-		})
-		my.goLoopWg.Wait()
 
 		if dao.DB != nil {
 			store := dao.DB
 			dao.DB = nil
 			store.Close()
-		}
-
-		if my.provider != nil {
-			my.provider.Close()
 		}
 
 		releaseLock()
@@ -185,16 +168,13 @@ func (my *Daemon) Stop() error {
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
-	defer my.goLoopWg.Done()
-
 	var syncIndexTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
 	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
 
-	var closeChan = my.wc.C()
 	for {
 		select {
-		case <-closeChan:
+		case <-my.stopCh:
 			return
 		case <-syncIndexTicker.C:
 			my.syncIndex()

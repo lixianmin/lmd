@@ -4,17 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"time"
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/daemon"
 	"github.com/spf13/cobra"
-)
-
-const (
-	stopMaxRetries   = 30                     // 停止 daemon 时最大重试次数 (15s)
-	stopPollInterval = 500 * time.Millisecond  // 停止 daemon 时轮询间隔
 )
 
 var daemonStartCmd = &cobra.Command{
@@ -58,15 +54,28 @@ var stopCmd = &cobra.Command{
 			return fmt.Errorf("cannot stop daemon: %w", err)
 		}
 
-		for i := 0; i < stopMaxRetries; i++ {
+		// Wait for daemon to release its lock (deterministic signal of graceful shutdown).
+		// No fixed timeout — daemon removes PID file when Stop() completes.
+		// User can Ctrl+C to abort the wait.
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+
+		t := time.NewTicker(1 * time.Second)
+		defer t.Stop()
+
+		for {
 			if !daemon.IsRunning() {
 				fmt.Printf("daemon (pid %d) stopped\n", pid)
 				return nil
 			}
-			time.Sleep(stopPollInterval)
+			select {
+			case <-t.C:
+				os.Stderr.WriteString(".")
+			case <-ctx.Done():
+				fmt.Printf("\ndaemon (pid %d) is still stopping, it will exit on its own\n", pid)
+				return nil
+			}
 		}
-		fmt.Printf("daemon (pid %d) is stopping, it may take a few seconds\n", pid)
-		return nil
 	},
 }
 
