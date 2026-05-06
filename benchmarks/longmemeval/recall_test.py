@@ -8,18 +8,22 @@ LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 PORT = 12345
 
 def search(query, mode, top_k=10):
-    """Call LMD's search/query endpoint."""
+    """Call LMD's search/query endpoint with retry on model loading."""
     url = f"http://localhost:{PORT}/{mode}"
-    body = json.dumps({"query": query, "collection": "bench_longmemeval", "limit": top_k}).encode()
-    try:
-        import urllib.request
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        resp = urllib.request.urlopen(req, timeout=30)
-        data = json.loads(resp.read())
-        return data.get("hits", [])
-    except Exception as e:
-        print(f"  search error: {e}", file=sys.stderr)
-        return []
+    body = json.dumps({"query": query, "collection": "bench_full", "limit": top_k}).encode()
+    for attempt in range(5):
+        try:
+            import urllib.request
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+            resp = urllib.request.urlopen(req, timeout=120)
+            data = json.loads(resp.read())
+            hits = data.get("hits", [])
+            if hits is not None:
+                return hits
+        except Exception as e:
+            print(f"  search error (attempt {attempt+1}/5): {e}", file=sys.stderr)
+            time.sleep(5)
+    return []
 
 def extract_session_id(path):
     """Extract session index from filename: q0001_s042.md → 41 (0-indexed)"""
@@ -46,6 +50,12 @@ def ndcg_at_k(retrieved, relevant, k):
 print(f"LongMemEval Recall Test — LMD /{MODE}")
 print(f"Questions: {len(d)}, Mode: {MODE}")
 print(f"{'='*60}")
+print()
+
+# Warm up embedding model
+print("Warming up embedding model...", file=sys.stderr)
+search("warmup", MODE, 1)
+print("Model ready.", file=sys.stderr)
 print()
 
 r5_sum = r10_sum = ndcg_sum = 0.0
@@ -75,7 +85,7 @@ for qi, q in enumerate(d):
     retrieved = []
     seen = set()
     for h in hits:
-        path = h.get('path', '')
+        path = h.get('Path', h.get('path', ''))
         h_qi, si = extract_session_id(path)
         if h_qi != qi:
             continue  # skip sessions from other questions

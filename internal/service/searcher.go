@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -10,6 +12,9 @@ import (
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
+
+// ftsSafeRe 移除 FTS5 不认识的字符，只保留字母、数字、空格
+var ftsSafeRe = regexp.MustCompile(`[^a-zA-Z0-9\s\p{Han}\p{Katakana}\p{Hiragana}]`) 
 
 type Searcher struct {
 	tokenizer tokenizer.Tokenizer
@@ -26,6 +31,11 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 		if ftsQuery == "" {
 			ftsQuery = query
 		}
+	}
+	// FTS5 不允许 ? [] {} 等特殊字符, 保留字母数字 * " 和空格
+	ftsQuery = strings.TrimSpace(ftsSafeRe.ReplaceAllString(ftsQuery, ""))
+	if ftsQuery == "" {
+		return nil, nil
 	}
 
 	ftsResults, err := dao.SearchFTS(ftsQuery, collection, limit)
