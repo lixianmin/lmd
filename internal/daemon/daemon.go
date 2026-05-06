@@ -31,11 +31,9 @@ import (
 const (
 	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
 	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
-	daemonIdleTimeout     = 60 * time.Minute // daemon 空闲自动关闭超时
 	serverShutdownTimeout = 5 * time.Second  // HTTP server 优雅关闭超时
 	embedTimeout          = 5 * time.Minute  // 背景嵌入操作超时
 )
-
 var PidPath = func() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "lmd", "daemon.pid")
@@ -45,7 +43,6 @@ type Daemon struct {
 	cfg        *config.Config
 	server     *http.Server
 	wc         loom.WaitClose
-	lastActive atomic.Int64
 	rebuildMu  sync.RWMutex
 	stopOnce   sync.Once
 	stopCh     chan struct{}
@@ -127,7 +124,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 		}
 	})
 	logo.Info("daemon: listening on %s", addr)
-	my.touchActivity()
 	my.goLoopWg.Add(1)
 	loom.Go(my.goLoop)
 
@@ -188,17 +184,12 @@ func (my *Daemon) Stop() error {
 	return nil
 }
 
-func (my *Daemon) touchActivity() {
-	my.lastActive.Store(time.Now().UnixNano())
-}
-
 func (my *Daemon) goLoop(later loom.Later) {
 	defer my.goLoopWg.Done()
 
 	var syncIndexTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
 	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
-	var idleTimeout = daemonIdleTimeout
 
 	var closeChan = my.wc.C()
 	for {
@@ -210,15 +201,6 @@ func (my *Daemon) goLoop(later loom.Later) {
 		case <-embedTicker.C:
 			my.embedChunks()
 			my.provider.ReleaseIfIdle(modelIdleTimeout)
-
-			last := time.Unix(0, my.lastActive.Load())
-			if !last.IsZero() && time.Since(last) > idleTimeout {
-				logo.Info("daemon: idle timeout reached, shutting down")
-				loom.Go(func(later loom.Later) {
-					my.Stop()
-				})
-				return
-			}
 		}
 	}
 }

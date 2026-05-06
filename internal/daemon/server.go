@@ -38,7 +38,6 @@ func registerRoutes(d *Daemon) http.Handler {
 					writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 					return
 				}
-				d.touchActivity()
 				h(d, w, r)
 			})
 		} else {
@@ -47,7 +46,6 @@ func registerRoutes(d *Daemon) http.Handler {
 					writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 					return
 				}
-				d.touchActivity()
 				h(d, w, r)
 			})
 		}
