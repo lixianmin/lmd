@@ -331,6 +331,9 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	chunkCount, embedCount := dao.GetChunkCounts()
 	pending := chunkCount - embedCount
+	if pending < 0 {
+		pending = 0
+	}
 
 	var eta string
 	if pending > 0 {

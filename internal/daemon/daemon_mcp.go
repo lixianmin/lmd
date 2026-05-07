@@ -35,6 +35,9 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 	}
 	chunkCount, embedCount := dao.GetChunkCounts()
 	pending := chunkCount - embedCount
+	if pending < 0 {
+		pending = 0
+	}
 
 	var eta string
 	if pending > 0 {
