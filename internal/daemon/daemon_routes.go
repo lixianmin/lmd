@@ -61,7 +61,7 @@ func (my *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		MinScore   float64 `json:"min_score"`
 		Format     string  `json:"format"`
 		JSON       bool    `json:"json"`
-		Strategy   string  `json:"strategy"` // FTS 查询策略: "or"(默认) 或 "df"
+		Strategy   string  `json:"strategy"` // FTS 查询策略: "pos-or"(默认) / "or" / "df" / "pos-must" / "pos-weight"
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -127,7 +127,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Collection string  `json:"collection"`
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
-		Strategy   string  `json:"strategy"` // FTS 查询策略: "or"(默认) 或 "df"
+		Strategy   string  `json:"strategy"` // FTS 查询策略: "pos-or"(默认) / "or" / "df" / "pos-must" / "pos-weight"
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
@@ -36,11 +37,19 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 	}
 
 	var ftsQuery string
+	var needsPosWeight bool
 	switch strategy {
 	case "df":
 		ftsQuery = my.buildFTSQueryDF(tokenized)
-	case "or", "":
+	case "pos-must":
+		ftsQuery = my.buildFTSQueryPosMust(query)
+	case "pos-weight":
 		ftsQuery = buildFTSQuery(tokenized)
+		needsPosWeight = true
+	case "or":
+		ftsQuery = buildFTSQuery(tokenized)
+	case "", "pos-or":
+		ftsQuery = my.buildFTSQueryPosOr(query)
 	case "and":
 		ftsQuery = buildFTSQueryAND(tokenized)
 	default:
@@ -50,7 +59,6 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 		return nil, nil
 	}
 
-	// "and" 策略使用 QMD 风格的 bm25() 评分
 	var ftsResults []dao.FTSSearchResult
 	var err error
 	if strategy == "and" {
@@ -64,10 +72,10 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 
 	var hits []formatter.SearchHit
 	for _, r := range ftsResults {
-		if r.Score < minScore {
+		// pos-weight 策略在权重调整后再过滤 minScore
+		if !needsPosWeight && r.Score < minScore {
 			continue
 		}
-
 		hits = append(hits, formatter.SearchHit{
 			ChunkId:    r.ChunkID,
 			DocId:      dao.ShortDocId(r.DocId),
@@ -78,6 +86,20 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 			Snippet:    r.Content,
 			Line:       r.Line,
 		})
+	}
+
+	// 方案3: POS 权重后处理
+	if needsPosWeight {
+		hits = my.applyPosWeight(query, hits)
+		if minScore > 0 {
+			var filtered []formatter.SearchHit
+			for _, h := range hits {
+				if h.Score >= minScore {
+					filtered = append(filtered, h)
+				}
+			}
+			hits = filtered
+		}
 	}
 
 	return hits, nil
@@ -163,6 +185,152 @@ var stopWords = map[string]struct{}{
 
 // enStopWords 向后兼容别名
 var enStopWords = stopWords
+
+// isNounPos 判断是否为名词性标签
+// CJK 标签: n, ng, nr, ns, nt, nz, vn, an, nrt, nrl, nrfg
+// English 标签: n
+func isNounPos(pos string) bool {
+	switch pos {
+	case "n", "ng", "nr", "ns", "nt", "nz", "vn", "an", "nrt", "nrl", "nrfg":
+		return true
+	}
+	return false
+}
+
+// isContentPos 判断是否为实词标签（动词、形容词、副词、未知词）
+// CJK 标签: v, vd, vi, vg, vq, a, ag, ad
+// English 标签: v, adj, adv
+func isContentPos(pos string) bool {
+	switch pos {
+	case "v", "vd", "vi", "vg", "vq", "adj", "adv", "a", "ag", "ad", "x":
+		return true
+	}
+	return false
+}
+
+// extractPosTerms 提取查询中所有名词和实词（动词/形容词等），过滤单字和停用词
+func (my *Searcher) extractPosTerms(query string) (nouns, verbs []string) {
+	posTokens := my.tokenizer.Pos(query)
+	for _, pt := range posTokens {
+		if pt.Text == "" {
+			continue
+		}
+		safe := ftsSafeRe.ReplaceAllString(pt.Text, " ")
+		word := strings.TrimSpace(safe)
+		if word == "" || utf8.RuneCountInString(word) <= 1 {
+			continue
+		}
+		if isNounPos(pt.Pos) {
+			nouns = append(nouns, word)
+		} else if isContentPos(pt.Pos) {
+			verbs = append(verbs, word)
+		}
+	}
+	return
+}
+
+// buildFTSQueryPosMust 方案1: 名词 MUST (AND) + 动词/形容词 SHOULD (OR)
+// 生成 FTS5 enhanced query: noun1 AND noun2 AND (verb1 OR verb2)
+// FTS5 不支持 +prefix MUST 语法（那是 FTS3/4 的），用显式 AND/OR 分组实现
+// 实验性策略 — 不推荐使用：pos-must 对 300-rune chunk 过严，召回率低
+func (my *Searcher) buildFTSQueryPosMust(query string) string {
+	nouns, verbs := my.extractPosTerms(query)
+	if len(nouns) == 0 && len(verbs) == 0 {
+		return buildFTSQuery(query)
+	}
+	mustTerms := nouns
+	shouldTerms := verbs
+	// 截断：总词数不超过 256
+	total := len(mustTerms) + len(shouldTerms)
+	if total > 256 {
+		ratio := float64(256) / float64(total)
+		mustCap := int(float64(len(mustTerms)) * ratio)
+		shouldCap := 256 - mustCap
+		if mustCap > len(mustTerms) {
+			mustCap = len(mustTerms)
+			shouldCap = 256 - mustCap
+		}
+		if shouldCap > len(shouldTerms) {
+			shouldCap = len(shouldTerms)
+		}
+		mustTerms = mustTerms[:mustCap]
+		shouldTerms = shouldTerms[:shouldCap]
+	}
+	if len(mustTerms) == 0 {
+		return strings.Join(shouldTerms, " OR ")
+	}
+	if len(shouldTerms) == 0 {
+		return strings.Join(mustTerms, " AND ")
+	}
+	must := strings.Join(mustTerms, " AND ")
+	should := "(" + strings.Join(shouldTerms, " OR ") + ")"
+	return must + " AND " + should
+}
+
+// buildFTSQueryPosOr 方案2: POS 过滤（只保留名词+动词+形容词）+ OR
+func (my *Searcher) buildFTSQueryPosOr(query string) string {
+	nouns, verbs := my.extractPosTerms(query)
+	terms := append(nouns, verbs...)
+	if len(terms) == 0 {
+		return buildFTSQuery(query)
+	}
+	if len(terms) > 256 {
+		terms = terms[:256]
+	}
+	return strings.Join(terms, " OR ")
+}
+
+// nounWeight 名词命中加分（方案3：pos-weight 策略）
+// contentWeight 动词/形容词命中加分
+// contentWeight 小于 nounWeight，体现不同词性的重要性差异
+const nounWeight = 0.05
+const contentWeight = 0.02
+
+// applyPosWeight 方案3: 对搜索结果按 POS 权重重排（实验性 — 效果不明显，不推荐）
+// 名词在 chunk 中出现得越多，分数越高；动词/形容词较弱的加分
+func (my *Searcher) applyPosWeight(query string, hits []formatter.SearchHit) []formatter.SearchHit {
+	if len(hits) == 0 {
+		return hits
+	}
+	posTokens := my.tokenizer.Pos(query)
+	if len(posTokens) == 0 {
+		return hits
+	}
+	var nounTerms, contentTerms []string
+	for _, pt := range posTokens {
+		word := strings.ToLower(pt.Text)
+		if word == "" {
+			continue
+		}
+		if isNounPos(pt.Pos) {
+			nounTerms = append(nounTerms, word)
+		} else if isContentPos(pt.Pos) {
+			contentTerms = append(contentTerms, word)
+		}
+	}
+	for i := range hits {
+		bonus := 0.0
+		snippet := strings.ToLower(hits[i].Snippet)
+		for _, nt := range nounTerms {
+			if strings.Contains(snippet, nt) {
+				bonus += nounWeight
+			}
+		}
+		for _, ct := range contentTerms {
+			if strings.Contains(snippet, ct) {
+				bonus += contentWeight
+			}
+		}
+		hits[i].Score += bonus
+		if hits[i].Score > 1.0 {
+			hits[i].Score = 1.0
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		return hits[i].Score > hits[j].Score
+	})
+	return hits
+}
 
 // buildFTSQueryDF 稀有词提取: 优先用 GSE 内置 IDF（快），无 IDF 时 fallback 到 SQL COUNT
 func (my *Searcher) buildFTSQueryDF(raw string) string {

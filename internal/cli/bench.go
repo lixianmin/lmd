@@ -380,7 +380,7 @@ func printBenchOutput(results []benchResult, queries []benchQuery, backends []be
 
 func init() {
 	benchCmd.Flags().StringVar(&benchMode, "mode", "all", "backends: search|vsearch|query|all")
-	benchCmd.Flags().StringVar(&benchStrategy, "strategy", "or", "FTS strategy: or|df")
+	benchCmd.Flags().StringVar(&benchStrategy, "strategy", "pos-or", "FTS strategy: or|df|pos-or|pos-must|pos-weight")
 	benchCmd.Flags().IntVar(&benchLimit, "limit", 0, "limit questions (longmemeval only)")
 	rootCmd.AddCommand(benchCmd)
 }

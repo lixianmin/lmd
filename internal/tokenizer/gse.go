@@ -47,6 +47,26 @@ func (my *GseTokenizer) TokenizeToString(text string) string {
 	return strings.Join(tokens, " ")
 }
 
+func (my *GseTokenizer) Pos(text string) []SegPos {
+	if text == "" {
+		return nil
+	}
+	my.mu.Lock()
+	defer my.mu.Unlock()
+	gseResults := my.seg.Pos(text)
+	results := make([]SegPos, 0, len(gseResults))
+	for _, sp := range gseResults {
+		pos := sp.Pos
+		if pos == "x" || pos == "eng" {
+			if enPos, ok := enPosMap[strings.ToLower(sp.Text)]; ok {
+				pos = enPos
+			}
+		}
+		results = append(results, SegPos{Text: sp.Text, Pos: pos})
+	}
+	return results
+}
+
 func (my *GseTokenizer) GetIDF(word string) float64 {
 	return GetIDF(word)
 }
