@@ -37,14 +37,14 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 
 	var ftsQuery string
 	switch strategy {
-	case "or":
-		ftsQuery = buildFTSQuery(tokenized)
-	case "df", "":
+	case "df":
 		ftsQuery = my.buildFTSQueryDF(tokenized)
+	case "or", "":
+		ftsQuery = buildFTSQuery(tokenized)
 	case "and":
 		ftsQuery = buildFTSQueryAND(tokenized)
 	default:
-		ftsQuery = my.buildFTSQueryDF(tokenized)
+		ftsQuery = buildFTSQuery(tokenized)
 	}
 	if ftsQuery == "" {
 		return nil, nil
