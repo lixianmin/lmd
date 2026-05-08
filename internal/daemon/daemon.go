@@ -110,6 +110,16 @@ func (my *Daemon) Start(ctx context.Context) error {
 	)
 
 	if my.cfg.Topic.SummarizeModel != "" {
+		summaryURLs := []string{
+			"https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+			"https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+		}
+		fmt.Fprintf(os.Stderr, "  Checking summarize model...\n")
+		if err := service.DownloadModel(my.cfg.Topic.SummarizeModel, summaryURLs...); err != nil {
+			logo.Warn("daemon: summarize model download failed: %s", err)
+			fmt.Fprintf(os.Stderr, "  Warning: summarize model download failed: %s\n", err)
+		}
+
 		llm, err := service.NewLLMClient(
 			my.cfg.Topic.SummarizeModel,
 			my.cfg.Topic.SummarizeGPULayers,
