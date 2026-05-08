@@ -431,7 +431,7 @@ func StartBackground() error {
 		return fmt.Errorf("stderr pipe failed: %w", err)
 	}
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		return fmt.Errorf("start daemon failed: %w", err)
