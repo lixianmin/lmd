@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"database/sql"
 	"fmt"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -34,8 +35,11 @@ func GetTopic(collection, relPath string) (*TopicRecord, error) {
 		"SELECT collection, rel_path, overview, doc_paths, hash, updated_at FROM topics WHERE collection=? AND rel_path=?",
 		collection, relPath,
 	).Scan(&t.Collection, &t.RelPath, &t.Overview, &t.DocPaths, &t.Hash, &t.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("topic not found: %s/%s", collection, relPath)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("topic not found: %s/%s: %w", collection, relPath, err)
+		return nil, err
 	}
 	return &t, nil
 }
@@ -82,12 +86,26 @@ func ListAllTopics() ([]TopicRecord, error) {
 }
 
 func DeleteTopic(collection, relPath string) error {
-	_, err := WithExec("DELETE FROM topics WHERE collection=? AND rel_path=?", collection, relPath)
+	rowID, err := GetTopicRowID(collection, relPath)
+	if err == nil {
+		_ = DeleteTopicVectorByRowID(rowID)
+	}
+	_, err = WithExec("DELETE FROM topics WHERE collection=? AND rel_path=?", collection, relPath)
 	return err
 }
 
 func DeleteTopicsByCollection(collection string) error {
-	_, err := WithExec("DELETE FROM topics WHERE collection=?", collection)
+	topics, err := ListTopicsByCollection(collection)
+	if err != nil {
+		return err
+	}
+	for _, t := range topics {
+		rowID, err := GetTopicRowID(t.Collection, t.RelPath)
+		if err == nil {
+			_ = DeleteTopicVectorByRowID(rowID)
+		}
+	}
+	_, err = WithExec("DELETE FROM topics WHERE collection=?", collection)
 	return err
 }
 
@@ -106,8 +124,11 @@ func GetTopicByRowID(rowID int64) (*TopicRecord, error) {
 		"SELECT collection, rel_path, overview, doc_paths, hash, updated_at FROM topics WHERE rowid=?",
 		rowID,
 	).Scan(&t.Collection, &t.RelPath, &t.Overview, &t.DocPaths, &t.Hash, &t.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("topic not found for rowid %d", rowID)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("topic not found for rowid %d: %w", rowID, err)
+		return nil, err
 	}
 	return &t, nil
 }
@@ -119,7 +140,7 @@ func UpsertTopicVector(topicRowID int64, embedding []float32) error {
 		return err
 	}
 	_, err = WithExec(
-		"INSERT INTO topics_vec(topic_rowid, overview_vector) VALUES (?, ?)",
+		"INSERT OR REPLACE INTO topics_vec(topic_rowid, overview_vector) VALUES (?, ?)",
 		topicRowID, vec,
 	)
 	return err
