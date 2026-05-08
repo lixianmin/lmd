@@ -14,6 +14,7 @@ type Config struct {
 	HyDE      HyDEConfig      `yaml:"hyde"`
 	Vector    VectorConfig    `yaml:"vector"`
 	Database  DatabaseConfig  `yaml:"database"`
+	Topic     TopicConfig     `yaml:"topic"`
 }
 
 type DaemonConfig struct {
@@ -49,6 +50,13 @@ type VectorConfig struct {
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
+}
+
+type TopicConfig struct {
+	SummarizeModel     string `yaml:"summarize_model"`
+	SummarizeGPULayers int    `yaml:"summarize_gpu_layers"`
+	SummarizeThreads   int    `yaml:"summarize_threads"`
+	CooldownSeconds    int    `yaml:"cooldown_seconds"`
 }
 
 var Cfg *Config
@@ -89,6 +97,12 @@ func DefaultConfig() *Config {
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(home, ".cache", "lmd", "index.sqlite"),
+		},
+		Topic: TopicConfig{
+			SummarizeModel:     filepath.Join(home, ".cache", "lmd", "models", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+			SummarizeGPULayers: -1,
+			SummarizeThreads:   4,
+			CooldownSeconds:    300,
 		},
 	}
 }
