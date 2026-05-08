@@ -131,6 +131,19 @@ func createTables() error {
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
+		`CREATE TABLE IF NOT EXISTS topics (
+			collection  TEXT NOT NULL,
+			rel_path    TEXT NOT NULL,
+			overview    TEXT NOT NULL,
+			doc_paths   TEXT NOT NULL,
+			hash        TEXT NOT NULL,
+			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
+			PRIMARY KEY (collection, rel_path)
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS topics_vec USING vec0(
+			topic_rowid INTEGER PRIMARY KEY,
+			overview_vector float[1024] distance_metric=cosine
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.db.Exec(s); err != nil {
