@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -165,6 +164,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Ignore(syscall.SIGHUP)
 
 	select {
 	case <-sigCh:
@@ -425,21 +425,13 @@ func StartBackground() error {
 	cmd := exec.Command(os.Args[0], "daemon-start")
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
-
-	stderrR, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe failed: %w", err)
-	}
+	cmd.Stderr = logFile
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		return fmt.Errorf("start daemon failed: %w", err)
 	}
-
-	loom.Go(func(later loom.Later) {
-		io.Copy(os.Stderr, stderrR)
-	})
 
 	logFile.Close()
 	cmd.Process.Release()
