@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -54,6 +55,10 @@ type Daemon struct {
 	provider   *embedding.LlamaProvider
 	memSvc     *service.MemoryService
 	hydeClient *service.HyDEAPIClient
+
+	topicIndexer *service.TopicIndexer
+	topicRouter  *service.TopicRouter
+	llmClient    *service.LLMClient
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -103,6 +108,21 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.hydeClient = service.NewHyDEAPIClient(
 		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
 	)
+
+	if my.cfg.Topic.SummarizeModel != "" {
+		llm, err := service.NewLLMClient(
+			my.cfg.Topic.SummarizeModel,
+			my.cfg.Topic.SummarizeGPULayers,
+			my.cfg.Topic.SummarizeThreads,
+		)
+		if err != nil {
+			logo.Warn("daemon: LLM client init failed: %s (smart query disabled)", err)
+		} else {
+			my.llmClient = llm
+			my.topicIndexer = service.NewTopicIndexer(llm, my.provider, time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second)
+		}
+	}
+	my.topicRouter = service.NewTopicRouter()
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -155,6 +175,10 @@ func (my *Daemon) Stop() error {
 			my.server.Close()
 		}
 
+		if my.llmClient != nil {
+			my.llmClient.Close()
+		}
+
 		if dao.DB != nil {
 			store := dao.DB
 			dao.DB = nil
@@ -172,12 +196,20 @@ func (my *Daemon) goLoop(later loom.Later) {
 	var embedTicker = later.NewTicker(embedTickInterval)
 	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
 
+	topicCooldown := my.cfg.Topic.CooldownSeconds
+	if topicCooldown <= 0 {
+		topicCooldown = 300
+	}
+	var topicSyncTicker = later.NewTicker(time.Duration(topicCooldown) * time.Second)
+
 	for {
 		select {
 		case <-my.stopCh:
 			return
 		case <-syncIndexTicker.C:
 			my.syncIndex()
+		case <-topicSyncTicker.C:
+			my.syncTopics()
 		case <-embedTicker.C:
 			my.embedChunks()
 			my.provider.ReleaseIfIdle(modelIdleTimeout)
@@ -236,6 +268,75 @@ func (my *Daemon) embedChunks() {
 	_, err := my.embedder.EmbedBatch(ctx, 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
+	}
+}
+
+func (my *Daemon) syncTopics() {
+	if my.topicIndexer == nil {
+		return
+	}
+	my.rebuildMu.RLock()
+	defer my.rebuildMu.RUnlock()
+
+	cols, err := dao.ListCollections()
+	if err != nil {
+		logo.Error("syncTopics: list collections failed: %s", err)
+		return
+	}
+	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "@") {
+			continue
+		}
+		my.syncCollectionTopics(col)
+	}
+}
+
+func (my *Daemon) syncCollectionTopics(col dao.CollectionRecord) {
+	err := filepath.WalkDir(col.Path, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		relPath, _ := filepath.Rel(col.Path, path)
+		if relPath == "." {
+			relPath = ""
+		}
+		my.syncDirTopic(col.Name, path, relPath)
+		return nil
+	})
+	if err != nil {
+		logo.Error("syncTopics: walk %s failed: %s", col.Path, err)
+	}
+}
+
+func (my *Daemon) syncDirTopic(collection, dirPath, relPath string) {
+	topicPath := filepath.Join(dirPath, "_topic.md")
+
+	info, statErr := os.Stat(topicPath)
+
+	currentHash := ""
+	if statErr == nil {
+		if time.Since(info.ModTime()) < time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second {
+			return
+		}
+		if data, err := os.ReadFile(topicPath); err == nil {
+			currentHash = service.Sha256Hex(string(data))
+		}
+	}
+
+	existing, _ := dao.GetTopic(collection, relPath)
+	if existing != nil && !service.ShouldSummarize(existing.Hash, currentHash) {
+		logo.Info("syncTopics: skip %s/%s (hash changed, human edited)", collection, relPath)
+		return
+	}
+
+	if err := my.topicIndexer.SummarizeDir(context.Background(), collection, dirPath, relPath); err != nil {
+		logo.Error("syncTopics: summarize %s/%s failed: %s", collection, relPath, err)
 	}
 }
 

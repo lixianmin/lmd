@@ -17,6 +17,7 @@ func registerRoutes(d *Daemon) http.Handler {
 		{"POST", "/vsearch", (*Daemon).handleVsearch},
 		{"POST", "/query", (*Daemon).handleQuery},
 		{"POST", "/hyde", (*Daemon).handleHyde},
+		{"POST", "/smart-query", (*Daemon).handleSmartQuery},
 		{"POST", "/get", (*Daemon).handleGet},
 		{"GET", "/status", (*Daemon).handleStatus},
 		{"POST", "/collection/add", (*Daemon).handleCollectionAdd},

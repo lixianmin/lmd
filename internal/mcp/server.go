@@ -22,6 +22,7 @@ var toolDefs = []ToolDef{
 	{Name: "memory_add", Description: "Add a memory"},
 	{Name: "memory_delete", Description: "Delete a memory by id"},
 	{Name: "memory_update", Description: "Update a memory by id"},
+	{Name: "smart_query", Description: "Hierarchical smart search using topic index routing"},
 }
 
 type ToolHandler func(method string, params json.RawMessage) (interface{}, error)

@@ -234,6 +234,69 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query    string  `json:"query"`
+		Limit    int     `json:"limit"`
+		MinScore float64 `json:"min_score"`
+		Strategy string  `json:"strategy"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := convert.FromJsonE(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.Limit <= 0 {
+		req.Limit = defaultSearchLimit
+	}
+
+	if my.topicRouter == nil || my.provider == nil {
+		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
+		vecHits, _ := my.searcher.SearchVector(r.Context(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
+		results := service.FuseResults(lexHits, vecHits)
+		results = filterAndLimit(results, req.MinScore, req.Limit)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	queryVec, err := my.provider.EmbedQuery(r.Context(), req.Query)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	_, docIDs, err := my.topicRouter.Route(queryVec)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if len(docIDs) == 0 {
+		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
+		vecHits, _ := my.searcher.SearchVector(r.Context(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
+		results := service.FuseResults(lexHits, vecHits)
+		results = filterAndLimit(results, req.MinScore, req.Limit)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	results, err := my.topicRouter.SearchInDocs(my.searcher, my.provider, req.Query, docIDs, req.Limit, req.Strategy)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.MinScore > 0 {
+		results = filterAndLimit(results, req.MinScore, req.Limit)
+	}
+
+	logo.Info("handleSmartQuery: query=%q docs=%d hits=%d", req.Query, len(docIDs), len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
+}
+
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path  string `json:"path"`
