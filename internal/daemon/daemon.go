@@ -87,11 +87,12 @@ func (my *Daemon) Start(ctx context.Context) error {
 		"https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
 		"https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
 	}
-	fmt.Fprintf(os.Stderr, "  Checking embedding model...\n")
-	if err := service.DownloadModel(my.cfg.Llama.EmbedModel, embedURLs...); err != nil {
-		logo.Warn("daemon: embed model download failed: %s (will retry on first use)", err)
-		fmt.Fprintf(os.Stderr, "  Warning: embedding model download failed: %s\n", err)
-	}
+	loom.Go(func(later loom.Later) {
+		fmt.Fprintf(os.Stderr, "  Downloading embedding model if needed...\n")
+		if err := service.DownloadModel(my.cfg.Llama.EmbedModel, embedURLs...); err != nil {
+			logo.Warn("daemon: embed model download failed: %s", err)
+		}
+	})
 
 	my.provider = embedding.NewLlamaProvider(
 		my.cfg.Llama.EmbedModel,
@@ -109,15 +110,18 @@ func (my *Daemon) Start(ctx context.Context) error {
 		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
 	)
 
-	if my.cfg.Topic.SummarizeModel != "" {
+	loom.Go(func(later loom.Later) {
+		if my.cfg.Topic.SummarizeModel == "" {
+			return
+		}
 		summaryURLs := []string{
 			"https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
 			"https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
 		}
-		fmt.Fprintf(os.Stderr, "  Checking summarize model...\n")
+		fmt.Fprintf(os.Stderr, "  Downloading summarize model if needed...\n")
 		if err := service.DownloadModel(my.cfg.Topic.SummarizeModel, summaryURLs...); err != nil {
 			logo.Warn("daemon: summarize model download failed: %s", err)
-			fmt.Fprintf(os.Stderr, "  Warning: summarize model download failed: %s\n", err)
+			return
 		}
 
 		llm, err := service.NewLLMClient(
@@ -126,12 +130,13 @@ func (my *Daemon) Start(ctx context.Context) error {
 			my.cfg.Topic.SummarizeThreads,
 		)
 		if err != nil {
-			logo.Warn("daemon: LLM client init failed: %s (smart query disabled)", err)
-		} else {
-			my.llmClient = llm
-			my.topicIndexer = service.NewTopicIndexer(llm, my.provider, time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second)
+			logo.Warn("daemon: LLM client init failed: %s", err)
+			return
 		}
-	}
+		my.llmClient = llm
+		my.topicIndexer = service.NewTopicIndexer(llm, my.provider, time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second)
+		logo.Info("daemon: summarize model ready")
+	})
 	my.topicRouter = service.NewTopicRouter()
 
 	handler := registerRoutes(my)
