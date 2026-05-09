@@ -102,11 +102,6 @@ func (my *TopicIndexer) gatherDocs(collection, prefix string) ([]docPreview, err
 			continue
 		}
 
-		rel := strings.TrimPrefix(d.Path, prefix)
-		if prefix != "" && strings.Contains(rel, "/") {
-			continue
-		}
-
 		body := d.Body
 		runes := []rune(body)
 		preview := body
