@@ -38,6 +38,7 @@ func Init(dbPath string) error {
 		return err
 	}
 	dropTopicsTables()
+	dropMemoryTables()
 	addSourceDocIdColumn()
 	return prepareFTSStatements()
 }
@@ -149,6 +150,12 @@ func createTables() error {
 func dropTopicsTables() {
 	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS topics_vec`)
 	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS topics`)
+}
+
+func dropMemoryTables() {
+	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories_fts`)
+	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories_vec`)
+	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories`)
 }
 
 func addSourceDocIdColumn() {

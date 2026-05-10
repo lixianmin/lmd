@@ -80,12 +80,6 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		return my.buildStatus()
 	case "list_collections":
 		return my.handleToolListCollections(params)
-	case "memory_add":
-		return my.handleToolMemoryAdd(params)
-	case "memory_delete":
-		return my.handleToolMemoryDelete(params)
-	case "memory_update":
-		return my.handleToolMemoryUpdate(params)
 	case "smart_query":
 		return my.handleToolSmartQuery(params)
 	default:
@@ -210,59 +204,6 @@ func (my *Daemon) handleToolListCollections(params json.RawMessage) (interface{}
 		result[i] = colInfo{Name: c.Name, Path: c.Path, Glob: c.GlobPattern, DocCount: c.DocCount}
 	}
 	return result, nil
-}
-
-func (my *Daemon) handleToolMemoryAdd(params json.RawMessage) (interface{}, error) {
-	var req struct {
-		Content string `json:"content"`
-	}
-	if err := convert.FromJsonE(params, &req); err != nil {
-		return nil, err
-	}
-	if req.Content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
-	id, err := my.memSvc.Add(req.Content)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{"id": id}, nil
-}
-
-func (my *Daemon) handleToolMemoryDelete(params json.RawMessage) (interface{}, error) {
-	var req struct {
-		ID int64 `json:"id"`
-	}
-	if err := convert.FromJsonE(params, &req); err != nil {
-		return nil, err
-	}
-	if req.ID <= 0 {
-		return nil, fmt.Errorf("id is required")
-	}
-	if err := dao.DeleteMemory(req.ID); err != nil {
-		return nil, fmt.Errorf("memory not found: %d", req.ID)
-	}
-	return map[string]string{"status": "deleted"}, nil
-}
-
-func (my *Daemon) handleToolMemoryUpdate(params json.RawMessage) (interface{}, error) {
-	var req struct {
-		ID      int64  `json:"id"`
-		Content string `json:"content"`
-	}
-	if err := convert.FromJsonE(params, &req); err != nil {
-		return nil, err
-	}
-	if req.ID <= 0 {
-		return nil, fmt.Errorf("id is required")
-	}
-	if req.Content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
-	if err := my.memSvc.Update(req.ID, req.Content); err != nil {
-		return nil, err
-	}
-	return map[string]string{"status": "updated"}, nil
 }
 
 func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, error) {

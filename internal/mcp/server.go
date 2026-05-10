@@ -19,9 +19,6 @@ var toolDefs = []ToolDef{
 	{Name: "get", Description: "Retrieve document by path or docid"},
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},
-	{Name: "memory_add", Description: "Add a memory"},
-	{Name: "memory_delete", Description: "Delete a memory by id"},
-	{Name: "memory_update", Description: "Update a memory by id"},
 	{Name: "smart_query", Description: "Hierarchical smart search using topic index routing"},
 }
 
