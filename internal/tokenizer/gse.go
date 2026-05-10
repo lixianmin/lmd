@@ -53,6 +53,7 @@ func (my *GseTokenizer) Pos(text string) []SegPos {
 	}
 	my.mu.Lock()
 	defer my.mu.Unlock()
+	loadEnPos()
 	gseResults := my.seg.Pos(text)
 	results := make([]SegPos, 0, len(gseResults))
 	for _, sp := range gseResults {
@@ -65,8 +66,4 @@ func (my *GseTokenizer) Pos(text string) []SegPos {
 		results = append(results, SegPos{Text: sp.Text, Pos: pos})
 	}
 	return results
-}
-
-func (my *GseTokenizer) GetIDF(word string) float64 {
-	return GetIDF(word)
 }

@@ -39,8 +39,6 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 	var ftsQuery string
 	var needsPosWeight bool
 	switch strategy {
-	case "df":
-		ftsQuery = my.buildFTSQueryDF(tokenized)
 	case "pos-must":
 		ftsQuery = my.buildFTSQueryPosMust(query)
 	case "pos-weight":
@@ -330,56 +328,6 @@ func (my *Searcher) applyPosWeight(query string, hits []formatter.SearchHit) []f
 		return hits[i].Score > hits[j].Score
 	})
 	return hits
-}
-
-// buildFTSQueryDF 稀有词提取: 优先用 GSE 内置 IDF（快），无 IDF 时 fallback 到 SQL COUNT
-func (my *Searcher) buildFTSQueryDF(raw string) string {
-	s := ftsSafeRe.ReplaceAllString(raw, " ")
-	words := strings.Fields(s)
-	var terms []string
-	for _, w := range words {
-		if len(w) > 1 && !isStopWord(w) {
-			terms = append(terms, w)
-		}
-	}
-	if len(terms) == 0 {
-		return ""
-	}
-
-	type wordDF struct {
-		word string
-		df   float64 // 越小越稀有（IDF 越大越稀有，COUNT 越小越稀有）
-	}
-	var candidates []wordDF
-	for _, w := range terms {
-		idf := my.tokenizer.GetIDF(w)
-		if idf > 0 {
-			candidates = append(candidates, wordDF{w, idf})
-		} else {
-			// GSE IDF 不支持英文，fallback 到 SQL COUNT
-			cnt := dao.GetTermCount(w)
-			if cnt > 0 {
-				candidates = append(candidates, wordDF{w, 1.0 / float64(cnt+1)})
-			}
-		}
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].df > candidates[j].df // IDF越大越稀有，1/COUNT越大越稀有
-	})
-	// 取最稀有的 5 个词
-	n := 5
-	if len(candidates) < n {
-		n = len(candidates)
-	}
-	selected := make([]string, n)
-	for i := 0; i < n; i++ {
-		selected[i] = candidates[i].word
-	}
-	return strings.Join(selected, " OR ")
 }
 
 func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {

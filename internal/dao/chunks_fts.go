@@ -133,12 +133,3 @@ func SearchFTSBM25(tokenizedQuery string, collection string, limit int) ([]FTSSe
 
 	return results, rows.Err()
 }
-
-func GetTermCount(term string) int {
-	if DB == nil || DB.db == nil {
-		return 0
-	}
-	var cnt int
-	DB.db.QueryRow("SELECT COUNT(*) FROM chunks_fts WHERE chunks_fts MATCH ?", term).Scan(&cnt)
-	return cnt
-}
