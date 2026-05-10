@@ -64,6 +64,8 @@ func (my *TopicIndexer) SummarizeDir(ctx context.Context, collection, dirPath, r
 		return nil
 	}
 
+	logo.Info("TopicIndexer: summarizing %s/%s (%d docs)", collection, relPath, len(docs))
+
 	prompt := buildSummarizePrompt(relPath, docs)
 	markdown, genErr := my.llm.Generate(prompt, 2048)
 	if genErr != nil {
@@ -84,6 +86,7 @@ func (my *TopicIndexer) gatherDocs(collection, prefix string) ([]docPreview, err
 		return nil, err
 	}
 
+	const maxDocsPerTopic = 50
 	var previews []docPreview
 	for _, d := range docs {
 		if d.Path == "_topic.md" || filepath.Base(d.Path) == "_topic.md" {
@@ -105,8 +108,10 @@ func (my *TopicIndexer) gatherDocs(collection, prefix string) ([]docPreview, err
 		body := d.Body
 		runes := []rune(body)
 		preview := body
-		if len(runes) > 200 {
-			preview = string(runes[:200])
+		// previewRunLen scales down for large dirs to keep prompt within context
+		previewRunLen := 200
+		if len(runes) > previewRunLen {
+			preview = string(runes[:previewRunLen])
 		}
 
 		previews = append(previews, docPreview{
@@ -114,6 +119,10 @@ func (my *TopicIndexer) gatherDocs(collection, prefix string) ([]docPreview, err
 			Title:   d.Title,
 			Preview: preview,
 		})
+		if len(previews) >= maxDocsPerTopic {
+			logo.Warn("TopicIndexer: dir %s/%s has %d docs, truncating to %d", collection, prefix, len(docs), maxDocsPerTopic)
+			break
+		}
 	}
 	return previews, nil
 }

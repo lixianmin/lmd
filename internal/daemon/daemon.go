@@ -135,6 +135,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 		my.llmClient = llm
 		my.topicIndexer = service.NewTopicIndexer(llm, my.provider, time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second)
 		logo.Info("daemon: summarize model ready")
+		go my.syncTopics()
 	})
 	my.topicRouter = service.NewTopicRouter()
 
@@ -334,20 +335,19 @@ func (my *Daemon) syncDirTopic(collection, dirPath, relPath string) {
 
 	info, statErr := os.Stat(topicPath)
 
-	currentHash := ""
 	if statErr == nil {
 		if time.Since(info.ModTime()) < time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second {
 			return
 		}
+		// file exists: check hash to detect human edits
 		if data, err := os.ReadFile(topicPath); err == nil {
-			currentHash = service.Sha256Hex(string(data))
+			currentHash := service.Sha256Hex(string(data))
+			existing, _ := dao.GetTopic(collection, relPath)
+			if existing != nil && !service.ShouldSummarize(existing.Hash, currentHash) {
+				logo.Info("syncTopics: skip %s/%s (hash changed, human edited)", collection, relPath)
+				return
+			}
 		}
-	}
-
-	existing, _ := dao.GetTopic(collection, relPath)
-	if existing != nil && !service.ShouldSummarize(existing.Hash, currentHash) {
-		logo.Info("syncTopics: skip %s/%s (hash changed, human edited)", collection, relPath)
-		return
 	}
 
 	if err := my.topicIndexer.SummarizeDir(context.Background(), collection, dirPath, relPath); err != nil {
