@@ -11,6 +11,7 @@ import (
 
 var Cfg *Config
 var once sync.Once
+var configDir string // test hook: overrides default config directory
 
 type Config struct {
 	Providers ProviderConfig  `yaml:"providers"`
@@ -108,8 +109,16 @@ func Load() {
 }
 
 func resolveConfigPath() string {
+	if configDir != "" {
+		return filepath.Join(configDir, "config.yaml")
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "lmd", "config.yaml")
+}
+
+func Reset() {
+	once = sync.Once{}
+	Cfg = nil
 }
 
 func SaveDefault(configPath string) error {

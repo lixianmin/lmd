@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,41 +9,52 @@ import (
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
+
 	if cfg.Daemon.Port != 12345 {
 		t.Fatalf("expected port 12345, got %d", cfg.Daemon.Port)
 	}
-	if cfg.Llama.EmbedModel == "" {
-		t.Fatal("expected non-empty llama.embed_model")
+
+	if cfg.Embedding.Provider != "ollama" {
+		t.Fatalf("expected embedding provider ollama, got %s", cfg.Embedding.Provider)
 	}
-	if cfg.Llama.GPULayers != -1 {
-		t.Fatalf("expected gpu_layers -1, got %d", cfg.Llama.GPULayers)
-	}
-	if cfg.Llama.Parallel != 8 {
-		t.Fatalf("expected parallel 8, got %d", cfg.Llama.Parallel)
-	}
-	if cfg.Llama.Threads != 4 {
-		t.Fatalf("expected threads 4, got %d", cfg.Llama.Threads)
+	if cfg.Embedding.Model != "batiai/qwen3-embedding" {
+		t.Fatalf("expected embedding model batiAI/qwen3-embedding, got %s", cfg.Embedding.Model)
 	}
 	if cfg.Embedding.BatchSize != 8 {
-		t.Fatalf("expected batch_size 8, got %d", cfg.Embedding.BatchSize)
+		t.Fatalf("expected embedding batch_size 8, got %d", cfg.Embedding.BatchSize)
 	}
-	if cfg.Vector.Dimensions != 1024 {
-		t.Fatalf("expected dimensions 1024, got %d", cfg.Vector.Dimensions)
+
+	if cfg.Summary.Provider != "ollama" {
+		t.Fatalf("expected summary provider ollama, got %s", cfg.Summary.Provider)
 	}
-	if cfg.Embedding.Truncation != 500 {
-		t.Fatalf("expected truncation 500, got %d", cfg.Embedding.Truncation)
+	if cfg.Summary.Model != "qwen3.5" {
+		t.Fatalf("expected summary model qwen3.5, got %s", cfg.Summary.Model)
 	}
-	if cfg.Llama.ModelIdleTimeout != "10m" {
-		t.Fatalf("expected model_idle_timeout 10m, got %s", cfg.Llama.ModelIdleTimeout)
+	if cfg.Summary.MaxOutputTokens != 512 {
+		t.Fatalf("expected summary max_output_tokens 512, got %d", cfg.Summary.MaxOutputTokens)
 	}
-	if cfg.HyDE.BaseURL != "https://api.siliconflow.cn/v1" {
-		t.Fatalf("expected hyde base_url, got %s", cfg.HyDE.BaseURL)
+	if cfg.Summary.MaxInputTokens != 245000 {
+		t.Fatalf("expected summary max_input_tokens 245000, got %d", cfg.Summary.MaxInputTokens)
 	}
-	if cfg.HyDE.Model != "Qwen/Qwen3.5-9B" {
-		t.Fatalf("expected hyde model Qwen/Qwen3.5-9B, got %s", cfg.HyDE.Model)
+	if cfg.Summary.CooldownSeconds != 120 {
+		t.Fatalf("expected summary cooldown_seconds 120, got %d", cfg.Summary.CooldownSeconds)
 	}
-	if cfg.HyDE.MaxTokens != 200 {
-		t.Fatalf("expected hyde max_tokens 200, got %d", cfg.HyDE.MaxTokens)
+	if !cfg.Summary.NoThinking {
+		t.Fatal("expected summary no_thinking true")
+	}
+
+	if cfg.Providers.Ollama.URL != "http://localhost:11434" {
+		t.Fatalf("expected ollama url, got %s", cfg.Providers.Ollama.URL)
+	}
+	if cfg.Providers.SiliconFlow.URL != "https://api.siliconflow.cn/v1" {
+		t.Fatalf("expected siliconflow url, got %s", cfg.Providers.SiliconFlow.URL)
+	}
+
+	if cfg.Database.Path == "" {
+		t.Fatal("expected non-empty database path")
+	}
+	if filepath.Base(cfg.Database.Path) != "index.sqlite" {
+		t.Fatalf("expected index.sqlite as database file, got %s", filepath.Base(cfg.Database.Path))
 	}
 }
 
@@ -50,13 +62,17 @@ func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	orig := configDir
 	configDir = dir
-	defer func() { configDir = orig }()
+	Reset()
+	defer func() {
+		configDir = orig
+		Reset()
+	}()
 
 	cfg := DefaultConfig()
 	cfg.Daemon.Port = 19999
 	Cfg = cfg
 
-	if err := SaveDefault(); err != nil {
+	if err := SaveDefault(filepath.Join(dir, "config.yaml")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,8 +81,13 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Fatal("config file not created")
 	}
 
-	loaded, err := Load()
+	// read back the saved JSON and verify
+	data, err := os.ReadFile(path)
 	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
 		t.Fatal(err)
 	}
 	if loaded.Daemon.Port != 19999 {
@@ -78,14 +99,18 @@ func TestLoadMissingReturnsDefault(t *testing.T) {
 	dir := t.TempDir()
 	orig := configDir
 	configDir = dir
-	defer func() { configDir = orig }()
+	Reset()
+	defer func() {
+		configDir = orig
+		Reset()
+	}()
 
-	loaded, err := Load()
-	if err != nil {
-		t.Fatal(err)
+	Load()
+	if Cfg == nil {
+		t.Fatal("Cfg should not be nil after Load()")
 	}
-	if loaded.Daemon.Port != 12345 {
-		t.Fatalf("expected default port 12345, got %d", loaded.Daemon.Port)
+	if Cfg.Daemon.Port != 12345 {
+		t.Fatalf("expected default port 12345, got %d", Cfg.Daemon.Port)
 	}
 }
 
@@ -93,25 +118,23 @@ func TestLoadPartialConfig(t *testing.T) {
 	dir := t.TempDir()
 	orig := configDir
 	configDir = dir
-	defer func() { configDir = orig }()
+	Reset()
+	defer func() {
+		configDir = orig
+		Reset()
+	}()
 
-	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("daemon:\n  port: 19999\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`{"daemon":{"port":19999}}`), 0644)
 
-	loaded, err := Load()
-	if err != nil {
-		t.Fatal(err)
+	Load()
+	if Cfg.Daemon.Port != 19999 {
+		t.Fatalf("expected port 19999, got %d", Cfg.Daemon.Port)
 	}
-	if loaded.Daemon.Port != 19999 {
-		t.Fatalf("expected port 19999, got %d", loaded.Daemon.Port)
+	if Cfg.Embedding.Provider != "ollama" {
+		t.Fatalf("expected default embedding provider ollama, got %s", Cfg.Embedding.Provider)
 	}
-	if loaded.Llama.GPULayers != -1 {
-		t.Fatalf("expected default gpu_layers -1, got %d", loaded.Llama.GPULayers)
-	}
-	if loaded.Embedding.BatchSize != 8 {
-		t.Fatalf("expected default batch_size 8, got %d", loaded.Embedding.BatchSize)
-	}
-	if loaded.HyDE.BaseURL != "https://api.siliconflow.cn/v1" {
-		t.Fatalf("expected default hyde base_url, got %s", loaded.HyDE.BaseURL)
+	if Cfg.Summary.Provider != "ollama" {
+		t.Fatalf("expected default summary provider ollama, got %s", Cfg.Summary.Provider)
 	}
 }
 
@@ -119,12 +142,13 @@ func TestLoadAutoGeneratesFile(t *testing.T) {
 	dir := t.TempDir()
 	orig := configDir
 	configDir = dir
-	defer func() { configDir = orig }()
+	Reset()
+	defer func() {
+		configDir = orig
+		Reset()
+	}()
 
-	_, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	Load()
 
 	path := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
