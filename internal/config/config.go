@@ -70,7 +70,7 @@ func DefaultConfig() *Config {
 		},
 		Embedding: EmbeddingConfig{
 			Provider:  "ollama",
-			Model:     "batiai/qwen3-embedding",
+			Model:     "batiai/qwen3-embedding:0.6b",
 			BatchSize: 8,
 		},
 		Summary: SummaryConfig{
