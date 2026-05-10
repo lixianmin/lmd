@@ -21,10 +21,11 @@ const (
 )
 
 type UpdateResult struct {
-	Indexed   int
-	Updated   int
-	Unchanged int
-	Removed   int
+	Indexed     int
+	Updated     int
+	Unchanged   int
+	Removed     int
+	DirtyDocIds []int64
 }
 
 type Indexer struct {
@@ -198,6 +199,8 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 				return err
 			}
 
+			result.DirtyDocIds = append(result.DirtyDocIds, doc.Id)
+
 			ch := my.chunkerForExt(filepath.Ext(relPath))
 			return my.createChunks(doc.Id, body, hash, ch)
 		}
@@ -227,6 +230,8 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 		if err := dao.UpsertDocument(doc); err != nil {
 			return err
 		}
+
+		result.DirtyDocIds = append(result.DirtyDocIds, doc.Id)
 
 		ch := my.chunkerForExt(filepath.Ext(relPath))
 		return my.createChunks(doc.Id, body, hash, ch)
