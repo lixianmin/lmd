@@ -330,6 +330,25 @@ func (my *Searcher) applyPosWeight(query string, hits []formatter.SearchHit) []f
 	return hits
 }
 
+func (my *Searcher) SearchHybrid(ctx context.Context, provider embedding.EmbeddingProvider,
+	query, collection string, docIDs map[int64]bool, limit int, strategy string) ([]formatter.SearchHit, error) {
+
+	lexHits, err := my.SearchLex(query, collection, limit, 0, strategy)
+	if err != nil {
+		return nil, err
+	}
+
+	vecHits, err := my.SearchVector(ctx, provider, query, collection, limit, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	lexHits = filterHitsByDocIDs(lexHits, docIDs)
+	vecHits = filterHitsByDocIDs(vecHits, docIDs)
+
+	return FuseResults(lexHits, vecHits), nil
+}
+
 func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
 	logo.Info("SearchVector: query=%q collection=%s limit=%d", query, collection, limit)
 	queryVec, err := provider.EmbedQuery(ctx, query)
