@@ -234,18 +234,18 @@ func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, err
 		return map[string]interface{}{"hits": results, "routed": false}, nil
 	}
 
-	docIDSet := make(map[int64]bool)
+	docIdSet := make(map[int64]bool)
 	for _, h := range summaryHits {
 		doc, err := dao.GetDocumentByDocId(h.DocId)
 		if err != nil {
 			continue
 		}
 		if doc.SourceDocId > 0 {
-			docIDSet[doc.SourceDocId] = true
+			docIdSet[doc.SourceDocId] = true
 		}
 	}
 
-	if len(docIDSet) == 0 {
+	if len(docIdSet) == 0 {
 		results := my.fullHybridSearch(context.Background(), req.Query, "", req.Limit, req.MinScore, req.Strategy)
 		return map[string]interface{}{"hits": results, "routed": false}, nil
 	}
@@ -253,14 +253,14 @@ func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, err
 	lexHits2, _ := my.searcher.SearchLex(req.Query, "", overfetch*2, 0, req.Strategy)
 	vecHits2, _ := my.searcher.SearchVector(context.Background(), my.embedProvider, req.Query, "", overfetch*2, 0)
 
-	lexHits2 = filterHitsByDocIds(lexHits2, docIDSet)
-	vecHits2 = filterHitsByDocIds(vecHits2, docIDSet)
+	lexHits2 = filterHitsByDocIds(lexHits2, docIdSet)
+	vecHits2 = filterHitsByDocIds(vecHits2, docIdSet)
 
 	results := service.FuseResults(lexHits2, vecHits2)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
 
 	logo.Info("handleToolSmartQuery: query=%q summary=%d docs=%d results=%d routed=true",
-		req.Query, len(summaryHits), len(docIDSet), len(results))
+		req.Query, len(summaryHits), len(docIdSet), len(results))
 	return map[string]interface{}{"hits": results, "routed": true}, nil
 }
 

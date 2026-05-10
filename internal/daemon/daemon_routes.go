@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	defaultSearchLimit    = 5   // 搜索默认返回条数
-	defaultVectorMinScore = 0.3 // 向量搜索最低分数阈值
-	overfetchMultiplier   = 3   // 混合搜索 pre-fusion 超取倍数
-	docPreviewMaxRunes      = 500  // 文档预览最大 rune 数
-	maxOverfetchLimit       = 1000 // overfetch 上限，防止 int 溢出
+	defaultSearchLimit    = 5    // 搜索默认返回条数
+	defaultVectorMinScore = 0.3  // 向量搜索最低分数阈值
+	overfetchMultiplier   = 3    // 混合搜索 pre-fusion 超取倍数
+	docPreviewMaxRunes    = 500  // 文档预览最大 rune 数
+	maxOverfetchLimit     = 1000 // overfetch 上限，防止 int 溢出
 )
 
 func safeOverfetch(limit int) int {
@@ -227,34 +227,34 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	docIDSet := make(map[int64]bool)
+	docIdSet := make(map[int64]bool)
 	for _, h := range summaryHits {
 		doc, err := dao.GetDocumentByDocId(h.DocId)
 		if err != nil {
 			continue
 		}
 		if doc.SourceDocId > 0 {
-			docIDSet[doc.SourceDocId] = true
+			docIdSet[doc.SourceDocId] = true
 		}
 	}
 
-	if len(docIDSet) == 0 {
+	if len(docIdSet) == 0 {
 		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		writeJSON(w, http.StatusOK, map[string]any{"hits": results, "routed": false})
 		return
 	}
 
 	lexHits2, _ := my.searcher.SearchLex(req.Query, "", overfetch*2, 0, req.Strategy)
 	vecHits2, _ := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "", overfetch*2, 0)
 
-	lexHits2 = filterHitsByDocIds(lexHits2, docIDSet)
-	vecHits2 = filterHitsByDocIds(vecHits2, docIDSet)
+	lexHits2 = filterHitsByDocIds(lexHits2, docIdSet)
+	vecHits2 = filterHitsByDocIds(vecHits2, docIdSet)
 
 	results := service.FuseResults(lexHits2, vecHits2)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
 
 	logo.Info("handleSmartQuery: query=%q summary=%d docs=%d results=%d routed=true",
-		req.Query, len(summaryHits), len(docIDSet), len(results))
+		req.Query, len(summaryHits), len(docIdSet), len(results))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
 }
 
@@ -364,13 +364,13 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	collections := make([]map[string]interface{}, len(cols))
 	for i, c := range cols {
 		collections[i] = map[string]interface{}{
-			"name":       c.Name,
-			"path":       c.Path,
-			"glob":       c.GlobPattern,
-			"doc_count":  c.DocCount,
+			"name":        c.Name,
+			"path":        c.Path,
+			"glob":        c.GlobPattern,
+			"doc_count":   c.DocCount,
 			"chunk_count": chunkCounts[c.Name],
-			"ignore":     c.IgnorePatterns,
-			"created_at": c.CreatedAt,
+			"ignore":      c.IgnorePatterns,
+			"created_at":  c.CreatedAt,
 		}
 		totalDocs += c.DocCount
 	}

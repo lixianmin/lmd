@@ -104,6 +104,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
 	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary)
+	my.summarizer.ScanAll()
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -220,6 +221,7 @@ func (my *Daemon) syncIndexUnlocked() {
 		}
 		if result != nil && len(result.DirtyDocIds) > 0 {
 			my.summarizer.MarkDirty(result.DirtyDocIds)
+			logo.Info("indexPoller: %s marked %d docs dirty for summary", col.Name, len(result.DirtyDocIds))
 		}
 		if result.Indexed > 0 || result.Updated > 0 || result.Removed > 0 {
 			logo.Info("indexPoller: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)

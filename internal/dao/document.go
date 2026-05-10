@@ -224,3 +224,56 @@ func GetDocumentHash(collection, path string) (string, error) {
 	}
 	return hash, err
 }
+
+func UpsertSummaryDoc(sourceDocId int64, hash, summary string) (int64, error) {
+	var docId int64
+	err := withTransaction(func(tx *sql.Tx) error {
+		existingRows, err := tx.Query("SELECT id FROM documents WHERE collection='@summaries' AND source_doc_id=?", sourceDocId)
+		if err != nil {
+			return err
+		}
+		var existingIds []int64
+		for existingRows.Next() {
+			var eid int64
+			if err := existingRows.Scan(&eid); err != nil {
+				existingRows.Close()
+				return err
+			}
+			existingIds = append(existingIds, eid)
+		}
+		existingRows.Close()
+
+		for _, did := range existingIds {
+			// 删除 chunks_fts
+			tx.Exec("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id=?)", did)
+			// 删除 chunks_vec
+			tx.Exec("DELETE FROM chunks_vec WHERE chunk_id IN (SELECT id FROM chunks WHERE doc_id=?)", did)
+			// 删除 chunks (FK CASCADE)
+			tx.Exec("DELETE FROM chunks WHERE doc_id=?", did)
+			// 删除 document
+			tx.Exec("DELETE FROM documents WHERE id=?", did)
+		}
+
+		// 插入 summary document
+		docIdStr := generateDocId("@summaries", "", hash)
+		res, err := tx.Exec(`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
+			VALUES (?, '@summaries', '', '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
+			docIdStr, hash, sourceDocId)
+		if err != nil {
+			return err
+		}
+		docId, _ = res.LastInsertId()
+
+		// 插入 chunk
+		chunkRes, err := tx.Exec("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)", docId, summary, hash)
+		if err != nil {
+			return err
+		}
+		chunkId, _ := chunkRes.LastInsertId()
+
+		// 插入 FTS
+		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, summary)
+		return err
+	})
+	return docId, err
+}

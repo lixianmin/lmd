@@ -187,7 +187,7 @@ Agent 维护此文件，单条简短清晰（<200字）。包含 4 种数据：
 1. redis 相关代码位于 rdb 目录下
 2. 其它所有 db 相关的代码在 dao 目录下
 3. 禁止其它目录出现 sql 语句
-4. 注意是否需要使用 transaction 以确保数据一致性
+4. 注意是否需要使用 transaction 以确保数据满足ACID
 
 ### 2 golang
 

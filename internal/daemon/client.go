@@ -123,6 +123,14 @@ func (my *Client) Query(query, collection string, limit int, minScore float64) (
 	})
 }
 
+func (my *Client) SmartQuery(query string, limit int, minScore float64) ([]byte, error) {
+	return my.Post("/smart-query", map[string]interface{}{
+		"query":     query,
+		"limit":     limit,
+		"min_score": minScore,
+	})
+}
+
 func (my *Client) HyDE(query, collection string, limit int, minScore float64) ([]byte, error) {
 	return my.Post("/hyde", map[string]interface{}{
 		"query":      query,

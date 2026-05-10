@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -38,45 +39,122 @@ func (my *Summarizer) MarkDirty(docIds []int64) {
 	}
 }
 
-func (my *Summarizer) ProcessDirty() {
-	my.mu.Lock()
-	dirty := my.dirty
-	my.dirty = make(map[int64]bool)
-	my.mu.Unlock()
+func (my *Summarizer) ScanAll() {
+	cols, err := dao.ListCollections()
+	if err != nil {
+		logo.Warn("summarizer: list collections error: %s", err)
+		return
+	}
 
+	type docEntry struct {
+		id int64
+	}
+	var candidates []docEntry
+	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "@") {
+			continue
+		}
+		docs, err := dao.ListDocumentsByCollection(col.Name)
+		if err != nil {
+			continue
+		}
+		for _, doc := range docs {
+			if doc.Id == 0 {
+				continue
+			}
+			candidates = append(candidates, docEntry{id: doc.Id})
+		}
+	}
+
+	var missing int
+	for _, c := range candidates {
+		if my.isDirty(c.id) {
+			continue
+		}
+
+		existing, _ := dao.GetDocumentBySourceDocId(summaryCollection, c.id)
+		if existing != nil {
+			continue
+		}
+
+		my.addDirty(c.id)
+		missing++
+	}
+
+	if missing > 0 {
+		logo.Info("summarizer: scan found %d docs without summary, marked dirty", missing)
+	}
+}
+
+func (my *Summarizer) ProcessDirty() {
+	dirty := my.popDirty()
 	if len(dirty) == 0 {
 		return
 	}
 
-	for docID := range dirty {
-		my.processDoc(docID)
+	logo.Info("summarizer: processing %d dirty docs", len(dirty))
+	var done, failed int
+	for docId := range dirty {
+		if err := my.processDoc(docId); err != nil {
+			failed++
+		} else {
+			done++
+		}
 	}
+	logo.Info("summarizer: done processing %d docs (%d ok, %d failed)", len(dirty), done, failed)
 }
 
-func (my *Summarizer) processDoc(docID int64) {
-	doc, err := dao.GetDocumentById(docID)
+func (my *Summarizer) addDirty(id int64) {
+	my.mu.Lock()
+	my.dirty[id] = true
+	my.mu.Unlock()
+}
+
+func (my *Summarizer) isDirty(id int64) bool {
+	my.mu.Lock()
+	ok := my.dirty[id]
+	my.mu.Unlock()
+	return ok
+}
+
+func (my *Summarizer) popDirty() map[int64]bool {
+	my.mu.Lock()
+	defer my.mu.Unlock()
+
+	if len(my.dirty) == 0 {
+		return nil
+	}
+
+	dirty := my.dirty
+	my.dirty = make(map[int64]bool)
+
+	return dirty
+}
+
+func (my *Summarizer) processDoc(docId int64) error {
+	doc, err := dao.GetDocumentById(docId)
 	if err != nil {
-		logo.Warn("summarizer: get doc %d error: %s", docID, err)
-		return
+		logo.Warn("summarizer: get doc %d error: %s", docId, err)
+		return err
 	}
 
 	if len(doc.Collection) > 0 && doc.Collection[0] == '@' {
-		return
+		return nil
 	}
 
-	existingSummary, _ := my.findExistingSummary(docID)
+	existingSummary, _ := dao.GetDocumentBySourceDocId(summaryCollection, docId)
 	if existingSummary != nil {
 		existingChunks, _ := dao.GetChunksByDocId(existingSummary.Id)
 		if len(existingChunks) > 0 && existingChunks[0].Hash == doc.Hash {
 			dao.TouchDocument(existingSummary.Id)
-			return
+			return nil
 		}
 	}
 
-	chunks, err := dao.GetChunksByDocId(docID)
+	chunks, err := dao.GetChunksByDocId(docId)
 	if err != nil || len(chunks) == 0 {
-		logo.Warn("summarizer: no chunks for doc %d", docID)
-		return
+		logo.Warn("summarizer: no chunks for doc %d", docId)
+		return err
 	}
 
 	var content string
@@ -88,15 +166,13 @@ func (my *Summarizer) processDoc(docID int64) {
 
 	summary, err := my.generateSummary(doc.Title, content)
 	if err != nil {
-		logo.Warn("summarizer: generate summary for doc %d error: %s", docID, err)
-		return
+		logo.Warn("summarizer: generate summary for doc %d error: %s", docId, err)
+		return err
 	}
 
-	my.upsertSummary(docID, doc.Hash, summary)
-}
-
-func (my *Summarizer) findExistingSummary(docID int64) (*dao.DocumentRecord, error) {
-	return dao.GetDocumentBySourceDocId(summaryCollection, docID)
+	logo.Info("summarizer: generated summary for doc %d (%s) → %s", docId, doc.Title, summary)
+	my.upsertSummary(docId, doc.Hash, summary)
+	return nil
 }
 
 func (my *Summarizer) truncateContent(content string) string {
@@ -150,35 +226,9 @@ func (my *Summarizer) generateSummary(title, content string) (string, error) {
 	return my.llm.ChatCompletion(ctx, messages)
 }
 
-func (my *Summarizer) upsertSummary(sourceDocID int64, hash, summary string) {
-	existing, _ := my.findExistingSummary(sourceDocID)
-	if existing != nil {
-		dao.DeleteDocument(existing.Id)
-	}
-
-	doc := &dao.DocumentRecord{
-		Collection:  summaryCollection,
-		Path:        "",
-		Title:       "",
-		Body:        "",
-		Hash:        hash,
-		SourceDocId: sourceDocID,
-	}
-
-	if err := dao.UpsertDocument(doc); err != nil {
-		logo.Warn("summarizer: upsert summary doc error: %s", err)
-		return
-	}
-
-	chunks := []dao.ChunkData{{
-		Content:    summary,
-		Position:   0,
-		TokenCount: 0,
-		Hash:       hash,
-	}}
-
-	_, err := dao.InsertChunks(doc.Id, chunks, []string{summary})
+func (my *Summarizer) upsertSummary(sourceDocId int64, hash, summary string) {
+	_, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary)
 	if err != nil {
-		logo.Warn("summarizer: insert summary chunk error: %s", err)
+		logo.Warn("summarizer: upsert summary doc error: %s", err)
 	}
 }

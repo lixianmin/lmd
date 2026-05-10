@@ -79,7 +79,7 @@ func DefaultConfig() *Config {
 			MaxOutputTokens: 512,
 			MaxInputTokens:  245000,
 			CooldownSeconds: 120,
-			NoThinking:      true,
+			NoThinking:      false,
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "index.sqlite"),
