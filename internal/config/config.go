@@ -3,141 +3,127 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
-	"gopkg.in/yaml.v3"
+	"github.com/lixianmin/got/convert"
+	"github.com/lixianmin/logo"
 )
 
+var Cfg *Config
+var once sync.Once
+
 type Config struct {
-	Daemon    DaemonConfig    `yaml:"daemon"`
-	Llama     LlamaConfig     `yaml:"llama"`
+	Providers ProviderConfig  `yaml:"providers"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
-	HyDE      HyDEConfig      `yaml:"hyde"`
-	Vector    VectorConfig    `yaml:"vector"`
+	Summary   SummaryConfig   `yaml:"summary"`
 	Database  DatabaseConfig  `yaml:"database"`
-	Topic     TopicConfig     `yaml:"topic"`
+	Daemon    DaemonConfig    `yaml:"daemon"`
 }
 
 type DaemonConfig struct {
 	Port int `yaml:"port"`
 }
 
-type LlamaConfig struct {
-	EmbedModel       string `yaml:"embed_model"`
-	GPULayers        int    `yaml:"gpu_layers"`
-	ModelIdleTimeout string `yaml:"model_idle_timeout"`
-	Parallel         int    `yaml:"parallel"`
-	Threads          int    `yaml:"threads"`
+type ProviderConfig struct {
+	Ollama      ProviderItem `yaml:"ollama"`
+	SiliconFlow ProviderItem `yaml:"siliconflow"`
+}
+
+type ProviderItem struct {
+	URL    string `yaml:"url"`
+	APIKey string `yaml:"api_key,omitempty"`
 }
 
 type EmbeddingConfig struct {
-	BatchSize int `yaml:"batch_size"`
-	// 发送给 embedding 模型前，每个 chunk 文本的 rune 截断上限。
-	// 必须大于 chunker.hardMax (= chunkSize + chunkSize/2 = 450)，否则 overlap 拼接后的大 chunk 会被截断导致 embedding 丢信息。
-	Truncation int `yaml:"truncation"`
-}
-
-type HyDEConfig struct {
-	BaseURL   string `yaml:"base_url"`
-	APIKey    string `yaml:"api_key"`
+	Provider  string `yaml:"provider"`
 	Model     string `yaml:"model"`
-	MaxTokens int    `yaml:"max_tokens"`
+	BatchSize int    `yaml:"batch_size"`
 }
 
-type VectorConfig struct {
-	Dimensions     int    `yaml:"dimensions"`
-	DistanceMetric string `yaml:"distance_metric"`
+type SummaryConfig struct {
+	Provider        string `yaml:"provider"`
+	Model           string `yaml:"model"`
+	MaxOutputTokens int    `yaml:"max_output_tokens"`
+	MaxInputTokens  int    `yaml:"max_input_tokens"`
+	CooldownSeconds int    `yaml:"cooldown_seconds"`
+	NoThinking      bool   `yaml:"no_thinking"`
 }
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
 }
 
-type TopicConfig struct {
-	SummarizeModel     string `yaml:"summarize_model"`
-	SummarizeGPULayers int    `yaml:"summarize_gpu_layers"`
-	SummarizeThreads   int    `yaml:"summarize_threads"`
-	CooldownSeconds    int    `yaml:"cooldown_seconds"`
-}
-
-var Cfg *Config
-
-var configDir string
-
-func init() {
-	home, _ := os.UserHomeDir()
-	configDir = filepath.Join(home, ".config", "lmd")
-}
-
 func DefaultConfig() *Config {
-	home, _ := os.UserHomeDir()
 	return &Config{
 		Daemon: DaemonConfig{
 			Port: 12345,
 		},
-		Llama: LlamaConfig{
-			EmbedModel:       filepath.Join(home, ".cache", "lmd", "models", "Qwen3-Embedding-0.6B-Q8_0.gguf"),
-			GPULayers:        -1,
-			ModelIdleTimeout: "10m",
-			Parallel:         8,
-			Threads:          4,
+		Providers: ProviderConfig{
+			Ollama: ProviderItem{
+				URL: "http://localhost:11434",
+			},
+			SiliconFlow: ProviderItem{
+				URL:    "https://api.siliconflow.cn/v1",
+				APIKey: "sk-your-api-key-here",
+			},
 		},
 		Embedding: EmbeddingConfig{
-			BatchSize:  8,
-			Truncation: 500,
+			Provider:  "ollama",
+			Model:     "batiai/qwen3-embedding",
+			BatchSize: 8,
 		},
-		HyDE: HyDEConfig{
-			BaseURL:   "https://api.siliconflow.cn/v1",
-			APIKey:    "",
-			Model:     "Qwen/Qwen3.5-9B",
-			MaxTokens: 200,
-		},
-		Vector: VectorConfig{
-			Dimensions:     1024,
-			DistanceMetric: "cosine",
+		Summary: SummaryConfig{
+			Provider:        "ollama",
+			Model:           "qwen3.5",
+			MaxOutputTokens: 512,
+			MaxInputTokens:  245000,
+			CooldownSeconds: 120,
+			NoThinking:      true,
 		},
 		Database: DatabaseConfig{
-			Path: filepath.Join(home, ".cache", "lmd", "index.sqlite"),
-		},
-		Topic: TopicConfig{
-			SummarizeModel:     filepath.Join(home, ".cache", "lmd", "models", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
-			SummarizeGPULayers: -1,
-			SummarizeThreads:   4,
-			CooldownSeconds:    300,
+			Path: filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "index.sqlite"),
 		},
 	}
 }
 
-func Load() (*Config, error) {
-	path := filepath.Join(configDir, "config.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			cfg := DefaultConfig()
-			Cfg = cfg
-			SaveDefault()
-			return cfg, nil
+func Load() {
+	once.Do(func() {
+		Cfg = DefaultConfig()
+		configPath := resolveConfigPath()
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				_ = SaveDefault(configPath)
+				logo.Info("config: created default config at %s", configPath)
+				return
+			}
+			logo.Warn("config: read %s error: %s, using defaults", configPath, err)
+			return
 		}
-		return nil, err
-	}
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, err
-	}
-	Cfg = cfg
-	return cfg, nil
+		if err := convert.FromJsonE(data, Cfg); err != nil {
+			logo.Warn("config: unmarshal error: %s, using defaults", err)
+			return
+		}
+	})
 }
 
-func SaveDefault() error {
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+func resolveConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "lmd", "config.yaml")
+}
+
+func SaveDefault(configPath string) error {
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 	toSave := Cfg
 	if toSave == nil {
 		toSave = DefaultConfig()
 	}
-	data, err := yaml.Marshal(toSave)
+	data, err := convert.ToJsonE(toSave)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(configDir, "config.yaml"), data, 0600)
+	return os.WriteFile(configPath, data, 0600)
 }
