@@ -111,7 +111,7 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 		req.MinScore = defaultVectorMinScore
 	}
 
-	results, err := my.searcher.SearchVector(r.Context(), my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	results, err := my.searcher.SearchVector(r.Context(), my.embedProvider, req.Query, req.Collection, req.Limit, req.MinScore)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -149,7 +149,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vecHits, err := my.searcher.SearchVector(r.Context(), my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+	vecHits, err := my.searcher.SearchVector(r.Context(), my.embedProvider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -184,54 +184,10 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		req.Limit = defaultSearchLimit
 	}
 
-	resp := map[string]any{}
-
-	if my.hydeClient == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"error": "HyDE not available",
-			"hits":  []formatter.SearchHit{},
-		})
-		return
-	}
-
-	t0 := time.Now()
-	hydeDoc, hydeErr := my.hydeClient.Generate(r.Context(), req.Query)
-	hydeDur := time.Since(t0)
-	resp["hyde_generate_ms"] = hydeDur.Milliseconds()
-
-	if hydeErr != nil {
-		logo.Warn("handleHyde: generate failed: %s (%s)", hydeErr, hydeDur)
-		resp["hyde_error"] = hydeErr.Error()
-		resp["hits"] = []formatter.SearchHit{}
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-	resp["hyde_document"] = hydeDoc
-	logo.Info("handleHyde: generated (%s): %s", hydeDur, truncateForLog(hydeDoc, docPreviewMaxRunes))
-
-	hydeVec, embedErr := my.provider.Embed(r.Context(), hydeDoc)
-	if embedErr != nil {
-		logo.Warn("handleHyde: embed failed: %s", embedErr)
-		resp["hyde_embed_error"] = embedErr.Error()
-		resp["hits"] = []formatter.SearchHit{}
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-
-	fetchLimit := safeOverfetch(req.Limit)
-	hydeHits, hydeErr := my.searcher.SearchVectorByEmbedding(hydeVec, req.Collection, fetchLimit)
-	if hydeErr != nil {
-		logo.Warn("handleHyde: vector search failed: %s", hydeErr)
-		resp["hyde_error"] = hydeErr.Error()
-		resp["hits"] = []formatter.SearchHit{}
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-	resp["hyde_hits"] = len(hydeHits)
-	logo.Info("handleHyde: hyde_hits=%d", len(hydeHits))
-
-	resp["hits"] = filterAndLimit(hydeHits, req.MinScore, req.Limit)
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"error": "HyDE not available",
+		"hits":  []formatter.SearchHit{},
+	})
 }
 
 func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
@@ -254,47 +210,11 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 		req.Limit = defaultSearchLimit
 	}
 
-	if my.topicRouter == nil || my.provider == nil {
-		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
-		vecHits, _ := my.searcher.SearchVector(r.Context(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
-		results := service.FuseResults(lexHits, vecHits)
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
-		return
-	}
-
-	queryVec, err := my.provider.EmbedQuery(r.Context(), req.Query)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	_, docIDs, err := my.topicRouter.Route(queryVec)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if len(docIDs) == 0 {
-		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
-		vecHits, _ := my.searcher.SearchVector(r.Context(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
-		results := service.FuseResults(lexHits, vecHits)
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
-		return
-	}
-
-	results, err := my.topicRouter.SearchInDocs(my.searcher, my.provider, req.Query, docIDs, req.Limit, req.Strategy)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.MinScore > 0 {
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-	}
-
-	logo.Info("handleSmartQuery: query=%q docs=%d hits=%d", req.Query, len(docIDs), len(results))
-	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
+	lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
+	vecHits, _ := my.searcher.SearchVector(r.Context(), my.embedProvider, req.Query, "", safeOverfetch(req.Limit), 0)
+	results := service.FuseResults(lexHits, vecHits)
+	results = filterAndLimit(results, req.MinScore, req.Limit)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {

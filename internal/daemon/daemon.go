@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +21,7 @@ import (
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/embedding"
+	"github.com/lixianmin/lmd/internal/llm"
 	"github.com/lixianmin/lmd/internal/mcp"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/lmd/internal/tokenizer"
@@ -47,16 +47,13 @@ type Daemon struct {
 	etaStartAt atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
 	etaStartNum atomic.Int64 // ETA 基准已嵌入数 (启动时记录)
 
-	tokenizer  tokenizer.Tokenizer
-	indexer    *service.Indexer
-	searcher   *service.Searcher
-	embedder   *service.Embedder
-	provider   *embedding.LlamaProvider
-	hydeClient *service.HyDEAPIClient
-
-	topicIndexer *service.TopicIndexer
-	topicRouter  *service.TopicRouter
-	llmClient    *service.LLMClient
+	tokenizer     tokenizer.Tokenizer
+	indexer       *service.Indexer
+	searcher      *service.Searcher
+	embedder      *service.Embedder
+	embedProvider embedding.EmbeddingProvider
+	llmProvider   llm.LLMProvider
+	summarizer    *service.Summarizer
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -81,61 +78,32 @@ func (my *Daemon) Start(ctx context.Context) error {
 	}
 	my.tokenizer = tok
 
-	embedURLs := []string{
-		"https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
-		"https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+	var embedProv embedding.EmbeddingProvider
+	switch my.cfg.Embedding.Provider {
+	case "ollama":
+		embedProv = embedding.NewOllamaProvider(my.cfg.Providers.Ollama.URL, my.cfg.Embedding.Model)
+	case "siliconflow":
+		embedProv = embedding.NewSiliconFlowEmbedding(my.cfg.Providers.SiliconFlow.URL, my.cfg.Embedding.Model, my.cfg.Providers.SiliconFlow.APIKey)
+	default:
+		return fmt.Errorf("unknown embedding provider: %s", my.cfg.Embedding.Provider)
 	}
-	loom.Go(func(later loom.Later) {
-		fmt.Fprintf(os.Stderr, "  Downloading embedding model if needed...\n")
-		if err := service.DownloadModel(my.cfg.Llama.EmbedModel, embedURLs...); err != nil {
-			logo.Warn("daemon: embed model download failed: %s", err)
-		}
-	})
+	my.embedProvider = embedProv
 
-	my.provider = embedding.NewLlamaProvider(
-		my.cfg.Llama.EmbedModel,
-		my.cfg.Llama.GPULayers,
-		my.cfg.Llama.Threads,
-		my.cfg.Llama.Parallel,
-	)
+	var llmProv llm.LLMProvider
+	switch my.cfg.Summary.Provider {
+	case "ollama":
+		llmProv = llm.NewOllamaLLM(my.cfg.Providers.Ollama.URL, my.cfg.Summary.Model, my.cfg.Summary.NoThinking)
+	case "siliconflow":
+		llmProv = llm.NewSiliconFlowLLM(my.cfg.Providers.SiliconFlow.URL, my.cfg.Summary.Model, my.cfg.Providers.SiliconFlow.APIKey)
+	default:
+		return fmt.Errorf("unknown summary provider: %s", my.cfg.Summary.Provider)
+	}
+	my.llmProvider = llmProv
 
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
-	my.embedder = service.NewEmbedder(my.provider, my.cfg.Embedding.BatchSize, my.cfg.Embedding.Truncation)
-
-	my.hydeClient = service.NewHyDEAPIClient(
-		my.cfg.HyDE.BaseURL, my.cfg.HyDE.APIKey, my.cfg.HyDE.Model, my.cfg.HyDE.MaxTokens,
-	)
-
-	loom.Go(func(later loom.Later) {
-		if my.cfg.Topic.SummarizeModel == "" {
-			return
-		}
-		summaryURLs := []string{
-			"https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-			"https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-		}
-		fmt.Fprintf(os.Stderr, "  Downloading summarize model if needed...\n")
-		if err := service.DownloadModel(my.cfg.Topic.SummarizeModel, summaryURLs...); err != nil {
-			logo.Warn("daemon: summarize model download failed: %s", err)
-			return
-		}
-
-		llm, err := service.NewLLMClient(
-			my.cfg.Topic.SummarizeModel,
-			my.cfg.Topic.SummarizeGPULayers,
-			my.cfg.Topic.SummarizeThreads,
-		)
-		if err != nil {
-			logo.Warn("daemon: LLM client init failed: %s", err)
-			return
-		}
-		my.llmClient = llm
-		my.topicIndexer = service.NewTopicIndexer(llm, my.provider, time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second)
-		logo.Info("daemon: summarize model ready")
-		go my.syncTopics()
-	})
-	my.topicRouter = service.NewTopicRouter()
+	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
+	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary)
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -189,8 +157,8 @@ func (my *Daemon) Stop() error {
 			my.server.Close()
 		}
 
-		if my.llmClient != nil {
-			my.llmClient.Close()
+		if my.llmProvider != nil {
+			my.llmProvider.Close()
 		}
 
 		if dao.DB != nil {
@@ -208,13 +176,12 @@ func (my *Daemon) Stop() error {
 func (my *Daemon) goLoop(later loom.Later) {
 	var syncIndexTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
-	var modelIdleTimeout = parseDuration(my.cfg.Llama.ModelIdleTimeout, 10*time.Minute)
 
-	topicCooldown := my.cfg.Topic.CooldownSeconds
-	if topicCooldown <= 0 {
-		topicCooldown = 300
+	summaryCooldown := my.cfg.Summary.CooldownSeconds
+	if summaryCooldown <= 0 {
+		summaryCooldown = 300
 	}
-	var topicSyncTicker = later.NewTicker(time.Duration(topicCooldown) * time.Second)
+	var summaryTicker = later.NewTicker(time.Duration(summaryCooldown) * time.Second)
 
 	for {
 		select {
@@ -222,11 +189,10 @@ func (my *Daemon) goLoop(later loom.Later) {
 			return
 		case <-syncIndexTicker.C:
 			my.syncIndex()
-		case <-topicSyncTicker.C:
-			my.syncTopics()
+		case <-summaryTicker.C:
+			my.summarizer.ProcessDirty()
 		case <-embedTicker.C:
 			my.embedChunks()
-			my.provider.ReleaseIfIdle(modelIdleTimeout)
 		}
 	}
 }
@@ -245,12 +211,15 @@ func (my *Daemon) syncIndexUnlocked() {
 	}
 	for _, col := range cols {
 		if strings.HasPrefix(col.Name, "@") {
-			continue // 系统 collection，由 memory 接口管理，不参与文件同步
+			continue // 系统 collection，不参与文件同步
 		}
 		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 		if err != nil {
 			logo.Error("indexPoller: %s failed: %s", col.Name, err)
 			continue
+		}
+		if result != nil && len(result.DirtyDocIds) > 0 {
+			my.summarizer.MarkDirty(result.DirtyDocIds)
 		}
 		if result.Indexed > 0 || result.Updated > 0 || result.Removed > 0 {
 			logo.Info("indexPoller: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)
@@ -282,74 +251,6 @@ func (my *Daemon) embedChunks() {
 	_, err := my.embedder.EmbedBatch(ctx, 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
-	}
-}
-
-func (my *Daemon) syncTopics() {
-	if my.topicIndexer == nil {
-		return
-	}
-	my.rebuildMu.RLock()
-	defer my.rebuildMu.RUnlock()
-
-	cols, err := dao.ListCollections()
-	if err != nil {
-		logo.Error("syncTopics: list collections failed: %s", err)
-		return
-	}
-	for _, col := range cols {
-		if strings.HasPrefix(col.Name, "@") {
-			continue
-		}
-		my.syncCollectionTopics(col)
-	}
-}
-
-func (my *Daemon) syncCollectionTopics(col dao.CollectionRecord) {
-	err := filepath.WalkDir(col.Path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") {
-			return filepath.SkipDir
-		}
-		relPath, _ := filepath.Rel(col.Path, path)
-		if relPath == "." {
-			relPath = ""
-		}
-		my.syncDirTopic(col.Name, path, relPath)
-		return nil
-	})
-	if err != nil {
-		logo.Error("syncTopics: walk %s failed: %s", col.Path, err)
-	}
-}
-
-func (my *Daemon) syncDirTopic(collection, dirPath, relPath string) {
-	topicPath := filepath.Join(dirPath, "_topic.md")
-
-	info, statErr := os.Stat(topicPath)
-
-	if statErr == nil {
-		if time.Since(info.ModTime()) < time.Duration(my.cfg.Topic.CooldownSeconds)*time.Second {
-			return
-		}
-		// file exists: check hash to detect human edits
-		if data, err := os.ReadFile(topicPath); err == nil {
-			currentHash := service.Sha256Hex(string(data))
-			existing, _ := dao.GetTopic(collection, relPath)
-			if existing != nil && !service.ShouldSummarize(existing.Hash, currentHash) {
-				logo.Info("syncTopics: skip %s/%s (hash changed, human edited)", collection, relPath)
-				return
-			}
-		}
-	}
-
-	if err := my.topicIndexer.SummarizeDir(context.Background(), collection, dirPath, relPath); err != nil {
-		logo.Error("syncTopics: summarize %s/%s failed: %s", collection, relPath, err)
 	}
 }
 

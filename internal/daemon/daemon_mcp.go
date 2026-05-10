@@ -125,7 +125,7 @@ func (my *Daemon) handleToolQuery(params json.RawMessage) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	vecHits, err := my.searcher.SearchVector(context.Background(), my.provider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
+	vecHits, err := my.searcher.SearchVector(context.Background(), my.embedProvider, req.Query, req.Collection, safeOverfetch(req.Limit), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (my *Daemon) handleToolVsearch(params json.RawMessage) (interface{}, error)
 	if req.MinScore == 0 {
 		req.MinScore = defaultVectorMinScore
 	}
-	hits, err := my.searcher.SearchVector(context.Background(), my.provider, req.Query, req.Collection, req.Limit, req.MinScore)
+	hits, err := my.searcher.SearchVector(context.Background(), my.embedProvider, req.Query, req.Collection, req.Limit, req.MinScore)
 	if err != nil {
 		return nil, err
 	}
@@ -220,39 +220,11 @@ func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, err
 		req.Limit = defaultSearchLimit
 	}
 
-	if my.topicRouter == nil || my.provider == nil {
-		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
-		vecHits, _ := my.searcher.SearchVector(context.Background(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
-		results := service.FuseResults(lexHits, vecHits)
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-		return map[string]interface{}{"hits": results, "routed": false}, nil
-	}
-
-	queryVec, err := my.provider.EmbedQuery(context.Background(), req.Query)
-	if err != nil {
-		return nil, err
-	}
-
-	_, docIDs, err := my.topicRouter.Route(queryVec)
-	if err != nil {
-		return nil, err
-	}
-	if len(docIDs) == 0 {
-		lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
-		vecHits, _ := my.searcher.SearchVector(context.Background(), my.provider, req.Query, "", safeOverfetch(req.Limit), 0)
-		results := service.FuseResults(lexHits, vecHits)
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-		return map[string]interface{}{"hits": results, "routed": false}, nil
-	}
-
-	results, err := my.topicRouter.SearchInDocs(my.searcher, my.provider, req.Query, docIDs, req.Limit, req.Strategy)
-	if err != nil {
-		return nil, err
-	}
-	if req.MinScore > 0 {
-		results = filterAndLimit(results, req.MinScore, req.Limit)
-	}
-	return map[string]interface{}{"hits": results, "routed": true}, nil
+	lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
+	vecHits, _ := my.searcher.SearchVector(context.Background(), my.embedProvider, req.Query, "", safeOverfetch(req.Limit), 0)
+	results := service.FuseResults(lexHits, vecHits)
+	results = filterAndLimit(results, req.MinScore, req.Limit)
+	return map[string]interface{}{"hits": results, "routed": false}, nil
 }
 
 func truncateForLog(s string, maxRunes int) string {
