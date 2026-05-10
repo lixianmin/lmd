@@ -18,9 +18,7 @@ var rootCmd = &cobra.Command{
 	Short: "LMD - Local Markdown Docs search engine",
 	Long:  "A local hybrid search engine for Markdown documents with Chinese language support.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := config.Load(); err != nil {
-			return fmt.Errorf("config load failed: %w", err)
-		}
+		config.Load()
 
 		if cmd == daemonStartCmd || cmd == stopCmd {
 			return nil
