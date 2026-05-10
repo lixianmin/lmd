@@ -13,6 +13,7 @@ type LLMClient struct {
 	modelPath string
 	gpuLayers int
 	threads   int
+	parallel  int
 
 	mu    sync.Mutex
 	model *llama.Model
@@ -27,6 +28,7 @@ func NewLLMClient(modelPath string, gpuLayers, threads int) (*LLMClient, error) 
 		modelPath: modelPath,
 		gpuLayers: gpuLayers,
 		threads:   threads,
+		parallel:  1,
 	}, nil
 }
 
@@ -64,6 +66,7 @@ func (my *LLMClient) loadLocked() error {
 	// Create context without Embeddings flag since this is a generation model
 	lctx, err := model.NewContext(
 		llama.WithThreads(my.threads),
+		llama.WithParallel(my.parallel),
 	)
 	if err != nil {
 		model.Close()
