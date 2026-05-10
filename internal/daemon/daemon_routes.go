@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -209,12 +210,74 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 	if req.Limit <= 0 {
 		req.Limit = defaultSearchLimit
 	}
+	if req.Strategy == "" {
+		req.Strategy = "pos-or"
+	}
 
-	lexHits, _ := my.searcher.SearchLex(req.Query, "", safeOverfetch(req.Limit), 0, req.Strategy)
-	vecHits, _ := my.searcher.SearchVector(r.Context(), my.embedProvider, req.Query, "", safeOverfetch(req.Limit), 0)
-	results := service.FuseResults(lexHits, vecHits)
+	ctx := r.Context()
+	overfetch := safeOverfetch(req.Limit)
+
+	lexHits, _ := my.searcher.SearchLex(req.Query, "@summaries", overfetch, 0, req.Strategy)
+	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@summaries", overfetch, 0)
+	summaryHits := service.FuseResults(lexHits, vecHits)
+
+	if len(summaryHits) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	docIDSet := make(map[int64]bool)
+	for _, h := range summaryHits {
+		doc, err := dao.GetDocumentByDocId(h.DocId)
+		if err != nil {
+			continue
+		}
+		if doc.SourceDocId > 0 {
+			docIDSet[doc.SourceDocId] = true
+		}
+	}
+
+	if len(docIDSet) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	lexHits2, _ := my.searcher.SearchLex(req.Query, "", overfetch*2, 0, req.Strategy)
+	vecHits2, _ := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "", overfetch*2, 0)
+
+	lexHits2 = filterHitsByDocIds(lexHits2, docIDSet)
+	vecHits2 = filterHitsByDocIds(vecHits2, docIDSet)
+
+	results := service.FuseResults(lexHits2, vecHits2)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
-	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+
+	logo.Info("handleSmartQuery: query=%q summary=%d docs=%d results=%d routed=true",
+		req.Query, len(summaryHits), len(docIDSet), len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
+}
+
+func (my *Daemon) fullHybridSearch(ctx context.Context, query, collection string, limit int, minScore float64, strategy string) []formatter.SearchHit {
+	overfetch := safeOverfetch(limit)
+	lexHits, _ := my.searcher.SearchLex(query, collection, overfetch, 0, strategy)
+	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, query, collection, overfetch, 0)
+	results := service.FuseResults(lexHits, vecHits)
+	return filterAndLimit(results, minScore, limit)
+}
+
+func filterHitsByDocIds(hits []formatter.SearchHit, allowedIDs map[int64]bool) []formatter.SearchHit {
+	var filtered []formatter.SearchHit
+	for _, h := range hits {
+		doc, err := dao.GetDocumentByDocId(h.DocId)
+		if err != nil {
+			continue
+		}
+		if allowedIDs[doc.Id] {
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
