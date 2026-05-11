@@ -347,6 +347,67 @@ func TestGetEmbeddingsByChunkIdsEmpty(t *testing.T) {
 	}
 }
 
+func TestInsertChunksAndVectors(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+
+	docId, err := InsertDocument("notes", "test.md", "Title", "body", 4, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chunks := []ChunkData{
+		{Content: "hello world", Position: 0, TokenCount: 2, Hash: "h1"},
+		{Content: "foo bar", Position: 1, TokenCount: 2, Hash: "h1"},
+	}
+	tokenized := []string{"hello world", "foo bar"}
+	vecs := make([][]float32, 2)
+	vecs[0] = make([]float32, EmbeddingDim)
+	vecs[1] = make([]float32, EmbeddingDim)
+	vecs[0][0] = 0.5
+	vecs[1][0] = 0.8
+
+	inserted, err := InsertChunksAndVectors(docId, "notes", chunks, tokenized, vecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inserted) != 2 {
+		t.Fatalf("expected 2 inserted chunks, got %d", len(inserted))
+	}
+
+	for _, c := range inserted {
+		var vecCount int
+		rows, _ := WithQuery("SELECT COUNT(*) FROM chunks_vec WHERE chunk_id=?", c.Id)
+		if rows.Next() {
+			rows.Scan(&vecCount)
+		}
+		rows.Close()
+		if vecCount != 1 {
+			t.Fatalf("chunk %d: expected 1 vector, got %d", c.Id, vecCount)
+		}
+	}
+
+	ftsResults, _ := SearchFTS("hello", "notes", 10)
+	if len(ftsResults) != 1 {
+		t.Fatalf("expected 1 FTS result for 'hello', got %d", len(ftsResults))
+	}
+}
+
+func TestInsertChunksAndVectorsMismatch(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, "h1")
+
+	chunks := []ChunkData{{Content: "a", Position: 0, TokenCount: 1, Hash: "h"}}
+	tokenized := []string{"a"}
+	vecs := make([][]float32, 2)
+
+	_, err := InsertChunksAndVectors(docId, "notes", chunks, tokenized, vecs)
+	if err == nil {
+		t.Fatal("expected error for mismatched lengths")
+	}
+}
+
 func TestInsertChunksIgnoreDuplicate(t *testing.T) {
 	initTestDB(t)
 
