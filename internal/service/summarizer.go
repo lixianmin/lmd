@@ -8,6 +8,7 @@ import (
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/llm"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
@@ -16,32 +17,26 @@ import (
 const summaryCollection = "@summaries"
 
 type Summarizer struct {
-	mu        sync.Mutex
-	dirty     map[int64]bool
-	llm       llm.LLMProvider
-	maxOutput int
-	maxInput  int
-	onUpsert  func()
-	stopCh    <-chan struct{}
-	tokenizer tokenizer.Tokenizer
+	mu            sync.Mutex
+	dirty         map[int64]bool
+	llm           llm.LLMProvider
+	maxOutput     int
+	maxInput      int
+	tokenizer     tokenizer.Tokenizer
+	embedProvider embedding.EmbeddingProvider
 }
 
-func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig, tok tokenizer.Tokenizer) *Summarizer {
-	return &Summarizer{
-		dirty:     make(map[int64]bool),
-		llm:       llmProvider,
-		maxOutput: cfg.MaxOutputTokens,
-		maxInput:  cfg.MaxInputTokens,
-		tokenizer: tok,
+func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig, tok tokenizer.Tokenizer, embedProv embedding.EmbeddingProvider) *Summarizer {
+	var my = &Summarizer{
+		dirty:         make(map[int64]bool),
+		llm:           llmProvider,
+		maxOutput:     cfg.MaxOutputTokens,
+		maxInput:      cfg.MaxInputTokens,
+		tokenizer:     tok,
+		embedProvider: embedProv,
 	}
-}
 
-func (my *Summarizer) SetOnUpsert(fn func()) {
-	my.onUpsert = fn
-}
-
-func (my *Summarizer) SetStopCh(ch <-chan struct{}) {
-	my.stopCh = ch
+	return my
 }
 
 func (my *Summarizer) MarkDirty(docIds []int64) {
@@ -62,6 +57,7 @@ func (my *Summarizer) ScanAll() {
 	type docEntry struct {
 		id int64
 	}
+
 	var candidates []docEntry
 	for _, col := range cols {
 		if strings.HasPrefix(col.Name, "@") {
@@ -99,23 +95,11 @@ func (my *Summarizer) ScanAll() {
 	}
 }
 
-func (my *Summarizer) ProcessDirty() {
+func (my *Summarizer) ProcessDirty(ctx context.Context) {
 	dirty := my.popDirty()
 	if len(dirty) == 0 {
 		return
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	if my.stopCh != nil {
-		go func() {
-			select {
-			case <-my.stopCh:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-	}
-	defer cancel()
 
 	logo.Info("summarizer: processing %d dirty docs", len(dirty))
 	var done, failed int
@@ -195,12 +179,14 @@ func (my *Summarizer) processDoc(ctx context.Context, docId int64) error {
 		return err
 	}
 
-	logo.Info("summarizer: generated summary for doc %d (%s) → %s", docId, doc.Title, summary)
-	my.upsertSummary(docId, doc.Hash, summary)
-	if my.onUpsert != nil {
-		my.onUpsert()
+	vecs, err := my.embedProvider.EmbedBatch(ctx, []string{summary})
+	if err != nil {
+		logo.Warn("summarizer: embed summary for doc %d error: %s", docId, err)
+		return err
 	}
-	return nil
+
+	logo.Info("summarizer: generated summary for doc %d (%s) → %s", docId, doc.Title, summary)
+	return my.upsertSummaryWithVector(docId, doc.Hash, summary, vecs[0])
 }
 
 func (my *Summarizer) truncateContent(content string) string {
@@ -253,17 +239,18 @@ func (my *Summarizer) generateSummary(ctx context.Context, title, content string
 	return my.llm.ChatCompletion(ctx, messages)
 }
 
-func (my *Summarizer) upsertSummary(sourceDocId int64, hash, summary string) {
+func (my *Summarizer) upsertSummaryWithVector(sourceDocId int64, hash, summary string, vec []float32) error {
 	tokenized := summary
 	if my.tokenizer != nil {
 		if t := my.tokenizer.TokenizeToString(summary); t != "" {
 			tokenized = t
 		}
 	}
-	docId, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary, tokenized)
+	docId, err := dao.UpsertSummaryWithVector(sourceDocId, hash, summary, tokenized, vec)
 	if err != nil {
-		logo.Error("summarizer: upsert summary for doc %d failed: %s", sourceDocId, err)
-	} else {
-		logo.Info("summarizer: upserted summary for sourceDoc %d → summaryDoc %d", sourceDocId, docId)
+		logo.Error("summarizer: upsert summary with vector for doc %d failed: %s", sourceDocId, err)
+		return err
 	}
+	logo.Info("summarizer: upserted summary+vector for sourceDoc %d → summaryDoc %d", sourceDocId, docId)
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/llm"
 )
 
@@ -50,7 +51,7 @@ func TestSummarizerProcessDoc(t *testing.T) {
 		MaxOutputTokens: 200,
 		CooldownSeconds: 60,
 	}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, embedding.NewMockProvider(dao.EmbeddingDim))
 
 	if err := s.processDoc(context.Background(), doc.Id); err != nil {
 		t.Fatalf("processDoc: %v", err)
@@ -75,40 +76,15 @@ func TestSummarizerProcessDoc(t *testing.T) {
 	if chunksAfter[0].Content != "这是一个测试文档的摘要" {
 		t.Fatalf("expected mock summary, got '%s'", chunksAfter[0].Content)
 	}
-}
 
-func TestSummarizerOnUpsertCallback(t *testing.T) {
-	initSummarizerTestDB(t)
-	dao.AddCollection("notes", "/data", "**/*.md", nil)
-
-	doc := &dao.DocumentRecord{
-		Collection: "notes", Path: "test.md", Title: "Test Doc",
-		Body: "body text", Hash: "hash1", FileSize: 9,
+	var vecCount int
+	rows, _ := dao.WithQuery("SELECT COUNT(*) FROM chunks_vec WHERE chunk_id=?", chunksAfter[0].Id)
+	if rows.Next() {
+		rows.Scan(&vecCount)
 	}
-	dao.UpsertDocument(doc)
-
-	tokenized := []string{"hello world"}
-	dao.InsertChunks(doc.Id, []dao.ChunkData{
-		{Content: "hello world", Position: 0, TokenCount: 2, Hash: "h1"},
-	}, tokenized)
-
-	mockLLM := llm.NewMockLLM("summary text")
-	cfg := config.SummaryConfig{
-		MaxInputTokens:  30000,
-		MaxOutputTokens: 200,
-		CooldownSeconds: 60,
-	}
-	s := NewSummarizer(mockLLM, cfg, nil)
-
-	var callbackCalled int
-	s.SetOnUpsert(func() {
-		callbackCalled++
-	})
-
-	s.processDoc(context.Background(), doc.Id)
-
-	if callbackCalled != 1 {
-		t.Fatalf("expected onUpsert called once, got %d", callbackCalled)
+	rows.Close()
+	if vecCount != 1 {
+		t.Fatalf("expected 1 vector, got %d", vecCount)
 	}
 }
 
@@ -124,7 +100,7 @@ func TestSummarizerSkipsSystemCollections(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -147,7 +123,7 @@ func TestSummarizerSkipsNoChunks(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -175,7 +151,7 @@ func TestSummarizerSkipsExistingWithSameHash(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -190,7 +166,7 @@ func TestSummarizerDirtyMap(t *testing.T) {
 	initSummarizerTestDB(t)
 	mockLLM := llm.NewMockLLM("summary")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
 	s.addDirty(1)
 	s.addDirty(2)
@@ -209,7 +185,7 @@ func TestSummarizerDirtyMap(t *testing.T) {
 func TestSummarizerTruncateContent(t *testing.T) {
 	mockLLM := llm.NewMockLLM("summary")
 	cfg := config.SummaryConfig{MaxInputTokens: 100, MaxOutputTokens: 50}
-	s := NewSummarizer(mockLLM, cfg, nil)
+	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
 	short := "short content"
 	if got := s.truncateContent(short); got != short {
