@@ -20,6 +20,27 @@ const (
 	titleScanMaxLines = 20  // 提取标题时最多扫描的行数
 )
 
+type DocAction int
+
+const (
+	DocNew DocAction = iota
+	DocChanged
+	DocDeleted
+)
+
+type PendingDoc struct {
+	Action      DocAction
+	Collection  string
+	Path        string
+	Title       string
+	Body        string
+	Hash        string
+	FileSize    int64
+	FileModTime int64
+	OldDocId    int64
+	Chunks      []dao.ChunkData
+}
+
 type UpdateResult struct {
 	Indexed     int
 	Updated     int
@@ -252,6 +273,202 @@ func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string,
 	}
 
 	return result, nil
+}
+
+type existingDocInfo struct {
+	id          int64
+	hash        string
+	fileModTime int64
+}
+
+func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, ignorePatterns []string) ([]PendingDoc, error) {
+	pattern := globPattern
+	if pattern == "" {
+		pattern = "**/*.{md,txt}"
+	}
+	patterns := expandGlobPattern(pattern)
+
+	existingDocs, err := dao.ListDocumentsByCollection(collectionName)
+	if err != nil {
+		return nil, err
+	}
+	existingMap := make(map[string]existingDocInfo)
+	for _, d := range existingDocs {
+		existingMap[d.Path] = existingDocInfo{id: d.Id, hash: d.Hash, fileModTime: d.FileModTime}
+	}
+
+	ignoreMatcher := newIgnoreMatcher(ignorePatterns)
+	foundPaths := make(map[string]bool)
+	var pending []PendingDoc
+
+	err = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			logo.Warn("scanChanges: walk error %s: %s", path, err)
+			return nil
+		}
+		if d.IsDir() {
+			if ignoreMatcher.matchDir(path) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if ignoreMatcher.matchFile(path) {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			logo.Warn("scanChanges: rel path error %s: %s", path, err)
+			return nil
+		}
+
+		matched := false
+		for _, p := range patterns {
+			if strings.Contains(p, "**/") {
+				matched, _ = filepath.Match(strings.TrimPrefix(p, "**/"), filepath.Base(relPath))
+			} else {
+				matched, _ = filepath.Match(p, filepath.Base(relPath))
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return nil
+		}
+
+		stat, err := os.Stat(path)
+		if err != nil {
+			logo.Warn("scanChanges: stat error %s: %s", path, err)
+			return nil
+		}
+		fileModTime := stat.ModTime().UnixNano()
+
+		relPath = filepath.ToSlash(relPath)
+		foundPaths[relPath] = true
+
+		existing, exists := existingMap[relPath]
+		if exists {
+			if existing.fileModTime == fileModTime {
+				return nil
+			}
+
+			content, err := os.ReadFile(path)
+			if err != nil {
+				logo.Warn("scanChanges: read error %s: %s", path, err)
+				return nil
+			}
+			hash := hashContent(content)
+
+			if existing.fileModTime == 0 {
+				title := extractTitle(string(content), relPath)
+				body := string(content)
+				ch := my.chunkerForExt(filepath.Ext(relPath))
+				chunks, _ := ch.Chunk(body)
+				chunkData := make([]dao.ChunkData, len(chunks))
+				for i, c := range chunks {
+					chunkData[i] = dao.ChunkData{
+						Content:    c.Content,
+						Position:   c.StartLine,
+						TokenCount: c.TokenCount,
+						Hash:       hash,
+					}
+				}
+				pending = append(pending, PendingDoc{
+					Action:      DocChanged,
+					Collection:  collectionName,
+					Path:        relPath,
+					Title:       title,
+					Body:        body,
+					Hash:        hash,
+					FileSize:    int64(len(content)),
+					FileModTime: fileModTime,
+					OldDocId:    existing.id,
+					Chunks:      chunkData,
+				})
+				return nil
+			}
+
+			if existing.hash == hash {
+				return nil
+			}
+
+			title := extractTitle(string(content), relPath)
+			body := string(content)
+			ch := my.chunkerForExt(filepath.Ext(relPath))
+			chunks, _ := ch.Chunk(body)
+			chunkData := make([]dao.ChunkData, len(chunks))
+			for i, c := range chunks {
+				chunkData[i] = dao.ChunkData{
+					Content:    c.Content,
+					Position:   c.StartLine,
+					TokenCount: c.TokenCount,
+					Hash:       hash,
+				}
+			}
+			pending = append(pending, PendingDoc{
+				Action:      DocChanged,
+				Collection:  collectionName,
+				Path:        relPath,
+				Title:       title,
+				Body:        body,
+				Hash:        hash,
+				FileSize:    int64(len(content)),
+				FileModTime: fileModTime,
+				OldDocId:    existing.id,
+				Chunks:      chunkData,
+			})
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			logo.Warn("scanChanges: read error %s: %s", path, err)
+			return nil
+		}
+		hash := hashContent(content)
+		title := extractTitle(string(content), relPath)
+		body := string(content)
+		ch := my.chunkerForExt(filepath.Ext(relPath))
+		chunks, _ := ch.Chunk(body)
+		chunkData := make([]dao.ChunkData, len(chunks))
+		for i, c := range chunks {
+			chunkData[i] = dao.ChunkData{
+				Content:    c.Content,
+				Position:   c.StartLine,
+				TokenCount: c.TokenCount,
+				Hash:       hash,
+			}
+		}
+		pending = append(pending, PendingDoc{
+			Action:      DocNew,
+			Collection:  collectionName,
+			Path:        relPath,
+			Title:       title,
+			Body:        body,
+			Hash:        hash,
+			FileSize:    int64(len(content)),
+			FileModTime: fileModTime,
+			Chunks:      chunkData,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for path, info := range existingMap {
+		if !foundPaths[path] {
+			pending = append(pending, PendingDoc{
+				Action:     DocDeleted,
+				Collection: collectionName,
+				Path:       path,
+				OldDocId:   info.id,
+			})
+		}
+	}
+
+	return pending, nil
 }
 
 func (my *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {

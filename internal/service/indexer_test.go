@@ -308,3 +308,112 @@ func TestIgnorePatternsExcludeFiles(t *testing.T) {
 		t.Fatalf("expected at least 1 .md file indexed, got indexed=%d", result.Indexed)
 	}
 }
+
+func TestScanChangesNewFiles(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	dao.AddCollection("notes", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("expected 2 pending docs, got %d", len(pending))
+	}
+	for _, p := range pending {
+		if p.Action != DocNew {
+			t.Fatalf("expected DocNew, got %d", p.Action)
+		}
+		if len(p.Chunks) == 0 {
+			t.Fatal("expected chunks to be populated for", p.Path)
+		}
+		if p.Body == "" {
+			t.Fatal("expected body to be populated for", p.Path)
+		}
+	}
+
+	docs, _ := dao.ListDocumentsByCollection("notes")
+	if len(docs) != 0 {
+		t.Fatalf("ScanChanges should NOT write to DB, found %d docs", len(docs))
+	}
+}
+
+func TestScanChangesDetectDeletion(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	dao.AddCollection("notes", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	idx.UpdateCollection("notes", dir, "*.md", nil)
+
+	os.Remove(filepath.Join(dir, "chinese.md"))
+
+	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending (deleted), got %d", len(pending))
+	}
+	if pending[0].Action != DocDeleted {
+		t.Fatalf("expected DocDeleted, got %d", pending[0].Action)
+	}
+	if pending[0].OldDocId == 0 {
+		t.Fatal("expected OldDocId to be set for deletion")
+	}
+}
+
+func TestScanChangesUnchanged(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	dao.AddCollection("notes", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	idx.UpdateCollection("notes", dir, "*.md", nil)
+
+	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected 0 pending (unchanged), got %d", len(pending))
+	}
+}
+
+func TestScanChangesIncompleteDoc(t *testing.T) {
+	_, dir, cleanup := setupIndexTest(t)
+	defer cleanup()
+
+	dao.AddCollection("notes", dir, "*.md", nil)
+	tok, _ := tokenizer.NewGseTokenizer()
+	idx := NewIndexer(tok)
+
+	dao.InsertDocument("notes", "chinese.md", "Chinese Title", "content", 7, "somehash")
+
+	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var incompletePending *PendingDoc
+	for i := range pending {
+		if pending[i].Path == "chinese.md" {
+			incompletePending = &pending[i]
+			break
+		}
+	}
+	if incompletePending == nil {
+		t.Fatal("expected a pending doc for chinese.md (incomplete)")
+	}
+	if incompletePending.Action != DocChanged {
+		t.Fatalf("expected DocChanged for incomplete doc, got %d", incompletePending.Action)
+	}
+}
