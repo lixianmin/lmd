@@ -37,13 +37,12 @@ type Daemon struct {
 	server      *http.Server
 	rebuildMu   sync.RWMutex
 	wc          loom.WaitClose
-	etaStartAt  atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
-	etaStartNum atomic.Int64 // ETA 基准已嵌入数 (启动时记录)
+	etaStartAt  atomic.Int64
+	etaStartNum atomic.Int64
 
 	tokenizer     tokenizer.Tokenizer
 	indexer       *service.Indexer
 	searcher      *service.Searcher
-	embedder      *service.Embedder
 	embedProvider embedding.EmbeddingProvider
 	llmProvider   llm.LLMProvider
 }
@@ -77,7 +76,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
-	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -141,82 +139,59 @@ func (my *Daemon) Stop() error {
 	})
 }
 
+const indexSyncInterval = 60 * time.Second
+
 func (my *Daemon) goLoop(later loom.Later) {
-	summarizer := service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer, my.embedProvider)
-	docIds := summarizer.ScanPendingDocs()
+	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
 	closeChan := my.wc.C()
-
-	onSummerize := func() {
-		newIds := my.syncIndex()
-		docIds = append(docIds, newIds...)
-
-		for _, id := range docIds {
-			if err := summarizer.ProcessDoc(context.Background(), id); err != nil {
-				logo.Warn("summarizer: process doc %d failed: %s", id, err)
-			}
-		}
-		docIds = nil
-	}
-
-	var summerizeTicker = later.NewTicker(60 * time.Second)
-	var embedTicker = later.NewTicker(5 * time.Second)
+	pipelineTicker := later.NewTicker(indexSyncInterval)
 
 	for {
 		select {
 		case <-closeChan:
 			return
-		case <-summerizeTicker.C:
-			onSummerize()
-		case <-embedTicker.C:
-			my.embedChunks()
+		case <-pipelineTicker.C:
+			pending := my.scanChanges()
+			for _, doc := range pending {
+				select {
+				case <-closeChan:
+					return
+				default:
+				}
+				if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+					logo.Warn("pipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+				}
+			}
 		}
 	}
 }
 
-func (my *Daemon) syncIndex() []int64 {
+func (my *Daemon) scanChanges() []service.PendingDoc {
 	my.rebuildMu.RLock()
 	defer my.rebuildMu.RUnlock()
-	return my.syncIndexUnlocked()
-}
 
-func (my *Daemon) syncIndexUnlocked() []int64 {
 	cols, err := dao.ListCollections()
 	if err != nil {
-		logo.Error("indexPoller: list collections failed: %s", err)
+		logo.Error("pipeline: list collections failed: %s", err)
 		return nil
 	}
 
-	var dirtyIds []int64
+	var pending []service.PendingDoc
 	for _, col := range cols {
 		if strings.HasPrefix(col.Name, "@") {
-			continue // 系统 collection，不参与文件同步
-		}
-		result, err := my.indexer.UpdateCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Error("indexPoller: %s failed: %s", col.Name, err)
 			continue
 		}
-		if result != nil && len(result.DirtyDocIds) > 0 {
-			dirtyIds = append(dirtyIds, result.DirtyDocIds...)
-			logo.Info("indexPoller: %s found %d docs pending summary", col.Name, len(result.DirtyDocIds))
+		result, err := my.indexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		if err != nil {
+			logo.Error("pipeline: scan %s failed: %s", col.Name, err)
+			continue
 		}
-		if result.Indexed > 0 || result.Updated > 0 || result.Removed > 0 {
-			logo.Info("indexPoller: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)
+		if len(result) > 0 {
+			logo.Info("pipeline: %s found %d pending docs", col.Name, len(result))
 		}
+		pending = append(pending, result...)
 	}
-	return dirtyIds
-}
-
-func (my *Daemon) embedChunks() {
-	count := dao.GetUnembeddedCount()
-	if count == 0 {
-		return
-	}
-
-	_, err := my.embedder.EmbedBatch(context.Background(), 0)
-	if err != nil {
-		logo.Error("embedChunks: %s", err)
-	}
+	return pending
 }
 
 func IsRunning() bool {

@@ -166,8 +166,8 @@ func TestDeleteDocumentCleansUpChunks(t *testing.T) {
 	for i := range vec {
 		vec[i] = 0.1
 	}
-	remaining, _ := GetUnembeddedChunks(0)
-	chunkId := remaining[len(remaining)-2].Id
+	chunkList, _ := GetChunksByDocId(doc.Id)
+	chunkId := chunkList[0].Id
 	if err := InsertVector(chunkId, doc.Id, "notes", vec); err != nil {
 		t.Fatal(err)
 	}
@@ -269,77 +269,6 @@ func TestGenerateDocId(t *testing.T) {
 	}
 	if id1 == id3 {
 		t.Fatal("different inputs should produce different docId")
-	}
-}
-
-func TestUpsertSummaryDoc(t *testing.T) {
-	initTestDB(t)
-	mustAddCollection(t, "notes", "/data")
-
-	doc := &DocumentRecord{
-		Collection: "notes", Path: "test.md", Title: "Test",
-		Body: "hello world", Hash: "hash1", FileSize: 11,
-	}
-	mustUpsertDoc(t, doc)
-
-	summaryDocId, err := UpsertSummaryDoc(doc.Id, "hash1", "这是测试摘要", "这是测试摘要")
-	if err != nil {
-		t.Fatalf("UpsertSummaryDoc: %v", err)
-	}
-	if summaryDocId <= 0 {
-		t.Fatalf("expected positive doc id, got %d", summaryDocId)
-	}
-
-	got, err := GetDocumentBySourceDocId("@summaries", doc.Id)
-	if err != nil {
-		t.Fatalf("GetDocumentBySourceDocId: %v", err)
-	}
-	if got.SourceDocId != doc.Id {
-		t.Fatalf("expected source_doc_id=%d, got %d", doc.Id, got.SourceDocId)
-	}
-	if got.Collection != "@summaries" {
-		t.Fatalf("expected collection @summaries, got %s", got.Collection)
-	}
-
-	chunks, err := GetChunksByDocId(summaryDocId)
-	if err != nil {
-		t.Fatalf("GetChunksByDocId: %v", err)
-	}
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(chunks))
-	}
-	if chunks[0].Content != "这是测试摘要" {
-		t.Fatalf("expected summary content, got '%s'", chunks[0].Content)
-	}
-}
-
-func TestUpsertSummaryDocReplaces(t *testing.T) {
-	initTestDB(t)
-	mustAddCollection(t, "notes", "/data")
-
-	doc := &DocumentRecord{
-		Collection: "notes", Path: "test.md", Title: "Test",
-		Body: "body", Hash: "hash1", FileSize: 4,
-	}
-	mustUpsertDoc(t, doc)
-
-	UpsertSummaryDoc(doc.Id, "hash1", "summary v1", "summary v1")
-	id2, _ := UpsertSummaryDoc(doc.Id, "hash2", "summary v2", "summary v2")
-
-	got, err := GetDocumentBySourceDocId("@summaries", doc.Id)
-	if err != nil {
-		t.Fatalf("GetDocumentBySourceDocId after re-upsert: %v", err)
-	}
-	if got.Id != id2 {
-		t.Fatalf("expected doc id %d, got %d", id2, got.Id)
-	}
-
-	chunks, _ := GetChunksByDocId(id2)
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk after upsert, got %d", len(chunks))
-	}
-	if chunks[0].Content != "summary v2" {
-		t.Fatalf("expected updated summary, got '%s'", chunks[0].Content)
 	}
 }
 
@@ -512,24 +441,4 @@ func TestCompleteDocument(t *testing.T) {
 	}
 }
 
-func TestUpsertSummaryDocRemovesOldChunks(t *testing.T) {
-	initTestDB(t)
-	mustAddCollection(t, "notes", "/data")
 
-	doc := &DocumentRecord{
-		Collection: "notes", Path: "test.md", Title: "Test",
-		Body: "body", Hash: "hash1", FileSize: 4,
-	}
-	mustUpsertDoc(t, doc)
-
-	UpsertSummaryDoc(doc.Id, "hash1", "first", "first")
-
-	allBefore, _ := GetUnembeddedChunks(0)
-
-	UpsertSummaryDoc(doc.Id, "hash2", "second", "second")
-
-	allAfter, _ := GetUnembeddedChunks(0)
-	if len(allAfter) != len(allBefore) {
-		t.Fatalf("expected same unembedded count after re-upsert (old chunks deleted), before=%d after=%d", len(allBefore), len(allAfter))
-	}
-}

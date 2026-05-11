@@ -648,9 +648,17 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	my.rebuildMu.Unlock()
 
-	my.syncIndex()
+	pending := my.scanChanges()
+	if len(pending) > 0 {
+		processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
+		for _, doc := range pending {
+			if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+				logo.Warn("handleRebuild: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+			}
+		}
+	}
 
-	logo.Info("handleRebuild: collections restored, background embedTicker will handle embedding")
+	logo.Info("handleRebuild: collections restored, processed %d docs", len(pending))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"collections": len(cols),
 		"elapsed":     time.Since(start).String(),

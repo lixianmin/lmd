@@ -346,37 +346,6 @@ func QueryVectorsByCollection(query []float32, collection string, limit int) ([]
 	return results, rows.Err()
 }
 
-func GetUnembeddedChunks(limit int) ([]ChunkRecord, error) {
-	query := `
-		SELECT c.id, c.doc_id, c.seq, c.content, c.position, c.token_count, c.hash
-		FROM chunks c
-		LEFT JOIN chunks_vec v ON c.id = v.chunk_id
-		WHERE v.chunk_id IS NULL
-		ORDER BY c.id
-	`
-	var args []any
-	if limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, limit)
-	}
-
-	rows, err := withQuery(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var chunks []ChunkRecord
-	for rows.Next() {
-		var c ChunkRecord
-		if err := rows.Scan(&c.Id, &c.DocId, &c.Seq, &c.Content, &c.Position, &c.TokenCount, &c.Hash); err != nil {
-			return nil, err
-		}
-		chunks = append(chunks, c)
-	}
-	return chunks, rows.Err()
-}
-
 func GetChunksByDocId(docId int64) ([]ChunkRecord, error) {
 	rows, err := withQuery("SELECT id, doc_id, seq, content, position, token_count, hash FROM chunks WHERE doc_id=? ORDER BY seq", docId)
 	if err != nil {

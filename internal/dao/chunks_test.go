@@ -95,42 +95,6 @@ func TestSearchFTSByCollection(t *testing.T) {
 	}
 }
 
-func TestInsertVectorAndGetUnembedded(t *testing.T) {
-	initTestDB(t)
-
-	chunks := []ChunkData{
-		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "h1"},
-		{Content: "chunk two", Position: 1, TokenCount: 2, Hash: "h2"},
-	}
-	doc, records := mustInsertDocWithChunks(t, "notes", "test.md", chunks)
-
-	unembedded, err := GetUnembeddedChunks(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(unembedded) != 2 {
-		t.Fatalf("expected 2 unembedded, got %d", len(unembedded))
-	}
-
-	vec := make([]float32, EmbeddingDim)
-	for i := range vec {
-		vec[i] = 0.1
-	}
-	if err := InsertVector(records[0].Id, doc.Id, "notes", vec); err != nil {
-		t.Fatal(err)
-	}
-
-	unembedded, _ = GetUnembeddedChunks(0)
-	if len(unembedded) != 1 {
-		t.Fatalf("expected 1 unembedded after insert, got %d", len(unembedded))
-	}
-
-	unembedded, _ = GetUnembeddedChunks(1)
-	if len(unembedded) != 1 {
-		t.Fatalf("expected 1 with limit=1, got %d", len(unembedded))
-	}
-}
-
 func TestQueryVectors(t *testing.T) {
 	initTestDB(t)
 
