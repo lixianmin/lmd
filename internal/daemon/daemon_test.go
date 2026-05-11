@@ -27,10 +27,10 @@ func TestAcquireLock(t *testing.T) {
 	PidPath = func() string { return pidFile }
 	defer func() { PidPath = orig }()
 
-	if err := acquireLock(); err != nil {
+	if err := acquireLockFile(); err != nil {
 		t.Fatalf("acquireLock failed: %v", err)
 	}
-	defer releaseLock()
+	defer releaseLockFile()
 
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -48,12 +48,12 @@ func TestAcquireLock_DoubleFails(t *testing.T) {
 	PidPath = func() string { return pidFile }
 	defer func() { PidPath = orig }()
 
-	if err := acquireLock(); err != nil {
+	if err := acquireLockFile(); err != nil {
 		t.Fatalf("first acquireLock failed: %v", err)
 	}
-	defer releaseLock()
+	defer releaseLockFile()
 
-	err := acquireLock()
+	err := acquireLockFile()
 	if err == nil {
 		t.Fatal("expected second acquireLock to fail")
 	}
@@ -77,10 +77,10 @@ func TestIsRunning_WithLock(t *testing.T) {
 	PidPath = func() string { return pidFile }
 	defer func() { PidPath = orig }()
 
-	if err := acquireLock(); err != nil {
+	if err := acquireLockFile(); err != nil {
 		t.Fatalf("acquireLock failed: %v", err)
 	}
-	defer releaseLock()
+	defer releaseLockFile()
 
 	if !IsRunning() {
 		t.Fatal("expected IsRunning true when lock is held")

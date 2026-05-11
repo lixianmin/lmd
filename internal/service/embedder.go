@@ -54,10 +54,7 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 		default:
 		}
 
-		end := start + batchSize
-		if end > len(chunks) {
-			end = len(chunks)
-		}
+		end := min(start+batchSize, len(chunks))
 
 		batch := chunks[start:end]
 		texts := make([]string, len(batch))
