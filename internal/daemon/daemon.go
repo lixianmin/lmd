@@ -27,12 +27,6 @@ import (
 	"github.com/lixianmin/logo"
 )
 
-const (
-	indexSyncInterval = 60 * time.Second // 索引轮询间隔
-	embedTickInterval = 5 * time.Second  // embedding 轮询间隔
-	embedTimeout      = 5 * time.Minute  // 背景嵌入操作超时
-)
-
 var PidPath = func() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "lmd", "daemon.pid")
@@ -152,7 +146,7 @@ func (my *Daemon) goLoop(later loom.Later) {
 	docIds := summarizer.ScanPendingDocs()
 	closeChan := my.wc.C()
 
-	pipelineTick := func() {
+	onSummerize := func() {
 		newIds := my.syncIndex()
 		docIds = append(docIds, newIds...)
 
@@ -164,15 +158,15 @@ func (my *Daemon) goLoop(later loom.Later) {
 		docIds = nil
 	}
 
-	var pipelineTicker = later.NewTicker(indexSyncInterval)
-	var embedTicker = later.NewTicker(embedTickInterval)
+	var summerizeTicker = later.NewTicker(60 * time.Second)
+	var embedTicker = later.NewTicker(5 * time.Second)
 
 	for {
 		select {
 		case <-closeChan:
 			return
-		case <-pipelineTicker.C:
-			pipelineTick()
+		case <-summerizeTicker.C:
+			onSummerize()
 		case <-embedTicker.C:
 			my.embedChunks()
 		}
@@ -219,20 +213,7 @@ func (my *Daemon) embedChunks() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), embedTimeout)
-	defer cancel()
-
-	// Cancel embedding context when daemon is shutting down
-	var closeChan = my.wc.C()
-	go func() {
-		select {
-		case <-closeChan:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
-	_, err := my.embedder.EmbedBatch(ctx, 0)
+	_, err := my.embedder.EmbedBatch(context.Background(), 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
 	}
