@@ -41,6 +41,27 @@ func ShortDocId(docId string) string {
 	return docId
 }
 
+func InsertDocument(collection, path, title, body string, fileSize int64, hash string) (int64, error) {
+	docId := generateDocId(collection, path, hash)
+	result, err := WithExec(
+		"INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, DATETIME('now','+8 hours'), DATETIME('now','+8 hours'), DATETIME('now','+8 hours'))",
+		docId, collection, path, title, body, hash, fileSize,
+	)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := result.LastInsertId()
+	return id, nil
+}
+
+func CompleteDocument(docId int64, fileModTime int64) error {
+	_, err := WithExec(
+		"UPDATE documents SET file_mod_time=?, updated_at=DATETIME('now','+8 hours') WHERE id=?",
+		fileModTime, docId,
+	)
+	return err
+}
+
 func UpsertDocument(doc *DocumentRecord) error {
 	doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
 
@@ -110,10 +131,10 @@ func GetDocumentBySourceDocId(collection string, sourceDocId int64) (*DocumentRe
 }
 
 func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
-	query := "SELECT id, docid, collection, path, title, body, hash, file_size, source_doc_id, created_at, updated_at FROM documents " + whereClause
+	query := "SELECT id, docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, created_at, updated_at FROM documents " + whereClause
 	var doc DocumentRecord
 	err := withQueryRow(query, args...).Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
-		&doc.Hash, &doc.FileSize, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt)
+		&doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("document not found")
 	}
