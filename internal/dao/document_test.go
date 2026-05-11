@@ -342,6 +342,95 @@ func TestUpsertSummaryDocReplaces(t *testing.T) {
 	}
 }
 
+func TestUpsertSummaryWithVector(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+
+	doc := &DocumentRecord{
+		Collection: "notes", Path: "test.md", Title: "Test",
+		Body: "body", Hash: "hash1", FileSize: 4,
+	}
+	if err := UpsertDocument(doc); err != nil {
+		t.Fatal(err)
+	}
+
+	vec := make([]float32, EmbeddingDim)
+	for i := range vec {
+		vec[i] = float32(i % 100)
+	}
+
+	docId, err := UpsertSummaryWithVector(doc.Id, "hash1", "summary text", "summary text", vec)
+	if err != nil {
+		t.Fatalf("UpsertSummaryWithVector: %v", err)
+	}
+	if docId == 0 {
+		t.Fatal("expected non-zero docId")
+	}
+
+	got, err := GetDocumentBySourceDocId("@summaries", doc.Id)
+	if err != nil {
+		t.Fatalf("GetDocumentBySourceDocId: %v", err)
+	}
+	if got.SourceDocId != doc.Id {
+		t.Fatalf("expected source_doc_id=%d, got %d", doc.Id, got.SourceDocId)
+	}
+
+	chunks, _ := GetChunksByDocId(got.Id)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].Content != "summary text" {
+		t.Fatalf("expected 'summary text', got '%s'", chunks[0].Content)
+	}
+
+	count := getVectorCount(t, chunks[0].Id)
+	if count != 1 {
+		t.Fatalf("expected 1 vector for chunk %d, got %d", chunks[0].Id, count)
+	}
+}
+
+func getVectorCount(t *testing.T, chunkId int64) int {
+	t.Helper()
+	var count int
+	err := DB.db.QueryRow("SELECT COUNT(*) FROM chunks_vec WHERE chunk_id=?", chunkId).Scan(&count)
+	if err != nil {
+		t.Fatalf("count vectors: %v", err)
+	}
+	return count
+}
+
+func TestUpsertSummaryWithVectorIdempotent(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+
+	doc := &DocumentRecord{
+		Collection: "notes", Path: "test.md", Title: "Test",
+		Body: "body", Hash: "hash1", FileSize: 4,
+	}
+	UpsertDocument(doc)
+
+	vec := make([]float32, EmbeddingDim)
+
+	docId1, _ := UpsertSummaryWithVector(doc.Id, "hash1", "summary v1", "summary v1", vec)
+	docId2, _ := UpsertSummaryWithVector(doc.Id, "hash2", "summary v2", "summary v2", vec)
+
+	got, _ := GetDocumentBySourceDocId("@summaries", doc.Id)
+	if got.Id != docId2 {
+		t.Fatalf("expected docId=%d (second upsert), got %d", docId2, got.Id)
+	}
+
+	chunks, _ := GetChunksByDocId(got.Id)
+	if chunks[0].Content != "summary v2" {
+		t.Fatalf("expected 'summary v2', got '%s'", chunks[0].Content)
+	}
+
+	count := 0
+	DB.db.QueryRow("SELECT COUNT(*) FROM chunks WHERE doc_id=?", docId1).Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected 0 chunks for old docId %d, got %d", docId1, count)
+	}
+}
+
 func TestUpsertSummaryDocRemovesOldChunks(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
