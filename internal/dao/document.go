@@ -123,35 +123,76 @@ func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
 	return &doc, nil
 }
 
+func deleteDocChunksAndVecs(tx *sql.Tx, docId int64) error {
+	chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", docId)
+	if err != nil {
+		return err
+	}
+	var chunkIds []int64
+	for chunkRows.Next() {
+		var cid int64
+		if err := chunkRows.Scan(&cid); err != nil {
+			chunkRows.Close()
+			return err
+		}
+		chunkIds = append(chunkIds, cid)
+	}
+	chunkRows.Close()
+	if err := chunkRows.Err(); err != nil {
+		return err
+	}
+
+	for _, cid := range chunkIds {
+		if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteDocument(id int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
-		chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", id)
+		if err := deleteDocChunksAndVecs(tx, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec("DELETE FROM documents WHERE id=?", id)
+		return err
+	})
+}
+
+func DeleteDocumentAndSummary(docId int64) error {
+	return withTransaction(func(tx *sql.Tx) error {
+		rows, err := tx.Query("SELECT id FROM documents WHERE source_doc_id=?", docId)
 		if err != nil {
 			return err
 		}
-		var chunkIds []int64
-		for chunkRows.Next() {
-			var cid int64
-			if err := chunkRows.Scan(&cid); err != nil {
-				chunkRows.Close()
+		var summaryIds []int64
+		for rows.Next() {
+			var sid int64
+			if err := rows.Scan(&sid); err != nil {
+				rows.Close()
 				return err
 			}
-			chunkIds = append(chunkIds, cid)
+			summaryIds = append(summaryIds, sid)
 		}
-		chunkRows.Close()
-		if err := chunkRows.Err(); err != nil {
-			return err
+		rows.Close()
+
+		for _, sid := range summaryIds {
+			if err := deleteDocChunksAndVecs(tx, sid); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", sid); err != nil {
+				return err
+			}
 		}
 
-		for _, cid := range chunkIds {
-			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
-				return err
-			}
+		if err := deleteDocChunksAndVecs(tx, docId); err != nil {
+			return err
 		}
-		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
+		_, err = tx.Exec("DELETE FROM documents WHERE id=?", docId)
 		return err
 	})
 }
