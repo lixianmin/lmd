@@ -49,7 +49,6 @@ func TestSummarizerProcessDoc(t *testing.T) {
 	cfg := config.SummaryConfig{
 		MaxInputTokens:  30000,
 		MaxOutputTokens: 200,
-		CooldownSeconds: 60,
 	}
 	s := NewSummarizer(mockLLM, cfg, nil, embedding.NewMockProvider(dao.EmbeddingDim))
 

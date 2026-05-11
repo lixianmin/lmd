@@ -46,8 +46,7 @@ type SummaryConfig struct {
 	Model           string `yaml:"model"`
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
 	MaxInputTokens  int    `yaml:"max_input_tokens"`
-	CooldownSeconds int    `yaml:"cooldown_seconds"`
-	NoThinking      bool   `yaml:"no_thinking"`
+	NoThinking bool `yaml:"no_thinking"`
 }
 
 type DatabaseConfig struct {
@@ -78,8 +77,7 @@ func DefaultConfig() *Config {
 			Model:           "qwen3.5",
 			MaxOutputTokens: 512,
 			MaxInputTokens:  30000,
-			CooldownSeconds: 60,
-			NoThinking:      true,
+			NoThinking: true,
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "index.sqlite"),

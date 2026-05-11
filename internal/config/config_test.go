@@ -36,9 +36,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Summary.MaxInputTokens != 30000 {
 		t.Fatalf("expected summary max_input_tokens 30000, got %d", cfg.Summary.MaxInputTokens)
 	}
-	if cfg.Summary.CooldownSeconds != 60 {
-		t.Fatalf("expected summary cooldown_seconds 60, got %d", cfg.Summary.CooldownSeconds)
-	}
 	if !cfg.Summary.NoThinking {
 		t.Fatal("expected summary no_thinking true")
 	}

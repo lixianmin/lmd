@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,22 +28,22 @@ import (
 )
 
 const (
-	indexSyncInterval     = 60 * time.Second // 索引轮询间隔
-	embedTickInterval     = 5 * time.Second  // embedding 轮询间隔
-	embedTimeout          = 5 * time.Minute  // 背景嵌入操作超时
+	indexSyncInterval = 60 * time.Second // 索引轮询间隔
+	embedTickInterval = 5 * time.Second  // embedding 轮询间隔
+	embedTimeout      = 5 * time.Minute  // 背景嵌入操作超时
 )
+
 var PidPath = func() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "lmd", "daemon.pid")
 }
 
 type Daemon struct {
-	cfg        *config.Config
-	server     *http.Server
-	rebuildMu  sync.RWMutex
-	stopOnce   sync.Once
-	stopCh     chan struct{}
-	etaStartAt atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
+	cfg         *config.Config
+	server      *http.Server
+	rebuildMu   sync.RWMutex
+	wc          loom.WaitClose
+	etaStartAt  atomic.Int64 // ETA 基准时间 (unix nano, 启动时记录)
 	etaStartNum atomic.Int64 // ETA 基准已嵌入数 (启动时记录)
 
 	tokenizer     tokenizer.Tokenizer
@@ -58,13 +57,12 @@ type Daemon struct {
 
 func NewDaemon(cfg *config.Config) *Daemon {
 	return &Daemon{
-		cfg:    cfg,
-		stopCh: make(chan struct{}),
+		cfg: cfg,
 	}
 }
 
 func (my *Daemon) Start(ctx context.Context) error {
-	if err := acquireLock(); err != nil {
+	if err := acquireLockFile(); err != nil {
 		return err
 	}
 
@@ -76,50 +74,25 @@ func (my *Daemon) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tokenizer init failed: %w", err)
 	}
+
 	my.tokenizer = tok
-
-	var embedProv embedding.EmbeddingProvider
-	switch my.cfg.Embedding.Provider {
-	case "ollama":
-		embedProv = embedding.NewOllamaProvider(my.cfg.Providers.Ollama.URL, my.cfg.Embedding.Model)
-	case "siliconflow":
-		embedProv = embedding.NewSiliconFlowEmbedding(my.cfg.Providers.SiliconFlow.URL, my.cfg.Embedding.Model, my.cfg.Providers.SiliconFlow.APIKey)
-	default:
-		return fmt.Errorf("unknown embedding provider: %s", my.cfg.Embedding.Provider)
+	my.embedProvider = newEmbedding(my.cfg)
+	my.llmProvider = newLLM(my.cfg)
+	if my.embedProvider == nil || my.llmProvider == nil {
+		return fmt.Errorf("embedding or llm provider init failed")
 	}
-	my.embedProvider = embedProv
-
-	var llmProv llm.LLMProvider
-	switch my.cfg.Summary.Provider {
-	case "ollama":
-		llmProv = llm.NewOllamaLLM(my.cfg.Providers.Ollama.URL, my.cfg.Summary.Model, my.cfg.Summary.NoThinking)
-	case "siliconflow":
-		llmProv = llm.NewSiliconFlowLLM(my.cfg.Providers.SiliconFlow.URL, my.cfg.Summary.Model, my.cfg.Providers.SiliconFlow.APIKey)
-	default:
-		return fmt.Errorf("unknown summary provider: %s", my.cfg.Summary.Provider)
-	}
-	my.llmProvider = llmProv
 
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
-	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer)
-	my.summarizer.SetStopCh(my.stopCh)
-	my.summarizer.SetOnUpsert(func() {
-		loom.Go(func(later loom.Later) {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			my.embedder.EmbedBatch(ctx, 1)
-		})
-	})
+	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer, my.embedProvider)
 	my.summarizer.ScanAll()
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
 	my.server = &http.Server{Handler: handler}
 
-	port := my.cfg.Daemon.Port
-	addr := fmt.Sprintf(":%d", port)
+	addr := fmt.Sprintf(":%d", my.cfg.Daemon.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen on %s failed: %w", addr, err)
@@ -131,14 +104,16 @@ func (my *Daemon) Start(ctx context.Context) error {
 		}
 	})
 
+	var closeChan = my.wc.C()
 	loom.Go(func(later loom.Later) {
 		select {
-		case <-my.stopCh:
+		case <-closeChan:
 			return
 		case <-time.After(indexSyncInterval + 2*time.Second):
 		}
 		my.summarizer.ScanAll()
 	})
+
 	logo.Info("daemon: listening on %s", addr)
 	loom.Go(my.goLoop)
 
@@ -161,16 +136,38 @@ func (my *Daemon) Start(ctx context.Context) error {
 	return my.Stop()
 }
 
-func (my *Daemon) Stop() error {
-	my.stopOnce.Do(func() {
-		if my.stopCh != nil {
-			select {
-			case <-my.stopCh:
-			default:
-				close(my.stopCh)
-			}
-		}
+func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
+	var embedProv embedding.EmbeddingProvider
+	switch config.Embedding.Provider {
+	case "ollama":
+		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model)
+	case "siliconflow":
+		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey)
+	default:
+		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
+		return nil
+	}
 
+	return embedProv
+}
+
+func newLLM(config *config.Config) llm.LLMProvider {
+	var llmProv llm.LLMProvider
+	switch config.Summary.Provider {
+	case "ollama":
+		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.URL, config.Summary.Model, config.Summary.NoThinking)
+	case "siliconflow":
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.URL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
+	default:
+		logo.Error("unknown summary provider: %s", config.Summary.Provider)
+		return nil
+	}
+
+	return llmProv
+}
+
+func (my *Daemon) Stop() error {
+	my.wc.Close(func() error {
 		if my.server != nil {
 			my.server.Close()
 		}
@@ -185,34 +182,37 @@ func (my *Daemon) Stop() error {
 			store.Close()
 		}
 
-		releaseLock()
+		releaseLockFile()
 		logo.Info("daemon: stopped")
+		return nil
 	})
+
 	return nil
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
-	var syncIndexTicker = later.NewTicker(indexSyncInterval)
+	var pipelineTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
-
-	summaryCooldown := my.cfg.Summary.CooldownSeconds
-	if summaryCooldown <= 0 {
-		summaryCooldown = 300
-	}
-	var summaryTicker = later.NewTicker(time.Duration(summaryCooldown) * time.Second)
+	var closeChan = my.wc.C()
 
 	for {
 		select {
-		case <-my.stopCh:
+		case <-closeChan:
 			return
-		case <-syncIndexTicker.C:
-			my.syncIndex()
-		case <-summaryTicker.C:
-			my.summarizer.ProcessDirty()
+		case <-pipelineTicker.C:
+			my.pipelineTick()
 		case <-embedTicker.C:
 			my.embedChunks()
 		}
 	}
+}
+
+func (my *Daemon) pipelineTick() {
+	my.syncIndex()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	my.summarizer.ProcessDirty(ctx)
 }
 
 func (my *Daemon) syncIndex() {
@@ -256,9 +256,10 @@ func (my *Daemon) embedChunks() {
 	defer cancel()
 
 	// Cancel embedding context when daemon is shutting down
+	var closeChan = my.wc.C()
 	go func() {
 		select {
-		case <-my.stopCh:
+		case <-closeChan:
 			cancel()
 		case <-ctx.Done():
 		}
@@ -267,48 +268,6 @@ func (my *Daemon) embedChunks() {
 	_, err := my.embedder.EmbedBatch(ctx, 0)
 	if err != nil {
 		logo.Error("embedChunks: %s", err)
-	}
-}
-
-var lockFile *os.File
-
-func acquireLock() error {
-	path := PidPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return fmt.Errorf("daemon already running (lock held on %s)", path)
-	}
-
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("truncate pid file failed: %w", err)
-	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return fmt.Errorf("seek pid file failed: %w", err)
-	}
-	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
-		return fmt.Errorf("write pid file failed: %w", err)
-	}
-	f.Sync()
-
-	lockFile = f
-	return nil
-}
-
-func releaseLock() {
-	if lockFile != nil {
-		syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-		lockFile.Close()
-		lockFile = nil
-		os.Remove(PidPath())
 	}
 }
 
