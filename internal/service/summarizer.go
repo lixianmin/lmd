@@ -260,8 +260,10 @@ func (my *Summarizer) upsertSummary(sourceDocId int64, hash, summary string) {
 			tokenized = t
 		}
 	}
-	_, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary, tokenized)
+	docId, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary, tokenized)
 	if err != nil {
 		logo.Error("summarizer: upsert summary for doc %d failed: %s", sourceDocId, err)
+	} else {
+		logo.Info("summarizer: upserted summary for sourceDoc %d → summaryDoc %d", sourceDocId, docId)
 	}
 }

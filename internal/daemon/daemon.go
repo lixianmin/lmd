@@ -130,6 +130,15 @@ func (my *Daemon) Start(ctx context.Context) error {
 			logo.Error("daemon: serve error: %s", err)
 		}
 	})
+
+	loom.Go(func(later loom.Later) {
+		select {
+		case <-my.stopCh:
+			return
+		case <-time.After(indexSyncInterval + 2*time.Second):
+		}
+		my.summarizer.ScanAll()
+	})
 	logo.Info("daemon: listening on %s", addr)
 	loom.Go(my.goLoop)
 
