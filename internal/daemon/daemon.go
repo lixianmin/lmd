@@ -52,7 +52,6 @@ type Daemon struct {
 	embedder      *service.Embedder
 	embedProvider embedding.EmbeddingProvider
 	llmProvider   llm.LLMProvider
-	summarizer    *service.Summarizer
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
@@ -85,8 +84,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
-	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer, my.embedProvider)
-	my.summarizer.ScanAll()
 
 	handler := registerRoutes(my)
 	mcp.RegisterHandler(my.handleToolCall)
@@ -102,16 +99,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 		if err := my.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			logo.Error("daemon: serve error: %s", err)
 		}
-	})
-
-	var closeChan = my.wc.C()
-	loom.Go(func(later loom.Later) {
-		select {
-		case <-closeChan:
-			return
-		case <-time.After(indexSyncInterval + 2*time.Second):
-		}
-		my.summarizer.ScanAll()
 	})
 
 	logo.Info("daemon: listening on %s", addr)
@@ -133,41 +120,13 @@ func (my *Daemon) Start(ctx context.Context) error {
 		logo.Info("daemon: context cancelled, shutting down")
 	}
 
-	return my.Stop()
-}
-
-func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
-	var embedProv embedding.EmbeddingProvider
-	switch config.Embedding.Provider {
-	case "ollama":
-		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model)
-	case "siliconflow":
-		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey)
-	default:
-		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
-		return nil
-	}
-
-	return embedProv
-}
-
-func newLLM(config *config.Config) llm.LLMProvider {
-	var llmProv llm.LLMProvider
-	switch config.Summary.Provider {
-	case "ollama":
-		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.URL, config.Summary.Model, config.Summary.NoThinking)
-	case "siliconflow":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.URL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
-	default:
-		logo.Error("unknown summary provider: %s", config.Summary.Provider)
-		return nil
-	}
-
-	return llmProv
+	my.Stop()
+	os.Exit(0)
+	return nil
 }
 
 func (my *Daemon) Stop() error {
-	my.wc.Close(func() error {
+	return my.wc.Close(func() error {
 		if my.server != nil {
 			my.server.Close()
 		}
@@ -186,47 +145,54 @@ func (my *Daemon) Stop() error {
 		logo.Info("daemon: stopped")
 		return nil
 	})
-
-	return nil
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
+	summarizer := service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer, my.embedProvider)
+	docIds := summarizer.ScanPendingDocs()
+	closeChan := my.wc.C()
+
+	pipelineTick := func() {
+		newIds := my.syncIndex()
+		docIds = append(docIds, newIds...)
+
+		for _, id := range docIds {
+			if err := summarizer.ProcessDoc(context.Background(), id); err != nil {
+				logo.Warn("summarizer: process doc %d failed: %s", id, err)
+			}
+		}
+		docIds = nil
+	}
+
 	var pipelineTicker = later.NewTicker(indexSyncInterval)
 	var embedTicker = later.NewTicker(embedTickInterval)
-	var closeChan = my.wc.C()
 
 	for {
 		select {
 		case <-closeChan:
 			return
 		case <-pipelineTicker.C:
-			my.pipelineTick()
+			pipelineTick()
 		case <-embedTicker.C:
 			my.embedChunks()
 		}
 	}
 }
 
-func (my *Daemon) pipelineTick() {
-	my.syncIndex()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	my.summarizer.ProcessDirty(ctx)
-}
-
-func (my *Daemon) syncIndex() {
+func (my *Daemon) syncIndex() []int64 {
 	my.rebuildMu.RLock()
 	defer my.rebuildMu.RUnlock()
-	my.syncIndexUnlocked()
+	return my.syncIndexUnlocked()
 }
 
-func (my *Daemon) syncIndexUnlocked() {
+func (my *Daemon) syncIndexUnlocked() []int64 {
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Error("indexPoller: list collections failed: %s", err)
-		return
+		return nil
 	}
+
+	var dirtyIds []int64
 	for _, col := range cols {
 		if strings.HasPrefix(col.Name, "@") {
 			continue // 系统 collection，不参与文件同步
@@ -237,13 +203,14 @@ func (my *Daemon) syncIndexUnlocked() {
 			continue
 		}
 		if result != nil && len(result.DirtyDocIds) > 0 {
-			my.summarizer.MarkDirty(result.DirtyDocIds)
-			logo.Info("indexPoller: %s marked %d docs dirty for summary", col.Name, len(result.DirtyDocIds))
+			dirtyIds = append(dirtyIds, result.DirtyDocIds...)
+			logo.Info("indexPoller: %s found %d docs pending summary", col.Name, len(result.DirtyDocIds))
 		}
 		if result.Indexed > 0 || result.Updated > 0 || result.Removed > 0 {
 			logo.Info("indexPoller: %s +%d ~%d -%d", col.Name, result.Indexed, result.Updated, result.Removed)
 		}
 	}
+	return dirtyIds
 }
 
 func (my *Daemon) embedChunks() {
@@ -334,4 +301,34 @@ func parseDuration(s string, defaultDuration time.Duration) time.Duration {
 	}
 
 	return dur
+}
+
+func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
+	var embedProv embedding.EmbeddingProvider
+	switch config.Embedding.Provider {
+	case "ollama":
+		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model)
+	case "siliconflow":
+		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey)
+	default:
+		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
+		return nil
+	}
+
+	return embedProv
+}
+
+func newLLM(config *config.Config) llm.LLMProvider {
+	var llmProv llm.LLMProvider
+	switch config.Summary.Provider {
+	case "ollama":
+		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.URL, config.Summary.Model, config.Summary.NoThinking)
+	case "siliconflow":
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.URL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
+	default:
+		logo.Error("unknown summary provider: %s", config.Summary.Provider)
+		return nil
+	}
+
+	return llmProv
 }

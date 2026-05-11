@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -17,8 +16,6 @@ import (
 const summaryCollection = "@summaries"
 
 type Summarizer struct {
-	mu            sync.Mutex
-	dirty         map[int64]bool
 	llm           llm.LLMProvider
 	maxOutput     int
 	maxInput      int
@@ -28,7 +25,6 @@ type Summarizer struct {
 
 func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig, tok tokenizer.Tokenizer, embedProv embedding.EmbeddingProvider) *Summarizer {
 	var my = &Summarizer{
-		dirty:         make(map[int64]bool),
 		llm:           llmProvider,
 		maxOutput:     cfg.MaxOutputTokens,
 		maxInput:      cfg.MaxInputTokens,
@@ -39,19 +35,11 @@ func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig, tok to
 	return my
 }
 
-func (my *Summarizer) MarkDirty(docIds []int64) {
-	my.mu.Lock()
-	defer my.mu.Unlock()
-	for _, id := range docIds {
-		my.dirty[id] = true
-	}
-}
-
-func (my *Summarizer) ScanAll() {
+func (my *Summarizer) ScanPendingDocs() []int64 {
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Warn("summarizer: list collections error: %s", err)
-		return
+		return nil
 	}
 
 	type docEntry struct {
@@ -75,72 +63,23 @@ func (my *Summarizer) ScanAll() {
 		}
 	}
 
-	var missing int
+	var pending []int64
 	for _, c := range candidates {
-		if my.isDirty(c.id) {
-			continue
-		}
-
 		existing, _ := dao.GetDocumentBySourceDocId(summaryCollection, c.id)
 		if existing != nil {
 			continue
 		}
 
-		my.addDirty(c.id)
-		missing++
+		pending = append(pending, c.id)
 	}
 
-	if missing > 0 {
-		logo.Info("summarizer: scan found %d docs without summary, marked dirty", missing)
+	if len(pending) > 0 {
+		logo.Info("summarizer: found %d docs without summary", len(pending))
 	}
+	return pending
 }
 
-func (my *Summarizer) ProcessDirty(ctx context.Context) {
-	dirty := my.popDirty()
-	if len(dirty) == 0 {
-		return
-	}
-
-	logo.Info("summarizer: processing %d dirty docs", len(dirty))
-	var done, failed int
-	for docId := range dirty {
-		if err := my.processDoc(ctx, docId); err != nil {
-			failed++
-		} else {
-			done++
-		}
-	}
-	logo.Info("summarizer: done processing %d docs (%d ok, %d failed)", len(dirty), done, failed)
-}
-
-func (my *Summarizer) addDirty(id int64) {
-	my.mu.Lock()
-	my.dirty[id] = true
-	my.mu.Unlock()
-}
-
-func (my *Summarizer) isDirty(id int64) bool {
-	my.mu.Lock()
-	ok := my.dirty[id]
-	my.mu.Unlock()
-	return ok
-}
-
-func (my *Summarizer) popDirty() map[int64]bool {
-	my.mu.Lock()
-	defer my.mu.Unlock()
-
-	if len(my.dirty) == 0 {
-		return nil
-	}
-
-	dirty := my.dirty
-	my.dirty = make(map[int64]bool)
-
-	return dirty
-}
-
-func (my *Summarizer) processDoc(ctx context.Context, docId int64) error {
+func (my *Summarizer) ProcessDoc(ctx context.Context, docId int64) error {
 	doc, err := dao.GetDocumentById(docId)
 	if err != nil {
 		logo.Warn("summarizer: get doc %d error: %s", docId, err)

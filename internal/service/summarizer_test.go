@@ -52,7 +52,7 @@ func TestSummarizerProcessDoc(t *testing.T) {
 	}
 	s := NewSummarizer(mockLLM, cfg, nil, embedding.NewMockProvider(dao.EmbeddingDim))
 
-	if err := s.processDoc(context.Background(), doc.Id); err != nil {
+	if err := s.ProcessDoc(context.Background(), doc.Id); err != nil {
 		t.Fatalf("processDoc: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestSummarizerSkipsSystemCollections(t *testing.T) {
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
-	err := s.processDoc(context.Background(), doc.Id)
+	err := s.ProcessDoc(context.Background(), doc.Id)
 	if err != nil {
 		t.Fatalf("expected nil error for system collection skip, got %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSummarizerSkipsNoChunks(t *testing.T) {
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
-	err := s.processDoc(context.Background(), doc.Id)
+	err := s.ProcessDoc(context.Background(), doc.Id)
 	if err != nil {
 		t.Fatalf("no-chunk doc should return nil (not an error), got %v", err)
 	}
@@ -152,7 +152,7 @@ func TestSummarizerSkipsExistingWithSameHash(t *testing.T) {
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
-	err := s.processDoc(context.Background(), doc.Id)
+	err := s.ProcessDoc(context.Background(), doc.Id)
 	if err != nil {
 		t.Fatalf("expected nil for unchanged doc, got %v", err)
 	}
@@ -161,23 +161,29 @@ func TestSummarizerSkipsExistingWithSameHash(t *testing.T) {
 	}
 }
 
-func TestSummarizerDirtyMap(t *testing.T) {
+func TestSummarizerRecoverDirtyDocs(t *testing.T) {
 	initSummarizerTestDB(t)
+	dao.AddCollection("notes", "/data", "**/*.md", nil)
+
+	doc1 := &dao.DocumentRecord{Collection: "notes", Path: "a.md", Title: "A", Body: "body", Hash: "h1", FileSize: 4}
+	doc2 := &dao.DocumentRecord{Collection: "notes", Path: "b.md", Title: "B", Body: "body", Hash: "h2", FileSize: 4}
+	dao.UpsertDocument(doc1)
+	dao.UpsertDocument(doc2)
+	dao.InsertChunks(doc1.Id, []dao.ChunkData{{Content: "c1", Position: 0, TokenCount: 1, Hash: "h1"}}, []string{"c1"})
+	dao.InsertChunks(doc2.Id, []dao.ChunkData{{Content: "c2", Position: 0, TokenCount: 1, Hash: "h2"}}, []string{"c2"})
+
 	mockLLM := llm.NewMockLLM("summary")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	s := NewSummarizer(mockLLM, cfg, nil, nil)
 
-	s.addDirty(1)
-	s.addDirty(2)
-
-	dirty := s.popDirty()
-	if len(dirty) != 2 {
-		t.Fatalf("expected 2 dirty, got %d", len(dirty))
+	pending := s.ScanPendingDocs()
+	if len(pending) != 2 {
+		t.Fatalf("expected 2 pending, got %d", len(pending))
 	}
 
-	dirty2 := s.popDirty()
-	if len(dirty2) != 0 {
-		t.Fatalf("expected 0 dirty after pop, got %d", len(dirty2))
+	pending2 := s.ScanPendingDocs()
+	if len(pending2) != 2 {
+		t.Fatalf("expected 2 pending on second call, got %d", len(pending2))
 	}
 }
 
