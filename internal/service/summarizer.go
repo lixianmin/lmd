@@ -9,6 +9,7 @@ import (
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/llm"
+	"github.com/lixianmin/lmd/internal/tokenizer"
 	"github.com/lixianmin/logo"
 )
 
@@ -22,14 +23,16 @@ type Summarizer struct {
 	maxInput  int
 	onUpsert  func()
 	stopCh    <-chan struct{}
+	tokenizer tokenizer.Tokenizer
 }
 
-func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig) *Summarizer {
+func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig, tok tokenizer.Tokenizer) *Summarizer {
 	return &Summarizer{
 		dirty:     make(map[int64]bool),
 		llm:       llmProvider,
 		maxOutput: cfg.MaxOutputTokens,
 		maxInput:  cfg.MaxInputTokens,
+		tokenizer: tok,
 	}
 }
 
@@ -251,8 +254,14 @@ func (my *Summarizer) generateSummary(ctx context.Context, title, content string
 }
 
 func (my *Summarizer) upsertSummary(sourceDocId int64, hash, summary string) {
-	_, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary)
+	tokenized := summary
+	if my.tokenizer != nil {
+		if t := my.tokenizer.TokenizeToString(summary); t != "" {
+			tokenized = t
+		}
+	}
+	_, err := dao.UpsertSummaryDoc(sourceDocId, hash, summary, tokenized)
 	if err != nil {
-		logo.Warn("summarizer: upsert summary doc error: %s", err)
+		logo.Error("summarizer: upsert summary for doc %d failed: %s", sourceDocId, err)
 	}
 }

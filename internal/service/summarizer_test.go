@@ -50,7 +50,7 @@ func TestSummarizerProcessDoc(t *testing.T) {
 		MaxOutputTokens: 200,
 		CooldownSeconds: 60,
 	}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	if err := s.processDoc(context.Background(), doc.Id); err != nil {
 		t.Fatalf("processDoc: %v", err)
@@ -98,7 +98,7 @@ func TestSummarizerOnUpsertCallback(t *testing.T) {
 		MaxOutputTokens: 200,
 		CooldownSeconds: 60,
 	}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	var callbackCalled int
 	s.SetOnUpsert(func() {
@@ -124,7 +124,7 @@ func TestSummarizerSkipsSystemCollections(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestSummarizerSkipsNoChunks(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -171,11 +171,11 @@ func TestSummarizerSkipsExistingWithSameHash(t *testing.T) {
 		{Content: "content", Position: 0, TokenCount: 1, Hash: "h1"},
 	}, []string{"content"})
 
-	dao.UpsertSummaryDoc(doc.Id, "hash1", "old summary")
+	dao.UpsertSummaryDoc(doc.Id, "hash1", "old summary", "old summary")
 
 	mockLLM := llm.NewMockLLM("should not be called")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	err := s.processDoc(context.Background(), doc.Id)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestSummarizerDirtyMap(t *testing.T) {
 	initSummarizerTestDB(t)
 	mockLLM := llm.NewMockLLM("summary")
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	s.addDirty(1)
 	s.addDirty(2)
@@ -209,7 +209,7 @@ func TestSummarizerDirtyMap(t *testing.T) {
 func TestSummarizerTruncateContent(t *testing.T) {
 	mockLLM := llm.NewMockLLM("summary")
 	cfg := config.SummaryConfig{MaxInputTokens: 100, MaxOutputTokens: 50}
-	s := NewSummarizer(mockLLM, cfg)
+	s := NewSummarizer(mockLLM, cfg, nil)
 
 	short := "short content"
 	if got := s.truncateContent(short); got != short {

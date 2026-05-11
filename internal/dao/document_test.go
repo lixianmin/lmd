@@ -281,7 +281,7 @@ func TestUpsertSummaryDoc(t *testing.T) {
 	}
 	mustUpsertDoc(t, doc)
 
-	summaryDocId, err := UpsertSummaryDoc(doc.Id, "hash1", "这是测试摘要")
+	summaryDocId, err := UpsertSummaryDoc(doc.Id, "hash1", "这是测试摘要", "这是测试摘要")
 	if err != nil {
 		t.Fatalf("UpsertSummaryDoc: %v", err)
 	}
@@ -322,8 +322,8 @@ func TestUpsertSummaryDocReplaces(t *testing.T) {
 	}
 	mustUpsertDoc(t, doc)
 
-	UpsertSummaryDoc(doc.Id, "hash1", "summary v1")
-	id2, _ := UpsertSummaryDoc(doc.Id, "hash2", "summary v2")
+	UpsertSummaryDoc(doc.Id, "hash1", "summary v1", "summary v1")
+	id2, _ := UpsertSummaryDoc(doc.Id, "hash2", "summary v2", "summary v2")
 
 	got, err := GetDocumentBySourceDocId("@summaries", doc.Id)
 	if err != nil {
@@ -352,11 +352,11 @@ func TestUpsertSummaryDocRemovesOldChunks(t *testing.T) {
 	}
 	mustUpsertDoc(t, doc)
 
-	UpsertSummaryDoc(doc.Id, "hash1", "first")
+	UpsertSummaryDoc(doc.Id, "hash1", "first", "first")
 
 	allBefore, _ := GetUnembeddedChunks(0)
 
-	UpsertSummaryDoc(doc.Id, "hash2", "second")
+	UpsertSummaryDoc(doc.Id, "hash2", "second", "second")
 
 	allAfter, _ := GetUnembeddedChunks(0)
 	if len(allAfter) != len(allBefore) {

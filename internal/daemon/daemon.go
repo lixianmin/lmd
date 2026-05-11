@@ -103,7 +103,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.indexer = service.NewIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
-	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary)
+	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary, my.tokenizer)
 	my.summarizer.SetStopCh(my.stopCh)
 	my.summarizer.SetOnUpsert(func() {
 		loom.Go(func(later loom.Later) {

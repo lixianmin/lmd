@@ -225,7 +225,7 @@ func GetDocumentHash(collection, path string) (string, error) {
 	return hash, err
 }
 
-func UpsertSummaryDoc(sourceDocId int64, hash, summary string) (int64, error) {
+func UpsertSummaryDoc(sourceDocId int64, hash, summary, tokenizedSummary string) (int64, error) {
 	var docId int64
 	err := withTransaction(func(tx *sql.Tx) error {
 		existingRows, err := tx.Query("SELECT id FROM documents WHERE collection='@summaries' AND source_doc_id=?", sourceDocId)
@@ -276,7 +276,7 @@ func UpsertSummaryDoc(sourceDocId int64, hash, summary string) (int64, error) {
 		chunkId, _ := chunkRes.LastInsertId()
 
 		// 插入 FTS
-		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, summary)
+		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, tokenizedSummary)
 		return err
 	})
 	return docId, err
