@@ -51,7 +51,7 @@ func GetSummaryCounts() (totalDocs int, summaries int) {
 	if DB == nil || DB.db == nil {
 		return
 	}
-	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection != '@summaries'").Scan(&totalDocs)
+	DB.db.QueryRow("SELECT COUNT(DISTINCT doc_id) FROM chunks WHERE doc_id IN (SELECT id FROM documents WHERE collection != '@summaries')").Scan(&totalDocs)
 	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection = '@summaries'").Scan(&summaries)
 	return
 }

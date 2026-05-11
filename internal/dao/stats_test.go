@@ -45,8 +45,8 @@ func TestGetSummaryCounts(t *testing.T) {
 	mustUpsertDoc(t, doc2)
 
 	total, done = GetSummaryCounts()
-	if total != 2 {
-		t.Fatalf("expected total=2, got %d", total)
+	if total != 1 {
+		t.Fatalf("expected total=1 (only docs with chunks), got %d", total)
 	}
 	if done != 0 {
 		t.Fatalf("expected done=0, got %d", done)
@@ -54,8 +54,8 @@ func TestGetSummaryCounts(t *testing.T) {
 
 	mustInsertDocWithChunks(t, "@summaries", "a.md", chunks)
 	total, done = GetSummaryCounts()
-	if total != 2 {
-		t.Fatalf("expected total=2 after summary, got %d", total)
+	if total != 1 {
+		t.Fatalf("expected total=1 after summary, got %d", total)
 	}
 	if done != 1 {
 		t.Fatalf("expected done=1 after summary, got %d", done)
