@@ -63,20 +63,34 @@ func TestOllamaProvider_ModelName(t *testing.T) {
 }
 
 func TestOllamaProvider_EmbedQuery(t *testing.T) {
+	var receivedInput string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		var req struct {
+			Input any `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		switch v := req.Input.(type) {
+		case string:
+			receivedInput = v
+		case []any:
+			if len(v) > 0 {
+				receivedInput, _ = v[0].(string)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{
 			"embeddings": [][]float32{{0.5}},
 		})
 	}))
 	defer server.Close()
 
 	p := NewOllamaProvider(server.URL, "test")
-	vec, err := p.EmbedQuery(context.Background(), "query")
+	_, err := p.EmbedQuery(context.Background(), "docker命令")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(vec) != 1 {
-		t.Fatalf("expected 1 dim, got %d", len(vec))
+
+	if receivedInput != EmbedQueryPrefix+"docker命令" {
+		t.Fatalf("expected query to have prefix, got: %q", receivedInput)
 	}
 }
 

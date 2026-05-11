@@ -63,9 +63,11 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 		texts := make([]string, len(batch))
 		for i, c := range batch {
 			t := c.Content
-			runes := []rune(t)
-			if len(runes) > my.truncation {
-				t = string(runes[:my.truncation])
+			if my.truncation > 0 {
+				runes := []rune(t)
+				if len(runes) > my.truncation {
+					t = string(runes[:my.truncation])
+				}
 			}
 			texts[i] = t
 		}

@@ -234,6 +234,14 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for i, h := range summaryHits {
+		snippet := h.Snippet
+		if len([]rune(snippet)) > 200 {
+			snippet = string([]rune(snippet)[:200]) + "..."
+		}
+		logo.Info("handleSmartQuery: level1[%d] score=%.4f chunkId=%d docRowId=%d title=%q snippet=%q", i, h.Score, h.ChunkId, h.DocRowId, h.Title, snippet)
+	}
+
 	docIdSet := make(map[int64]bool)
 	uniqueRowIds := make(map[int64]bool)
 	for _, h := range summaryHits {

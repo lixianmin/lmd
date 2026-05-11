@@ -12,21 +12,21 @@ import (
 
 const ollamaHTTPTimeout = 120 * time.Second // Ollama HTTP 客户端超时
 
-type OllamaProvider struct {
+type OllamaEmbedding struct {
 	baseURL string
 	model   string
 	client  *http.Client
 }
 
-func NewOllamaProvider(url, model string) *OllamaProvider {
-	return &OllamaProvider{
+func NewOllamaProvider(url, model string) *OllamaEmbedding {
+	return &OllamaEmbedding{
 		baseURL: url,
 		model:   model,
 		client:  &http.Client{Timeout: ollamaHTTPTimeout},
 	}
 }
 
-func (my *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+func (my *OllamaEmbedding) Embed(ctx context.Context, text string) ([]float32, error) {
 	vecs, err := my.EmbedBatch(ctx, []string{text})
 	if err != nil {
 		return nil, err
@@ -37,8 +37,8 @@ func (my *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, er
 	return vecs[0], nil
 }
 
-func (my *OllamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	payload := map[string]interface{}{
+func (my *OllamaEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	payload := map[string]any{
 		"model": my.model,
 		"input": texts,
 	}
@@ -70,12 +70,12 @@ func (my *OllamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]f
 	return result.Embeddings, nil
 }
 
-func (my *OllamaProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+func (my *OllamaEmbedding) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return my.Embed(ctx, EmbedQueryPrefix+query)
 }
 
-func (my *OllamaProvider) Dimension() int { return EmbeddingDim }
+func (my *OllamaEmbedding) Dimension() int { return EmbeddingDim }
 
-func (my *OllamaProvider) ModelName() string { return my.model }
+func (my *OllamaEmbedding) ModelName() string { return my.model }
 
-func (my *OllamaProvider) Close() error { return nil }
+func (my *OllamaEmbedding) Close() error { return nil }
