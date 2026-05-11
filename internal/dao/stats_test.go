@@ -25,6 +25,43 @@ func TestGetChunkCounts(t *testing.T) {
 	}
 }
 
+func TestGetSummaryCounts(t *testing.T) {
+	initTestDB(t)
+
+	total, done := GetSummaryCounts()
+	if total != 0 || done != 0 {
+		t.Fatalf("expected (0,0), got (%d,%d)", total, done)
+	}
+
+	chunks := []ChunkData{
+		{Content: "hello", Position: 0, TokenCount: 1, Hash: "h1"},
+	}
+	mustInsertDocWithChunks(t, "notes", "a.md", chunks)
+
+	doc2 := &DocumentRecord{
+		Collection: "notes", Path: "b.md", Title: "b.md",
+		Body: "body", Hash: "hash_b", FileSize: 4,
+	}
+	mustUpsertDoc(t, doc2)
+
+	total, done = GetSummaryCounts()
+	if total != 2 {
+		t.Fatalf("expected total=2, got %d", total)
+	}
+	if done != 0 {
+		t.Fatalf("expected done=0, got %d", done)
+	}
+
+	mustInsertDocWithChunks(t, "@summaries", "a.md", chunks)
+	total, done = GetSummaryCounts()
+	if total != 2 {
+		t.Fatalf("expected total=2 after summary, got %d", total)
+	}
+	if done != 1 {
+		t.Fatalf("expected done=1 after summary, got %d", done)
+	}
+}
+
 func TestGetUnembeddedCount(t *testing.T) {
 	initTestDB(t)
 
@@ -32,14 +69,14 @@ func TestGetUnembeddedCount(t *testing.T) {
 		{Content: "a", Position: 0, TokenCount: 1, Hash: "h1"},
 		{Content: "b", Position: 1, TokenCount: 1, Hash: "h2"},
 	}
-	_, records := mustInsertDocWithChunks(t, "notes", "test.md", chunks)
+	doc, records := mustInsertDocWithChunks(t, "notes", "test.md", chunks)
 
 	if count := GetUnembeddedCount(); count != 2 {
 		t.Fatalf("expected 2, got %d", count)
 	}
 
 	vec := make([]float32, EmbeddingDim)
-	InsertVector(records[0].Id, vec)
+	InsertVector(records[0].Id, doc.Id, "notes", vec)
 
 	if count := GetUnembeddedCount(); count != 1 {
 		t.Fatalf("expected 1 after embedding one, got %d", count)

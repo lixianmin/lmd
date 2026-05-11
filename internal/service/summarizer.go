@@ -20,6 +20,8 @@ type Summarizer struct {
 	llm       llm.LLMProvider
 	maxOutput int
 	maxInput  int
+	onUpsert  func()
+	stopCh    <-chan struct{}
 }
 
 func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig) *Summarizer {
@@ -29,6 +31,14 @@ func NewSummarizer(llmProvider llm.LLMProvider, cfg config.SummaryConfig) *Summa
 		maxOutput: cfg.MaxOutputTokens,
 		maxInput:  cfg.MaxInputTokens,
 	}
+}
+
+func (my *Summarizer) SetOnUpsert(fn func()) {
+	my.onUpsert = fn
+}
+
+func (my *Summarizer) SetStopCh(ch <-chan struct{}) {
+	my.stopCh = ch
 }
 
 func (my *Summarizer) MarkDirty(docIds []int64) {
@@ -92,10 +102,22 @@ func (my *Summarizer) ProcessDirty() {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	if my.stopCh != nil {
+		go func() {
+			select {
+			case <-my.stopCh:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
+	defer cancel()
+
 	logo.Info("summarizer: processing %d dirty docs", len(dirty))
 	var done, failed int
 	for docId := range dirty {
-		if err := my.processDoc(docId); err != nil {
+		if err := my.processDoc(ctx, docId); err != nil {
 			failed++
 		} else {
 			done++
@@ -131,7 +153,7 @@ func (my *Summarizer) popDirty() map[int64]bool {
 	return dirty
 }
 
-func (my *Summarizer) processDoc(docId int64) error {
+func (my *Summarizer) processDoc(ctx context.Context, docId int64) error {
 	doc, err := dao.GetDocumentById(docId)
 	if err != nil {
 		logo.Warn("summarizer: get doc %d error: %s", docId, err)
@@ -164,7 +186,7 @@ func (my *Summarizer) processDoc(docId int64) error {
 
 	content = my.truncateContent(content)
 
-	summary, err := my.generateSummary(doc.Title, content)
+	summary, err := my.generateSummary(ctx, doc.Title, content)
 	if err != nil {
 		logo.Warn("summarizer: generate summary for doc %d error: %s", docId, err)
 		return err
@@ -172,6 +194,9 @@ func (my *Summarizer) processDoc(docId int64) error {
 
 	logo.Info("summarizer: generated summary for doc %d (%s) → %s", docId, doc.Title, summary)
 	my.upsertSummary(docId, doc.Hash, summary)
+	if my.onUpsert != nil {
+		my.onUpsert()
+	}
 	return nil
 }
 
@@ -212,7 +237,7 @@ func (my *Summarizer) truncateContent(content string) string {
 	return head + "\n...(truncated)...\n" + tail
 }
 
-func (my *Summarizer) generateSummary(title, content string) (string, error) {
+func (my *Summarizer) generateSummary(ctx context.Context, title, content string) (string, error) {
 	prompt := "你是一个知识库索引助手。阅读以下文档，用1-2句话(不超过100字)概括其内容和核心主题。\n\n" +
 		"文档标题: " + title + "\n" +
 		"文档内容:\n" + content + "\n\n" +
@@ -222,7 +247,6 @@ func (my *Summarizer) generateSummary(title, content string) (string, error) {
 		{Role: "user", Content: prompt},
 	}
 
-	ctx := context.Background()
 	return my.llm.ChatCompletion(ctx, messages)
 }
 

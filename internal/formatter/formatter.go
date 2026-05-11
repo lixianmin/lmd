@@ -5,6 +5,7 @@ import "io"
 type SearchHit struct {
 	ChunkId    int64
 	DocId      string
+	DocRowId   int64
 	Collection string
 	Path       string
 	Title      string

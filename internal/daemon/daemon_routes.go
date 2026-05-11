@@ -217,9 +217,16 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	overfetch := safeOverfetch(req.Limit)
 
-	lexHits, _ := my.searcher.SearchLex(req.Query, "@summaries", overfetch, 0, req.Strategy)
-	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@summaries", overfetch, 0)
+	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@summaries", overfetch, 0, req.Strategy)
+	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@summaries", overfetch, 0)
+	if lexErr != nil {
+		logo.Warn("handleSmartQuery: lex search summaries failed: %s", lexErr)
+	}
+	if vecErr != nil {
+		logo.Warn("handleSmartQuery: vector search summaries failed: %s", vecErr)
+	}
 	summaryHits := service.FuseResults(lexHits, vecHits)
+	logo.Info("handleSmartQuery: level1 query=%q lexHits=%d vecHits=%d summaryHits=%d", req.Query, len(lexHits), len(vecHits), len(summaryHits))
 
 	if len(summaryHits) == 0 {
 		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
@@ -228,13 +235,26 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	docIdSet := make(map[int64]bool)
+	uniqueRowIds := make(map[int64]bool)
 	for _, h := range summaryHits {
-		doc, err := dao.GetDocumentByDocId(h.DocId)
-		if err != nil {
-			continue
+		if h.DocRowId > 0 {
+			uniqueRowIds[h.DocRowId] = true
 		}
-		if doc.SourceDocId > 0 {
-			docIdSet[doc.SourceDocId] = true
+	}
+	if len(uniqueRowIds) > 0 {
+		ids := make([]int64, 0, len(uniqueRowIds))
+		for id := range uniqueRowIds {
+			ids = append(ids, id)
+		}
+		docs, err := dao.GetDocumentsByIds(ids)
+		if err != nil {
+			logo.Warn("handleSmartQuery: resolve doc ids failed: %s", err)
+		}
+		for _, doc := range docs {
+			logo.Info("handleSmartQuery: summary docId=%d path=%q sourceDocId=%d", doc.Id, doc.Path, doc.SourceDocId)
+			if doc.SourceDocId > 0 {
+				docIdSet[doc.SourceDocId] = true
+			}
 		}
 	}
 
@@ -244,11 +264,20 @@ func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lexHits2, _ := my.searcher.SearchLex(req.Query, "", overfetch*2, 0, req.Strategy)
-	vecHits2, _ := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "", overfetch*2, 0)
+	sourceDocIds := make([]int64, 0, len(docIdSet))
+	for id := range docIdSet {
+		sourceDocIds = append(sourceDocIds, id)
+	}
+	logo.Info("handleSmartQuery: level2 query=%q sourceDocIds=%v", req.Query, sourceDocIds)
 
-	lexHits2 = filterHitsByDocIds(lexHits2, docIdSet)
-	vecHits2 = filterHitsByDocIds(vecHits2, docIdSet)
+	lexHits2, lexErr2 := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch*2, req.Strategy)
+	vecHits2, vecErr2 := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch*2)
+	if lexErr2 != nil {
+		logo.Warn("handleSmartQuery: level2 lex search failed: %s", lexErr2)
+	}
+	if vecErr2 != nil {
+		logo.Warn("handleSmartQuery: level2 vector search failed: %s", vecErr2)
+	}
 
 	results := service.FuseResults(lexHits2, vecHits2)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
@@ -264,20 +293,6 @@ func (my *Daemon) fullHybridSearch(ctx context.Context, query, collection string
 	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, query, collection, overfetch, 0)
 	results := service.FuseResults(lexHits, vecHits)
 	return filterAndLimit(results, minScore, limit)
-}
-
-func filterHitsByDocIds(hits []formatter.SearchHit, allowedIDs map[int64]bool) []formatter.SearchHit {
-	var filtered []formatter.SearchHit
-	for _, h := range hits {
-		doc, err := dao.GetDocumentByDocId(h.DocId)
-		if err != nil {
-			continue
-		}
-		if allowedIDs[doc.Id] {
-			filtered = append(filtered, h)
-		}
-	}
-	return filtered
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -381,6 +396,8 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		pending = 0
 	}
 
+	totalDocsForSummary, summaryCount := dao.GetSummaryCounts()
+
 	var eta string
 	if pending > 0 {
 		startNum := my.etaStartNum.Load()
@@ -399,13 +416,15 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"database":    my.cfg.Database.Path,
-		"documents":   totalDocs,
-		"chunks":      chunkCount,
-		"embedded":    embedCount,
-		"pending":     pending,
-		"eta":         eta,
-		"collections": collections,
+		"database":       my.cfg.Database.Path,
+		"documents":      totalDocs,
+		"chunks":         chunkCount,
+		"embedded":       embedCount,
+		"pending":        pending,
+		"eta":            eta,
+		"summary_total":  totalDocsForSummary,
+		"summary_done":   summaryCount,
+		"collections":    collections,
 	})
 }
 

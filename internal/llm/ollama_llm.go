@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const ollamaLLMHTTPTimeout = 120 * time.Second // Ollama LLM HTTP 客户端超时
+const ollamaLLMHTTPTimeout = 300 * time.Second // Ollama LLM HTTP 客户端超时（大模型加载慢）
 
 type OllamaLLM struct {
 	baseURL    string
@@ -32,10 +32,12 @@ func NewOllamaLLM(url, model string, noThinking bool) *OllamaLLM {
 }
 
 type ollamaChatRequest struct {
-	Model    string         `json:"model"`
-	Messages []Message      `json:"messages"`
-	Stream   bool           `json:"stream"`
-	Options  map[string]any `json:"options,omitempty"`
+	Model     string         `json:"model"`
+	Messages  []Message      `json:"messages"`
+	Stream    bool           `json:"stream"`
+	KeepAlive string         `json:"keep_alive,omitempty"`
+	Think     bool           `json:"think"`
+	Options   map[string]any `json:"options,omitempty"`
 }
 
 type ollamaChatResponse struct {
@@ -46,12 +48,11 @@ type ollamaChatResponse struct {
 
 func (my *OllamaLLM) ChatCompletion(ctx context.Context, messages []Message) (string, error) {
 	reqBody := ollamaChatRequest{
-		Model:    my.model,
-		Messages: messages,
-		Stream:   false,
-	}
-	if my.noThinking {
-		reqBody.Options = map[string]any{"enable_thinking": false}
+		Model:     my.model,
+		Messages:  messages,
+		Stream:    false,
+		KeepAlive: "10m",
+		Think:     !my.noThinking,
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -62,7 +63,8 @@ func (my *OllamaLLM) ChatCompletion(ctx context.Context, messages []Message) (st
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := my.client.Do(req)
+	client := my.client
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ollama chat request failed: %w", err)
 	}

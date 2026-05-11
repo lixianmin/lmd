@@ -39,6 +39,8 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		pending = 0
 	}
 
+	totalDocsForSummary, summaryCount := dao.GetSummaryCounts()
+
 	var eta string
 	if pending > 0 {
 		startNum := my.etaStartNum.Load()
@@ -57,12 +59,14 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"documents":   totalDocs,
-		"chunks":      chunkCount,
-		"embedded":    embedCount,
-		"pending":     pending,
-		"eta":         eta,
-		"collections": stats,
+		"documents":      totalDocs,
+		"chunks":         chunkCount,
+		"embedded":       embedCount,
+		"pending":        pending,
+		"eta":            eta,
+		"summary_total":  totalDocsForSummary,
+		"summary_done":   summaryCount,
+		"collections":    stats,
 	}, nil
 }
 
@@ -235,13 +239,25 @@ func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, err
 	}
 
 	docIdSet := make(map[int64]bool)
+	uniqueRowIds := make(map[int64]bool)
 	for _, h := range summaryHits {
-		doc, err := dao.GetDocumentByDocId(h.DocId)
-		if err != nil {
-			continue
+		if h.DocRowId > 0 {
+			uniqueRowIds[h.DocRowId] = true
 		}
-		if doc.SourceDocId > 0 {
-			docIdSet[doc.SourceDocId] = true
+	}
+	if len(uniqueRowIds) > 0 {
+		ids := make([]int64, 0, len(uniqueRowIds))
+		for id := range uniqueRowIds {
+			ids = append(ids, id)
+		}
+		docs, err := dao.GetDocumentsByIds(ids)
+		if err != nil {
+			logo.Warn("handleToolSmartQuery: resolve doc ids failed: %s", err)
+		}
+		for _, doc := range docs {
+			if doc.SourceDocId > 0 {
+				docIdSet[doc.SourceDocId] = true
+			}
 		}
 	}
 
@@ -250,11 +266,13 @@ func (my *Daemon) handleToolSmartQuery(params json.RawMessage) (interface{}, err
 		return map[string]interface{}{"hits": results, "routed": false}, nil
 	}
 
-	lexHits2, _ := my.searcher.SearchLex(req.Query, "", overfetch*2, 0, req.Strategy)
-	vecHits2, _ := my.searcher.SearchVector(context.Background(), my.embedProvider, req.Query, "", overfetch*2, 0)
+	sourceDocIds := make([]int64, 0, len(docIdSet))
+	for id := range docIdSet {
+		sourceDocIds = append(sourceDocIds, id)
+	}
 
-	lexHits2 = filterHitsByDocIds(lexHits2, docIdSet)
-	vecHits2 = filterHitsByDocIds(vecHits2, docIdSet)
+	lexHits2, _ := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch*2, req.Strategy)
+	vecHits2, _ := my.searcher.SearchVectorByDocIds(context.Background(), my.embedProvider, req.Query, sourceDocIds, overfetch*2)
 
 	results := service.FuseResults(lexHits2, vecHits2)
 	results = filterAndLimit(results, req.MinScore, req.Limit)

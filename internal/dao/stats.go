@@ -47,6 +47,15 @@ func GetChunkCountsByCollection() map[string]int {
 	return result
 }
 
+func GetSummaryCounts() (totalDocs int, summaries int) {
+	if DB == nil || DB.db == nil {
+		return
+	}
+	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection != '@summaries'").Scan(&totalDocs)
+	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection = '@summaries'").Scan(&summaries)
+	return
+}
+
 func GetUnembeddedCount() int {
 	if DB == nil || DB.db == nil {
 		return 0

@@ -26,6 +26,53 @@ func NewSearcher(tok tokenizer.Tokenizer) *Searcher {
 	return &Searcher{tokenizer: tok}
 }
 
+func (my *Searcher) SearchLexByDocIds(query string, docIds []int64, limit int, strategy string) ([]formatter.SearchHit, error) {
+	tokenized := query
+	if my.tokenizer != nil {
+		t := my.tokenizer.TokenizeToString(query)
+		if t != "" {
+			tokenized = t
+		}
+	}
+
+	var ftsQuery string
+	switch strategy {
+	case "and":
+		ftsQuery = buildFTSQueryAND(tokenized)
+	default:
+		ftsQuery = buildFTSQuery(tokenized)
+	}
+	if ftsQuery == "" {
+		logo.Info("SearchLexByDocIds: query=%q docIds=%d ftsQuery empty, skipped", query, len(docIds))
+		return nil, nil
+	}
+
+	logo.Info("SearchLexByDocIds: query=%q tokenized=%q ftsQuery=%q docIds=%d", query, tokenized, ftsQuery, len(docIds))
+
+	ftsResults, err := dao.SearchFTSByDocIds(ftsQuery, docIds, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	logo.Info("SearchLexByDocIds: query=%q docIds=%d ftsResults=%d", query, len(docIds), len(ftsResults))
+
+	var hits []formatter.SearchHit
+	for _, r := range ftsResults {
+		hits = append(hits, formatter.SearchHit{
+			ChunkId:    r.ChunkID,
+			DocId:      dao.ShortDocId(r.DocId),
+			DocRowId:   r.DocRowId,
+			Collection: r.Collection,
+			Path:       r.Path,
+			Title:      r.Title,
+			Score:      r.Score,
+			Snippet:    r.Content,
+			Line:       r.Line,
+		})
+	}
+	return hits, nil
+}
+
 func (my *Searcher) SearchLex(query, collection string, limit int, minScore float64, strategy string) ([]formatter.SearchHit, error) {
 	// 中文分词: gse tokenizer 将 CJK 文本切分为空格分隔的词语
 	tokenized := query
@@ -57,6 +104,8 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 		return nil, nil
 	}
 
+	logo.Info("SearchLex: query=%q tokenized=%q ftsQuery=%q collection=%s limit=%d", query, tokenized, ftsQuery, collection, limit)
+
 	var ftsResults []dao.FTSSearchResult
 	var err error
 	if strategy == "and" {
@@ -77,6 +126,7 @@ func (my *Searcher) SearchLex(query, collection string, limit int, minScore floa
 		hits = append(hits, formatter.SearchHit{
 			ChunkId:    r.ChunkID,
 			DocId:      dao.ShortDocId(r.DocId),
+			DocRowId:   r.DocRowId,
 			Collection: r.Collection,
 			Path:       r.Path,
 			Title:      r.Title,
@@ -332,16 +382,42 @@ func (my *Searcher) applyPosWeight(query string, hits []formatter.SearchHit) []f
 
 
 
-func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
-	logo.Info("SearchVector: query=%q collection=%s limit=%d", query, collection, limit)
+func (my *Searcher) SearchVectorByDocIds(ctx context.Context, provider embedding.EmbeddingProvider, query string, docIds []int64, limit int) ([]formatter.SearchHit, error) {
+	logo.Info("SearchVectorByDocIds: query=%q docIds=%d limit=%d", query, len(docIds), limit)
 	queryVec, err := provider.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	hits, err := my.SearchVectorByEmbedding(queryVec, collection, limit)
+
+	vecResults, err := dao.QueryVectorsByDocIds(queryVec, docIds, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vector query by doc ids failed: %w", err)
+	}
+
+	if len(vecResults) == 0 {
+		return nil, nil
+	}
+
+	return my.buildHitsFromVecResults(vecResults)
+}
+
+func (my *Searcher) SearchVector(ctx context.Context, provider embedding.EmbeddingProvider, query, collection string, limit int, minScore float64) ([]formatter.SearchHit, error) {
+	logo.Info("SearchVector: query=%q collection=%s limit=%d minScore=%.2f", query, collection, limit, minScore)
+	queryVec, err := provider.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+
+	var hits []formatter.SearchHit
+	if collection != "" {
+		hits, err = my.searchVectorByCollection(queryVec, collection, limit)
+	} else {
+		hits, err = my.SearchVectorByEmbedding(queryVec, "", limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	if minScore > 0 {
 		var filtered []formatter.SearchHit
 		for _, h := range hits {
@@ -349,28 +425,52 @@ func (my *Searcher) SearchVector(ctx context.Context, provider embedding.Embeddi
 				filtered = append(filtered, h)
 			}
 		}
+		logo.Info("SearchVector: query=%q collection=%s vecAll=%d filtered=%d (minScore=%.2f)", query, collection, len(hits), len(filtered), minScore)
 		return filtered, nil
 	}
 	return hits, nil
 }
 
-const vectorOverfetchFactor = 5 // 向量搜索全局取回后按 collection 过滤，需放大取回量以保证足够结果
-
-func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) ([]formatter.SearchHit, error) {
-	fetchLimit := limit
-	if collection != "" {
-		fetchLimit = limit * vectorOverfetchFactor
-	}
-
-	vecResults, err := dao.QueryVectors(queryVec, fetchLimit)
+func (my *Searcher) searchVectorByCollection(queryVec []float32, collection string, limit int) ([]formatter.SearchHit, error) {
+	vecResults, err := dao.QueryVectorsByCollection(queryVec, collection, limit)
 	if err != nil {
-		return nil, fmt.Errorf("vector query failed: %w", err)
+		return nil, fmt.Errorf("vector query by collection failed: %w", err)
 	}
 
 	if len(vecResults) == 0 {
+		logo.Info("searchVectorByCollection: vecResults=0 collection=%s limit=%d", collection, limit)
 		return nil, nil
 	}
 
+	logo.Info("searchVectorByCollection: vecResults=%d collection=%s top3_chunkIds=%v top3_dist=%.4f/%.4f/%.4f",
+		len(vecResults), collection,
+		takeChunkIds(vecResults, 3),
+		safeDist(vecResults, 0), safeDist(vecResults, 1), safeDist(vecResults, 2))
+
+	return my.buildHitsFromVecResults(vecResults)
+}
+
+func takeChunkIds(results []dao.VectorSearchResult, n int) []int64 {
+	if n > len(results) {
+		n = len(results)
+	}
+	ids := make([]int64, n)
+	for i := 0; i < n; i++ {
+		ids[i] = results[i].ChunkId
+	}
+	return ids
+}
+
+func safeDist(results []dao.VectorSearchResult, idx int) float64 {
+	if idx < len(results) {
+		return results[idx].Distance
+	}
+	return -1
+}
+
+const vectorOverfetchFactor = 5
+
+func (my *Searcher) buildHitsFromVecResults(vecResults []dao.VectorSearchResult) ([]formatter.SearchHit, error) {
 	chunkIds := make([]int64, len(vecResults))
 	for i, r := range vecResults {
 		chunkIds[i] = r.ChunkId
@@ -419,13 +519,10 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 			continue
 		}
 
-		if collection != "" && doc.Collection != collection {
-			continue
-		}
-
 		hits = append(hits, formatter.SearchHit{
 			ChunkId:    r.ChunkId,
 			DocId:      dao.ShortDocId(doc.DocId),
+			DocRowId:   doc.Id,
 			Collection: doc.Collection,
 			Path:       doc.Path,
 			Title:      doc.Title,
@@ -434,6 +531,18 @@ func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection strin
 			Line:       chunk.Position,
 		})
 	}
-
 	return hits, nil
+}
+
+func (my *Searcher) SearchVectorByEmbedding(queryVec []float32, collection string, limit int) ([]formatter.SearchHit, error) {
+	vecResults, err := dao.QueryVectors(queryVec, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vector query failed: %w", err)
+	}
+
+	if len(vecResults) == 0 {
+		return nil, nil
+	}
+
+	return my.buildHitsFromVecResults(vecResults)
 }

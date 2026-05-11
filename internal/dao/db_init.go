@@ -109,6 +109,7 @@ func createTables() error {
 			body        TEXT NOT NULL,
 			hash        TEXT NOT NULL,
 			file_size   INTEGER,
+			source_doc_id INTEGER DEFAULT 0,
 			modified_at DATETIME,
 			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
 			updated_at  DATETIME DEFAULT (DATETIME('now', '+8 hours')),
@@ -132,9 +133,12 @@ func createTables() error {
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
 			chunk_id INTEGER PRIMARY KEY,
-			embedding float[1024] distance_metric=cosine
+			embedding float[1024] distance_metric=cosine,
+			doc_id INTEGER,
+			collection TEXT
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_source_doc_id ON documents(source_doc_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
 	}
 	for _, s := range stmts {
@@ -144,6 +148,7 @@ func createTables() error {
 	}
 
 	_, _ = DB.db.Exec("ALTER TABLE documents ADD COLUMN file_mod_time INTEGER DEFAULT 0")
+	addSourceDocIdColumn()
 	return nil
 }
 
@@ -164,3 +169,5 @@ func addSourceDocIdColumn() {
 		logo.Warn("add source_doc_id column error: %s", err)
 	}
 }
+
+

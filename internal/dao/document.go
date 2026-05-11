@@ -244,21 +244,25 @@ func UpsertSummaryDoc(sourceDocId int64, hash, summary string) (int64, error) {
 		existingRows.Close()
 
 		for _, did := range existingIds {
-			// 删除 chunks_fts
-			tx.Exec("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id=?)", did)
-			// 删除 chunks_vec
-			tx.Exec("DELETE FROM chunks_vec WHERE chunk_id IN (SELECT id FROM chunks WHERE doc_id=?)", did)
-			// 删除 chunks (FK CASCADE)
-			tx.Exec("DELETE FROM chunks WHERE doc_id=?", did)
-			// 删除 document
-			tx.Exec("DELETE FROM documents WHERE id=?", did)
+			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id=?)", did); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id IN (SELECT id FROM chunks WHERE doc_id=?)", did); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM chunks WHERE doc_id=?", did); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", did); err != nil {
+				return err
+			}
 		}
 
 		// 插入 summary document
-		docIdStr := generateDocId("@summaries", "", hash)
+		docIdStr := generateDocId("@summaries", fmt.Sprintf("%d", sourceDocId), hash)
 		res, err := tx.Exec(`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
-			VALUES (?, '@summaries', '', '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
-			docIdStr, hash, sourceDocId)
+			VALUES (?, '@summaries', ?, '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
+			docIdStr, fmt.Sprintf("/@summary/%d", sourceDocId), hash, sourceDocId)
 		if err != nil {
 			return err
 		}

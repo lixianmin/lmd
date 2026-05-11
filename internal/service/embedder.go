@@ -81,11 +81,30 @@ func (my *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, er
 		}
 
 		items := make([]struct {
-			ChunkId   int64
-			Embedding []float32
+			ChunkId    int64
+			DocId      int64
+			Collection string
+			Embedding  []float32
 		}, len(vecs))
+
+		docIds := make(map[int64]bool)
+		for _, c := range batch {
+			docIds[c.DocId] = true
+		}
+		ids := make([]int64, 0, len(docIds))
+		for id := range docIds {
+			ids = append(ids, id)
+		}
+		docs, _ := dao.GetDocumentsByIds(ids)
+		collectionMap := make(map[int64]string)
+		for _, d := range docs {
+			collectionMap[d.Id] = d.Collection
+		}
+
 		for i, vec := range vecs {
 			items[i].ChunkId = batch[i].Id
+			items[i].DocId = batch[i].DocId
+			items[i].Collection = collectionMap[batch[i].DocId]
 			items[i].Embedding = vec
 		}
 

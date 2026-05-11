@@ -102,7 +102,7 @@ func TestInsertVectorAndGetUnembedded(t *testing.T) {
 		{Content: "chunk one", Position: 0, TokenCount: 2, Hash: "h1"},
 		{Content: "chunk two", Position: 1, TokenCount: 2, Hash: "h2"},
 	}
-	_, records := mustInsertDocWithChunks(t, "notes", "test.md", chunks)
+	doc, records := mustInsertDocWithChunks(t, "notes", "test.md", chunks)
 
 	unembedded, err := GetUnembeddedChunks(0)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestInsertVectorAndGetUnembedded(t *testing.T) {
 	for i := range vec {
 		vec[i] = 0.1
 	}
-	if err := InsertVector(records[0].Id, vec); err != nil {
+	if err := InsertVector(records[0].Id, doc.Id, "notes", vec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -137,13 +137,13 @@ func TestQueryVectors(t *testing.T) {
 	chunks := []ChunkData{
 		{Content: "vector test", Position: 0, TokenCount: 2, Hash: "h1"},
 	}
-	_, records := mustInsertDocWithChunks(t, "notes", "vec.md", chunks)
+	doc, records := mustInsertDocWithChunks(t, "notes", "vec.md", chunks)
 
 	vec := make([]float32, EmbeddingDim)
 	for i := range vec {
 		vec[i] = float32(i%10) * 0.1
 	}
-	if err := InsertVector(records[0].Id, vec); err != nil {
+	if err := InsertVector(records[0].Id, doc.Id, "notes", vec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,6 +156,63 @@ func TestQueryVectors(t *testing.T) {
 	}
 	if results[0].ChunkId != records[0].Id {
 		t.Fatalf("expected chunkID %d, got %d", records[0].Id, results[0].ChunkId)
+	}
+}
+
+func TestQueryVectorsByDocIds(t *testing.T) {
+	initTestDB(t)
+
+	chunks1 := []ChunkData{
+		{Content: "docker container", Position: 0, TokenCount: 2, Hash: "h1"},
+	}
+	doc1, rec1 := mustInsertDocWithChunks(t, "qvbi1", "a.md", chunks1)
+
+	chunks2 := []ChunkData{
+		{Content: "kubernetes pod", Position: 0, TokenCount: 2, Hash: "h2"},
+	}
+	doc2, rec2 := mustInsertDocWithChunks(t, "qvbi2", "b.md", chunks2)
+
+	vec1 := make([]float32, EmbeddingDim)
+	for i := range vec1 {
+		vec1[i] = 0.1
+	}
+	vec2 := make([]float32, EmbeddingDim)
+	for i := range vec2 {
+		vec2[i] = 0.9
+	}
+	InsertVector(rec1[0].Id, doc1.Id, "qvbi1", vec1)
+	InsertVector(rec2[0].Id, doc2.Id, "qvbi2", vec2)
+
+	query := make([]float32, EmbeddingDim)
+	for i := range query {
+		query[i] = 0.1
+	}
+
+	results, err := QueryVectorsByDocIds(query, []int64{doc1.Id}, 10)
+	if err != nil {
+		t.Fatalf("QueryVectorsByDocIds: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result filtered by doc1, got %d", len(results))
+	}
+	if results[0].ChunkId != rec1[0].Id {
+		t.Fatalf("expected chunk from doc1, got chunkId %d", results[0].ChunkId)
+	}
+
+	results2, err := QueryVectorsByDocIds(query, []int64{doc2.Id}, 10)
+	if err != nil {
+		t.Fatalf("QueryVectorsByDocIds(doc2): %v", err)
+	}
+	if len(results2) != 1 {
+		t.Fatalf("expected 1 result for doc2 (within top-10), got %d", len(results2))
+	}
+
+	allResults, err := QueryVectorsByDocIds(query, []int64{doc1.Id, doc2.Id}, 10)
+	if err != nil {
+		t.Fatalf("QueryVectorsByDocIds(both): %v", err)
+	}
+	if len(allResults) != 2 {
+		t.Fatalf("expected 2 results for both docs, got %d", len(allResults))
 	}
 }
 
@@ -207,10 +264,10 @@ func TestDeleteVectorsByDocId(t *testing.T) {
 	chunks := []ChunkData{
 		{Content: "to delete", Position: 0, TokenCount: 2, Hash: "h1"},
 	}
-	doc, _ := mustInsertDocWithChunks(t, "notes", "del.md", chunks)
+	doc, records := mustInsertDocWithChunks(t, "notes", "del.md", chunks)
 
 	vec := make([]float32, EmbeddingDim)
-	InsertVector(doc.Id, vec)
+	InsertVector(records[0].Id, doc.Id, "notes", vec)
 
 	if err := DeleteVectorsByDocId(doc.Id); err != nil {
 		t.Fatal(err)
@@ -251,7 +308,7 @@ func TestGetEmbeddingsByChunkIds(t *testing.T) {
 	chunks := []ChunkData{
 		{Content: "test content", Position: 0, TokenCount: 2, Hash: "h1"},
 	}
-	_, records := mustInsertDocWithChunks(t, "notes", "emb_test.md", chunks)
+	doc, records := mustInsertDocWithChunks(t, "notes", "emb_test.md", chunks)
 	chunkId := records[0].Id
 
 	vec := make([]float32, EmbeddingDim)
@@ -259,7 +316,7 @@ func TestGetEmbeddingsByChunkIds(t *testing.T) {
 		vec[i] = float32(i)
 	}
 
-	if err := InsertVector(chunkId, vec); err != nil {
+	if err := InsertVector(chunkId, doc.Id, "notes", vec); err != nil {
 		t.Fatal(err)
 	}
 

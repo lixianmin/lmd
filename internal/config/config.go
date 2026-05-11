@@ -77,9 +77,9 @@ func DefaultConfig() *Config {
 			Provider:        "ollama",
 			Model:           "qwen3.5",
 			MaxOutputTokens: 512,
-			MaxInputTokens:  245000,
-			CooldownSeconds: 120,
-			NoThinking:      false,
+			MaxInputTokens:  30000,
+			CooldownSeconds: 60,
+			NoThinking:      true,
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "index.sqlite"),

@@ -17,8 +17,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Embedding.Provider != "ollama" {
 		t.Fatalf("expected embedding provider ollama, got %s", cfg.Embedding.Provider)
 	}
-	if cfg.Embedding.Model != "batiai/qwen3-embedding" {
-		t.Fatalf("expected embedding model batiAI/qwen3-embedding, got %s", cfg.Embedding.Model)
+	if cfg.Embedding.Model != "batiai/qwen3-embedding:0.6b" {
+		t.Fatalf("expected embedding model batiai/qwen3-embedding:0.6b, got %s", cfg.Embedding.Model)
 	}
 	if cfg.Embedding.BatchSize != 8 {
 		t.Fatalf("expected embedding batch_size 8, got %d", cfg.Embedding.BatchSize)
@@ -33,11 +33,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Summary.MaxOutputTokens != 512 {
 		t.Fatalf("expected summary max_output_tokens 512, got %d", cfg.Summary.MaxOutputTokens)
 	}
-	if cfg.Summary.MaxInputTokens != 245000 {
-		t.Fatalf("expected summary max_input_tokens 245000, got %d", cfg.Summary.MaxInputTokens)
+	if cfg.Summary.MaxInputTokens != 30000 {
+		t.Fatalf("expected summary max_input_tokens 30000, got %d", cfg.Summary.MaxInputTokens)
 	}
-	if cfg.Summary.CooldownSeconds != 120 {
-		t.Fatalf("expected summary cooldown_seconds 120, got %d", cfg.Summary.CooldownSeconds)
+	if cfg.Summary.CooldownSeconds != 60 {
+		t.Fatalf("expected summary cooldown_seconds 60, got %d", cfg.Summary.CooldownSeconds)
 	}
 	if !cfg.Summary.NoThinking {
 		t.Fatal("expected summary no_thinking true")

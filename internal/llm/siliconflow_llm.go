@@ -11,10 +11,11 @@ import (
 )
 
 type SiliconFlowLLM struct {
-	baseURL string
-	model   string
-	apiKey  string
-	client  *http.Client
+	baseURL   string
+	model     string
+	apiKey    string
+	maxTokens int
+	client    *http.Client
 }
 
 func NewSiliconFlowLLM(url, model, apiKey string) *SiliconFlowLLM {
@@ -22,10 +23,11 @@ func NewSiliconFlowLLM(url, model, apiKey string) *SiliconFlowLLM {
 		url = url[:len(url)-1]
 	}
 	return &SiliconFlowLLM{
-		baseURL: url,
-		model:   model,
-		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 120 * time.Second},
+		baseURL:   url,
+		model:     model,
+		apiKey:    apiKey,
+		maxTokens: 512,
+		client:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -48,6 +50,7 @@ func (my *SiliconFlowLLM) ChatCompletion(ctx context.Context, messages []Message
 	reqBody := sfChatRequest{
 		Model:       my.model,
 		Messages:    messages,
+		MaxTokens:   my.maxTokens,
 		Temperature: 0.3,
 	}
 

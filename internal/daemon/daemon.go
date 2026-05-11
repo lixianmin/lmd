@@ -104,6 +104,14 @@ func (my *Daemon) Start(ctx context.Context) error {
 	my.searcher = service.NewSearcher(tok)
 	my.embedder = service.NewEmbedder(my.embedProvider, my.cfg.Embedding.BatchSize, 0)
 	my.summarizer = service.NewSummarizer(my.llmProvider, my.cfg.Summary)
+	my.summarizer.SetStopCh(my.stopCh)
+	my.summarizer.SetOnUpsert(func() {
+		loom.Go(func(later loom.Later) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			my.embedder.EmbedBatch(ctx, 1)
+		})
+	})
 	my.summarizer.ScanAll()
 
 	handler := registerRoutes(my)
@@ -230,9 +238,6 @@ func (my *Daemon) syncIndexUnlocked() {
 }
 
 func (my *Daemon) embedChunks() {
-	if dao.GetUnembeddedCount() == 0 {
-		return
-	}
 	count := dao.GetUnembeddedCount()
 	if count == 0 {
 		return

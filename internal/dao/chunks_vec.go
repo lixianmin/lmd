@@ -93,24 +93,26 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 	return records, nil
 }
 
-func InsertVector(chunkId int64, embedding []float32) error {
+func InsertVector(chunkId, docId int64, collection string, embedding []float32) error {
 	vec, err := sqlite_vec.SerializeFloat32(padVector(embedding))
 	if err != nil {
 		return err
 	}
-	_, err = WithExec("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)", chunkId, vec)
+	_, err = WithExec("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, ?)", chunkId, vec, docId, collection)
 	return err
 }
 
 func InsertVectors(items []struct {
 	ChunkId   int64
+	DocId     int64
+	Collection string
 	Embedding []float32
 }) error {
 	if len(items) == 0 {
 		return nil
 	}
 	return withTransaction(func(tx *sql.Tx) error {
-		stmt, err := tx.Prepare("INSERT INTO chunks_vec(chunk_id, embedding) VALUES (?, ?)")
+		stmt, err := tx.Prepare("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, ?)")
 		if err != nil {
 			return err
 		}
@@ -120,7 +122,7 @@ func InsertVectors(items []struct {
 			if err != nil {
 				return err
 			}
-			if _, err := stmt.Exec(item.ChunkId, vec); err != nil {
+			if _, err := stmt.Exec(item.ChunkId, vec, item.DocId, item.Collection); err != nil {
 				return err
 			}
 		}
@@ -200,6 +202,77 @@ func QueryVectors(query []float32, limit int) ([]VectorSearchResult, error) {
 		ORDER BY distance
 		LIMIT ?
 	`, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []VectorSearchResult
+	for rows.Next() {
+		var r VectorSearchResult
+		if err := rows.Scan(&r.ChunkId, &r.Distance); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func QueryVectorsByDocIds(query []float32, docIds []int64, limit int) ([]VectorSearchResult, error) {
+	q, err := sqlite_vec.SerializeFloat32(padVector(query))
+	if err != nil {
+		return nil, err
+	}
+
+	placeholders := make([]string, len(docIds))
+	args := make([]any, 0, len(docIds)+2)
+	args = append(args, q)
+	for i, id := range docIds {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, limit)
+
+	queryStr := fmt.Sprintf(`
+		SELECT chunk_id, distance
+		FROM chunks_vec
+		WHERE embedding MATCH ?
+		  AND doc_id IN (%s)
+		ORDER BY distance
+		LIMIT ?
+	`, strings.Join(placeholders, ","))
+
+	rows, err := withQuery(queryStr, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []VectorSearchResult
+	for rows.Next() {
+		var r VectorSearchResult
+		if err := rows.Scan(&r.ChunkId, &r.Distance); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func QueryVectorsByCollection(query []float32, collection string, limit int) ([]VectorSearchResult, error) {
+	q, err := sqlite_vec.SerializeFloat32(padVector(query))
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := withQuery(`
+		SELECT chunk_id, distance
+		FROM chunks_vec
+		WHERE embedding MATCH ?
+		  AND collection = ?
+		ORDER BY distance
+		LIMIT ?
+	`, q, collection, limit)
 	if err != nil {
 		return nil, err
 	}
