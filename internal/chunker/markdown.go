@@ -53,10 +53,7 @@ func NewMarkdownChunker(chunkSize int) *MarkdownChunker {
 	if chunkSize <= 0 {
 		chunkSize = 300
 	}
-	overlapChars := chunkSize * overlapPercent / 100
-	if overlapChars < minOverlapChars {
-		overlapChars = minOverlapChars
-	}
+	overlapChars := max(chunkSize*overlapPercent/100, minOverlapChars)
 	return &MarkdownChunker{
 		chunkSize:    chunkSize,
 		hardMax:      chunkSize + chunkSize/2,

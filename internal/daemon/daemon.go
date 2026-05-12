@@ -144,7 +144,7 @@ func (my *Daemon) Stop() error {
 
 func (my *Daemon) goChunkLoop(later loom.Later) {
 	closeChan := my.wc.C()
-	my.runChunkPipeline(closeChan)
+	my.runChunkPipeline()
 
 	ticker := later.NewTicker(60 * time.Second)
 	for {
@@ -152,14 +152,14 @@ func (my *Daemon) goChunkLoop(later loom.Later) {
 		case <-closeChan:
 			return
 		case <-ticker.C:
-			my.runChunkPipeline(closeChan)
+			my.runChunkPipeline()
 		}
 	}
 }
 
 func (my *Daemon) goHydeLoop(later loom.Later) {
 	closeChan := my.wc.C()
-	my.runHydePipeline(closeChan)
+	my.runHydePipeline()
 
 	ticker := later.NewTicker(60 * time.Second)
 	for {
@@ -167,12 +167,12 @@ func (my *Daemon) goHydeLoop(later loom.Later) {
 		case <-closeChan:
 			return
 		case <-ticker.C:
-			my.runHydePipeline(closeChan)
+			my.runHydePipeline()
 		}
 	}
 }
 
-func (my *Daemon) runChunkPipeline(closeChan <-chan struct{}) {
+func (my *Daemon) runChunkPipeline() {
 	pending := my.scanDocChanges()
 	if len(pending) == 0 {
 		return
@@ -182,6 +182,7 @@ func (my *Daemon) runChunkPipeline(closeChan <-chan struct{}) {
 	dao.SetMeta("pipeline.status", "running")
 	dao.SetMeta("pipeline.total", fmt.Sprintf("%d", total))
 
+	closeChan := my.wc.C()
 	var errors int
 	for i, doc := range pending {
 		select {
@@ -206,7 +207,7 @@ func (my *Daemon) runChunkPipeline(closeChan <-chan struct{}) {
 	}
 }
 
-func (my *Daemon) runHydePipeline(closeChan <-chan struct{}) {
+func (my *Daemon) runHydePipeline() {
 	docs, err := dao.FindDocsWithMissingHydeData(100)
 	if err != nil {
 		logo.Warn("hydePipeline: find docs failed: %s", err)
@@ -227,6 +228,8 @@ func (my *Daemon) runHydePipeline(closeChan <-chan struct{}) {
 	}
 
 	logo.Info("hydePipeline: found %d docs with missing hyde data", len(docs))
+	closeChan := my.wc.C()
+
 	var errors int
 	for _, doc := range docs {
 		select {
