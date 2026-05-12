@@ -91,7 +91,7 @@ var hybridCmd = &cobra.Command{
 
 var hydeCmd = &cobra.Command{
 	Use:   "hyde <query>",
-	Short: "HyDE search (vector search via hypothetical document)",
+	Short: "Two-level HyDE search (Level1 @hyde -> Level2 precision -> fallback hybrid)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -99,32 +99,20 @@ var hydeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
 		if jsonOut {
 			printBody(body)
 			return nil
 		}
-
 		var resp struct {
-			HyDEDocument   string                `json:"hyde_document"`
-			HyDEGenerateMs int64                 `json:"hyde_generate_ms"`
-			HyDEHits       int                   `json:"hyde_hits"`
-			Hits           []formatter.SearchHit `json:"hits"`
-			HyDEError      string                `json:"hyde_error,omitempty"`
+			Hits   []formatter.SearchHit `json:"hits"`
+			Routed bool                  `json:"routed"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return err
 		}
-
-		if resp.HyDEError != "" {
-			fmt.Fprintf(os.Stderr, "HyDE error: %s\n", resp.HyDEError)
-		} else if resp.HyDEDocument != "" {
-			fmt.Fprintf(os.Stderr, "HyDE document: %s\n", resp.HyDEDocument)
+		if !resp.Routed {
+			fmt.Fprintf(os.Stderr, "hyde: no @hyde matches, fallback to global hybrid search\n")
 		}
-		fmt.Fprintf(os.Stderr, "Results: hyde=%d total=%d\n",
-			resp.HyDEHits, len(resp.Hits))
-		fmt.Fprintf(os.Stderr, "Generate time: %dms\n\n", resp.HyDEGenerateMs)
-
 		return formatResults(os.Stdout, resp.Hits)
 	},
 }

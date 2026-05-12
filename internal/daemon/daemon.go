@@ -42,6 +42,7 @@ type Daemon struct {
 
 	tokenizer     tokenizer.Tokenizer
 	chunkIndexer *service.ChunkIndexer
+	hydeIndexer   *service.HyDEIndexer
 	searcher      *service.Searcher
 	embedProvider embedding.EmbeddingProvider
 	llmProvider   llm.LLMProvider
@@ -75,6 +76,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 	}
 
 	my.chunkIndexer = service.NewChunkIndexer(tok)
+	my.hydeIndexer = service.NewHyDEIndexer(my.llmProvider, my.embedProvider, tok, my.cfg.Hyde)
 	my.searcher = service.NewSearcher(tok)
 
 	handler := registerRoutes(my)
@@ -145,8 +147,10 @@ func (my *Daemon) goLoop(later loom.Later) {
 
 	const indexSyncInterval = 60 * time.Second
 	pipelineTicker := later.NewTicker(indexSyncInterval)
+	hydeTicker := later.NewTicker(indexSyncInterval)
 
 	my.runPipeline(processor, closeChan)
+	my.runHydePipeline(closeChan)
 
 	for {
 		select {
@@ -154,6 +158,8 @@ func (my *Daemon) goLoop(later loom.Later) {
 			return
 		case <-pipelineTicker.C:
 			my.runPipeline(processor, closeChan)
+		case <-hydeTicker.C:
+			my.runHydePipeline(closeChan)
 		}
 	}
 }
@@ -189,6 +195,43 @@ func (my *Daemon) runPipeline(processor *service.Processor, closeChan <-chan str
 	dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
 	if errors > 0 {
 		logo.Warn("pipeline: processed %d docs, errors=%d", total, errors)
+	}
+}
+
+func (my *Daemon) runHydePipeline(closeChan <-chan struct{}) {
+	cols, err := dao.ListCollections()
+	if err != nil {
+		logo.Warn("hydePipeline: list collections failed: %s", err)
+		return
+	}
+	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "@") {
+			continue
+		}
+		select {
+		case <-closeChan:
+			return
+		default:
+		}
+		pending, err := my.hydeIndexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		if err != nil {
+			logo.Warn("hydePipeline: scan %s failed: %s", col.Name, err)
+			continue
+		}
+		if len(pending) == 0 {
+			continue
+		}
+		logo.Info("hydePipeline: %s found %d pending docs", col.Name, len(pending))
+		for _, doc := range pending {
+			select {
+			case <-closeChan:
+				return
+			default:
+			}
+			if err := my.hydeIndexer.ProcessDoc(context.Background(), doc); err != nil {
+				logo.Warn("hydePipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+			}
+		}
 	}
 }
 

@@ -171,6 +171,7 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		Collection string  `json:"collection"`
 		Limit      int     `json:"limit"`
 		MinScore   float64 `json:"min_score"`
+		Strategy   string  `json:"strategy"`
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -181,15 +182,80 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-
 	if req.Limit <= 0 {
 		req.Limit = defaultSearchLimit
 	}
+	if req.Strategy == "" {
+		req.Strategy = "pos-or"
+	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"error": "HyDE not available",
-		"hits":  []formatter.SearchHit{},
-	})
+	ctx := r.Context()
+	overfetch := safeOverfetch(req.Limit)
+
+	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@hyde", overfetch, 0, req.Strategy)
+	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@hyde", overfetch, 0)
+	if lexErr != nil && vecErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "hyde search failed"})
+		return
+	}
+	hydeHits := service.FuseResults(lexHits, vecHits)
+
+	if len(hydeHits) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	uniqueRowIds := make(map[int64]bool)
+	for _, h := range hydeHits {
+		if h.DocRowId > 0 {
+			uniqueRowIds[h.DocRowId] = true
+		}
+	}
+	docIdSet := make(map[int64]bool)
+	if len(uniqueRowIds) > 0 {
+		ids := make([]int64, 0, len(uniqueRowIds))
+		for id := range uniqueRowIds {
+			ids = append(ids, id)
+		}
+		docs, err := dao.GetDocumentsByIds(ids)
+		if err == nil {
+			for _, doc := range docs {
+				if doc.SourceDocId > 0 {
+					docIdSet[doc.SourceDocId] = true
+				}
+			}
+		}
+	}
+
+	if len(docIdSet) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		return
+	}
+
+	sourceDocIds := make([]int64, 0, len(docIdSet))
+	for id := range docIdSet {
+		sourceDocIds = append(sourceDocIds, id)
+	}
+
+	lexHits2, _ := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch*2, req.Strategy)
+	vecHits2, _ := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch*2)
+
+	results := service.FuseResults(lexHits2, vecHits2)
+	results = filterAndLimit(results, req.MinScore, req.Limit)
+
+	logo.Info("handleHyde: query=%q hyde=%d docs=%d results=%d routed=true",
+		req.Query, len(hydeHits), len(docIdSet), len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
+}
+
+func (my *Daemon) fullHybridSearch(ctx context.Context, query, collection string, limit int, minScore float64, strategy string) []formatter.SearchHit {
+	overfetch := safeOverfetch(limit)
+	lexHits, _ := my.searcher.SearchLex(query, collection, overfetch, 0, strategy)
+	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, query, collection, overfetch, 0)
+	results := service.FuseResults(lexHits, vecHits)
+	return filterAndLimit(results, minScore, limit)
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
