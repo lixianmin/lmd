@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/lixianmin/got/convert"
-	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/mcp"
@@ -388,7 +387,6 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"hyde_total":    hydeTotal,
 		"hyde_done":     hydeDone,
 		"collections":    collections,
-		"rebuild":        readProgressMeta("rebuild"),
 		"pipeline":       readProgressMeta("pipeline"),
 	})
 }
@@ -622,61 +620,12 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":     "rebuild started",
+		"status":      "rebuild started",
 		"collections": len(cols),
 	})
 
-	loom.Go(func(later loom.Later) {
-		my.rebuildProcessPending(cols)
-		my.rebuildMu.Unlock()
-	})
-}
-
-func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
-	var pending []service.PendingDoc
-	for _, col := range cols {
-		if strings.HasPrefix(col.Name, "@") {
-			continue
-		}
-		result, err := my.chunkIndexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Error("rebuild: scan %s failed: %s", col.Name, err)
-			continue
-		}
-		if len(result) > 0 {
-			logo.Info("rebuild: %s found %d pending docs", col.Name, len(result))
-		}
-		pending = append(pending, result...)
-	}
-
-	total := len(pending)
-	if total == 0 {
-		dao.SetMeta("rebuild.status", "idle")
-		logo.Info("rebuild: no pending docs")
-		return
-	}
-
-	dao.SetMeta("rebuild.status", "running")
-	dao.SetMeta("rebuild.total", fmt.Sprintf("%d", total))
-	dao.SetMeta("rebuild.processed", "0")
-	dao.SetMeta("rebuild.errors", "0")
-
-	var errors int
-	for i, doc := range pending {
-		if err := my.chunkIndexer.ProcessDoc(context.Background(), doc); err != nil {
-			errors++
-			dao.SetMeta("rebuild.errors", fmt.Sprintf("%d", errors))
-			logo.Warn("rebuild: process %s/%s failed: %s", doc.Collection, doc.Path, err)
-		}
-		if (i+1)%50 == 0 {
-			dao.SetMeta("rebuild.processed", fmt.Sprintf("%d", i+1))
-			pct := float64(i+1) / float64(total) * 100
-			logo.Info("rebuild: progress %d/%d (%.1f%%) errors=%d", i+1, total, pct, errors)
-		}
-	}
-	dao.SetMeta("rebuild.processed", fmt.Sprintf("%d", total))
-	dao.SetMeta("rebuild.status", "idle")
-	logo.Info("rebuild: done, processed %d docs, errors=%d", total, errors)
+	my.rebuildMu.Unlock()
+	logo.Info("rebuild: cleared data, pipelines will pick up %d collections", len(cols))
 }
 
 func (my *Daemon) handleMCP(w http.ResponseWriter, r *http.Request) {
