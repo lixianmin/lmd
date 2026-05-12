@@ -173,6 +173,9 @@ func (my *Daemon) goHydeLoop(later loom.Later) {
 }
 
 func (my *Daemon) runChunkPipeline() {
+	my.rebuildMu.RLock()
+	my.rebuildMu.RUnlock()
+
 	pending := my.scanDocChanges()
 	if len(pending) == 0 {
 		return
@@ -209,7 +212,7 @@ func (my *Daemon) runChunkPipeline() {
 
 func (my *Daemon) runHydePipeline() {
 	my.rebuildMu.RLock()
-	defer my.rebuildMu.RUnlock()
+	my.rebuildMu.RUnlock()
 
 	docs, err := dao.FindDocsWithMissingHydeData(100)
 	if err != nil {
@@ -265,9 +268,6 @@ func (my *Daemon) runHydePipeline() {
 }
 
 func (my *Daemon) scanDocChanges() []service.PendingDoc {
-	my.rebuildMu.RLock()
-	defer my.rebuildMu.RUnlock()
-
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Error("pipeline: list collections failed: %s", err)
