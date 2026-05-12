@@ -272,7 +272,7 @@ func TestGenerateDocId(t *testing.T) {
 	}
 }
 
-func TestUpsertSummaryWithVector(t *testing.T) {
+func TestUpsertHydeData(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
@@ -289,15 +289,15 @@ func TestUpsertSummaryWithVector(t *testing.T) {
 		vec[i] = float32(i % 100)
 	}
 
-	docId, err := UpsertSummaryWithVector(doc.Id, "hash1", "summary text", "summary text", vec)
+	docId, err := UpsertHydeData(doc.Id, "hash1", "summary text", "summary text", vec)
 	if err != nil {
-		t.Fatalf("UpsertSummaryWithVector: %v", err)
+		t.Fatalf("UpsertHydeData: %v", err)
 	}
 	if docId == 0 {
 		t.Fatal("expected non-zero docId")
 	}
 
-	got, err := GetDocumentBySourceDocId("@summaries", doc.Id)
+	got, err := GetDocumentBySourceDocId("@hyde", doc.Id)
 	if err != nil {
 		t.Fatalf("GetDocumentBySourceDocId: %v", err)
 	}
@@ -329,7 +329,7 @@ func getVectorCount(t *testing.T, chunkId int64) int {
 	return count
 }
 
-func TestUpsertSummaryWithVectorIdempotent(t *testing.T) {
+func TestUpsertHydeDataIdempotent(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
@@ -341,10 +341,10 @@ func TestUpsertSummaryWithVectorIdempotent(t *testing.T) {
 
 	vec := make([]float32, EmbeddingDim)
 
-	docId1, _ := UpsertSummaryWithVector(doc.Id, "hash1", "summary v1", "summary v1", vec)
-	docId2, _ := UpsertSummaryWithVector(doc.Id, "hash2", "summary v2", "summary v2", vec)
+	docId1, _ := UpsertHydeData(doc.Id, "hash1", "summary v1", "summary v1", vec)
+	docId2, _ := UpsertHydeData(doc.Id, "hash2", "summary v2", "summary v2", vec)
 
-	got, _ := GetDocumentBySourceDocId("@summaries", doc.Id)
+	got, _ := GetDocumentBySourceDocId("@hyde", doc.Id)
 	if got.Id != docId2 {
 		t.Fatalf("expected docId=%d (second upsert), got %d", docId2, got.Id)
 	}

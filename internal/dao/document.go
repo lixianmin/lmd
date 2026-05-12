@@ -284,10 +284,10 @@ func GetDocumentHash(collection, path string) (string, error) {
 	return hash, err
 }
 
-func UpsertSummaryWithVector(sourceDocId int64, hash, summary, tokenizedSummary string, vec []float32) (int64, error) {
+func UpsertHydeData(sourceDocId int64, hash, content, tokenizedContent string, vec []float32) (int64, error) {
 	var docId int64
 	err := withTransaction(func(tx *sql.Tx) error {
-		existingRows, err := tx.Query("SELECT id FROM documents WHERE collection='@summaries' AND source_doc_id=?", sourceDocId)
+		existingRows, err := tx.Query("SELECT id FROM documents WHERE collection='@hyde' AND source_doc_id=?", sourceDocId)
 		if err != nil {
 			return err
 		}
@@ -317,22 +317,22 @@ func UpsertSummaryWithVector(sourceDocId int64, hash, summary, tokenizedSummary 
 			}
 		}
 
-		docIdStr := generateDocId("@summaries", fmt.Sprintf("%d", sourceDocId), hash)
+		docIdStr := generateDocId("@hyde", fmt.Sprintf("%d", sourceDocId), hash)
 		res, err := tx.Exec(`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
-			VALUES (?, '@summaries', ?, '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
-			docIdStr, fmt.Sprintf("/@summary/%d", sourceDocId), hash, sourceDocId)
+			VALUES (?, '@hyde', ?, '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
+			docIdStr, fmt.Sprintf("/@hyde/%d", sourceDocId), hash, sourceDocId)
 		if err != nil {
 			return err
 		}
 		docId, _ = res.LastInsertId()
 
-		chunkRes, err := tx.Exec("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)", docId, summary, hash)
+		chunkRes, err := tx.Exec("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)", docId, content, hash)
 		if err != nil {
 			return err
 		}
 		chunkId, _ := chunkRes.LastInsertId()
 
-		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, tokenizedSummary)
+		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, tokenizedContent)
 		if err != nil {
 			return err
 		}
@@ -341,7 +341,7 @@ func UpsertSummaryWithVector(sourceDocId int64, hash, summary, tokenizedSummary 
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, '@summaries')", chunkId, serialized, docId)
+		_, err = tx.Exec("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, '@hyde')", chunkId, serialized, docId)
 		return err
 	})
 	return docId, err
