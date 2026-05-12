@@ -140,7 +140,7 @@ func (my *Daemon) Stop() error {
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
-	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Hyde)
+	processor := service.NewProcessor(my.embedProvider)
 	closeChan := my.wc.C()
 
 	const indexSyncInterval = 60 * time.Second

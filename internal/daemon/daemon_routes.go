@@ -293,7 +293,7 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		pending = 0
 	}
 
-	totalDocsForSummary, summaryCount := dao.GetSummaryCounts()
+	hydeTotal, hydeDone := dao.GetSummaryCounts()
 
 	var eta string
 	if pending > 0 {
@@ -319,8 +319,8 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"embedded":       embedCount,
 		"pending":        pending,
 		"eta":            eta,
-		"summary_total":  totalDocsForSummary,
-		"summary_done":   summaryCount,
+		"hyde_total":    hydeTotal,
+		"hyde_done":     hydeDone,
 		"collections":    collections,
 		"rebuild":        readProgressMeta("rebuild"),
 		"pipeline":       readProgressMeta("pipeline"),
@@ -596,7 +596,7 @@ func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
 	dao.SetMeta("rebuild.errors", "0")
 
 	var errors int
-	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Hyde)
+	processor := service.NewProcessor(my.embedProvider)
 	for i, doc := range pending {
 		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
 			errors++

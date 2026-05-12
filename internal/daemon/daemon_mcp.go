@@ -39,7 +39,7 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		pending = 0
 	}
 
-	totalDocsForSummary, summaryCount := dao.GetSummaryCounts()
+	hydeTotal, hydeDone := dao.GetSummaryCounts()
 
 	var eta string
 	if pending > 0 {
@@ -64,8 +64,8 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		"embedded":       embedCount,
 		"pending":        pending,
 		"eta":            eta,
-		"summary_total":  totalDocsForSummary,
-		"summary_done":   summaryCount,
+		"hyde_total":   hydeTotal,
+		"hyde_done":    hydeDone,
 		"collections":    stats,
 	}, nil
 }
