@@ -254,16 +254,16 @@ func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
 	}
 	defer rows.Close()
 
-	var docs []DocumentRecord
+	var result []DocumentRecord
 	for rows.Next() {
 		var doc DocumentRecord
-		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title,
-			&doc.Body, &doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+			&doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, err
 		}
-		docs = append(docs, doc)
+		result = append(result, doc)
 	}
-	return docs, rows.Err()
+	return result, rows.Err()
 }
 
 func CountDocuments() (int, error) {
@@ -354,6 +354,32 @@ func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 		WHERE d.collection NOT LIKE '@%'
 		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
 		AND NOT EXISTS (SELECT 1 FROM chunks_vec_rowids v JOIN chunks c ON c.id = v.chunk_id WHERE c.doc_id = d.id)
+		LIMIT ?`
+	rows, err := withQuery(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []DocumentRecord
+	for rows.Next() {
+		var doc DocumentRecord
+		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
+			&doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			return nil, err
+		}
+		docs = append(docs, doc)
+	}
+	return docs, rows.Err()
+}
+
+func FindDocsWithMissingHydeData(limit int) ([]DocumentRecord, error) {
+	query := `
+		SELECT d.id, d.docid, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
+		FROM documents d
+		WHERE d.collection NOT LIKE '@%'
+		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
+		AND NOT EXISTS (SELECT 1 FROM documents h WHERE h.collection='@hyde' AND h.source_doc_id = d.id)
 		LIMIT ?`
 	rows, err := withQuery(query, limit)
 	if err != nil {

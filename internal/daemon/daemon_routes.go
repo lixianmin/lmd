@@ -662,9 +662,8 @@ func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
 	dao.SetMeta("rebuild.errors", "0")
 
 	var errors int
-	processor := service.NewProcessor(my.embedProvider)
 	for i, doc := range pending {
-		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+		if err := my.chunkIndexer.ProcessDoc(context.Background(), doc); err != nil {
 			errors++
 			dao.SetMeta("rebuild.errors", fmt.Sprintf("%d", errors))
 			logo.Warn("rebuild: process %s/%s failed: %s", doc.Collection, doc.Path, err)

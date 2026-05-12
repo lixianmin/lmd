@@ -41,7 +41,7 @@ type Daemon struct {
 	etaStartNum atomic.Int64
 
 	tokenizer     tokenizer.Tokenizer
-	chunkIndexer *service.ChunkIndexer
+	chunkIndexer  *service.ChunkIndexer
 	hydeIndexer   *service.HyDEIndexer
 	searcher      *service.Searcher
 	embedProvider embedding.EmbeddingProvider
@@ -75,7 +75,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 		return fmt.Errorf("embedding or llm provider init failed")
 	}
 
-	my.chunkIndexer = service.NewChunkIndexer(tok)
+	my.chunkIndexer = service.NewChunkIndexer(tok, my.embedProvider)
 	my.hydeIndexer = service.NewHyDEIndexer(my.llmProvider, my.embedProvider, tok, my.cfg.Hyde)
 	my.searcher = service.NewSearcher(tok)
 
@@ -96,7 +96,8 @@ func (my *Daemon) Start(ctx context.Context) error {
 	})
 
 	logo.Info("daemon: listening on %s", addr)
-	loom.Go(my.goLoop)
+	loom.Go(my.goChunkLoop)
+	loom.Go(my.goHydeLoop)
 
 	// ETA baseline: record embedded count at startup for average speed calculation
 	_, embedded := dao.GetChunkCounts()
@@ -141,31 +142,38 @@ func (my *Daemon) Stop() error {
 	})
 }
 
-func (my *Daemon) goLoop(later loom.Later) {
-	processor := service.NewProcessor(my.embedProvider)
+func (my *Daemon) goChunkLoop(later loom.Later) {
 	closeChan := my.wc.C()
+	my.runChunkPipeline(closeChan)
 
-	const indexSyncInterval = 60 * time.Second
-	pipelineTicker := later.NewTicker(indexSyncInterval)
-	hydeTicker := later.NewTicker(indexSyncInterval)
-
-	my.runPipeline(processor, closeChan)
-	my.runHydePipeline(closeChan)
-
+	ticker := later.NewTicker(60 * time.Second)
 	for {
 		select {
 		case <-closeChan:
 			return
-		case <-pipelineTicker.C:
-			my.runPipeline(processor, closeChan)
-		case <-hydeTicker.C:
+		case <-ticker.C:
+			my.runChunkPipeline(closeChan)
+		}
+	}
+}
+
+func (my *Daemon) goHydeLoop(later loom.Later) {
+	closeChan := my.wc.C()
+	my.runHydePipeline(closeChan)
+
+	ticker := later.NewTicker(60 * time.Second)
+	for {
+		select {
+		case <-closeChan:
+			return
+		case <-ticker.C:
 			my.runHydePipeline(closeChan)
 		}
 	}
 }
 
-func (my *Daemon) runPipeline(processor *service.Processor, closeChan <-chan struct{}) {
-	pending := my.scanChanges()
+func (my *Daemon) runChunkPipeline(closeChan <-chan struct{}) {
+	pending := my.scanDocChanges()
 	if len(pending) == 0 {
 		return
 	}
@@ -182,9 +190,9 @@ func (my *Daemon) runPipeline(processor *service.Processor, closeChan <-chan str
 			return
 		default:
 		}
-		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+		if err := my.chunkIndexer.ProcessDoc(context.Background(), doc); err != nil {
 			errors++
-			logo.Warn("pipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+			logo.Warn("chunkPipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
 		}
 		if (i+1)%50 == 0 {
 			dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", i+1))
@@ -194,48 +202,63 @@ func (my *Daemon) runPipeline(processor *service.Processor, closeChan <-chan str
 	dao.SetMeta("pipeline.status", "idle")
 	dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
 	if errors > 0 {
-		logo.Warn("pipeline: processed %d docs, errors=%d", total, errors)
+		logo.Warn("chunkPipeline: processed %d docs, errors=%d", total, errors)
 	}
 }
 
 func (my *Daemon) runHydePipeline(closeChan <-chan struct{}) {
+	docs, err := dao.FindDocsWithMissingHydeData(100)
+	if err != nil {
+		logo.Warn("hydePipeline: find docs failed: %s", err)
+		return
+	}
+	if len(docs) == 0 {
+		return
+	}
+
 	cols, err := dao.ListCollections()
 	if err != nil {
 		logo.Warn("hydePipeline: list collections failed: %s", err)
 		return
 	}
-	for _, col := range cols {
-		if strings.HasPrefix(col.Name, "@") {
-			continue
-		}
+	colMap := make(map[string]dao.CollectionRecord, len(cols))
+	for _, c := range cols {
+		colMap[c.Name] = c
+	}
+
+	logo.Info("hydePipeline: found %d docs with missing hyde data", len(docs))
+	var errors int
+	for _, doc := range docs {
 		select {
 		case <-closeChan:
 			return
 		default:
 		}
-		pending, err := my.hydeIndexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
-		if err != nil {
-			logo.Warn("hydePipeline: scan %s failed: %s", col.Name, err)
+		col, ok := colMap[doc.Collection]
+		if !ok {
 			continue
 		}
-		if len(pending) == 0 {
-			continue
+		pending := service.PendingDoc{
+			Action:     service.DocNew,
+			Collection: doc.Collection,
+			RootDir:    col.Path,
+			Path:       doc.Path,
+			Title:      doc.Title,
+			Body:       doc.Body,
+			Hash:       doc.Hash,
+			FileSize:   doc.FileSize,
 		}
-		logo.Info("hydePipeline: %s found %d pending docs", col.Name, len(pending))
-		for _, doc := range pending {
-			select {
-			case <-closeChan:
-				return
-			default:
-			}
-			if err := my.hydeIndexer.ProcessDoc(context.Background(), doc); err != nil {
-				logo.Warn("hydePipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
-			}
+		if err := my.hydeIndexer.ProcessDoc(context.Background(), pending); err != nil {
+			errors++
+			logo.Warn("hydePipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
 		}
+	}
+	if errors > 0 {
+		logo.Warn("hydePipeline: processed %d docs, errors=%d", len(docs), errors)
 	}
 }
 
-func (my *Daemon) scanChanges() []service.PendingDoc {
+func (my *Daemon) scanDocChanges() []service.PendingDoc {
 	my.rebuildMu.RLock()
 	defer my.rebuildMu.RUnlock()
 

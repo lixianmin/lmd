@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/embedding"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/tokenizer"
 )
@@ -14,7 +15,7 @@ func TestSearchBM25(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
@@ -45,7 +46,7 @@ func TestSearchBM25WithCollection(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
@@ -65,7 +66,7 @@ func TestSearchBM25English(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
@@ -85,7 +86,7 @@ func TestSearchPosMust(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
@@ -116,7 +117,7 @@ func TestSearchPosOr(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
@@ -136,7 +137,7 @@ func TestSearchPosWeight(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewChunkIndexer(tok)
+	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
