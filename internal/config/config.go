@@ -1,17 +1,20 @@
 package config
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
-	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/logo"
+	"gopkg.in/yaml.v3"
 )
 
 var Cfg *Config
 var once sync.Once
-var configDir string // test hook: overrides default config directory
+var configDir string
+var envDir string
 
 type Config struct {
 	Providers ProviderConfig  `yaml:"providers"`
@@ -28,11 +31,12 @@ type DaemonConfig struct {
 type ProviderConfig struct {
 	Ollama      ProviderItem `yaml:"ollama"`
 	SiliconFlow ProviderItem `yaml:"siliconflow"`
+	DeepSeek    ProviderItem `yaml:"deepseek"`
 }
 
 type ProviderItem struct {
-	URL    string `yaml:"url"`
-	APIKey string `yaml:"api_key,omitempty"`
+	BaseURL string `yaml:"base_url"`
+	APIKey  string `yaml:"api_key,omitempty"`
 }
 
 type EmbeddingConfig struct {
@@ -61,11 +65,14 @@ func DefaultConfig() *Config {
 		},
 		Providers: ProviderConfig{
 			Ollama: ProviderItem{
-				URL: "http://localhost:11434",
+				BaseURL: "http://localhost:11434",
 			},
 			SiliconFlow: ProviderItem{
-				URL:    "https://api.siliconflow.cn/v1",
+				BaseURL: "https://api.siliconflow.cn/v1",
 				APIKey: "sk-your-api-key-here",
+			},
+			DeepSeek: ProviderItem{
+				BaseURL: "https://api.deepseek.com/v1",
 			},
 		},
 		Embedding: EmbeddingConfig{
@@ -75,8 +82,8 @@ func DefaultConfig() *Config {
 			BatchSize:   8,
 		},
 		Summary: SummaryConfig{
-			Provider:        "ollama",
-			Model:           "qwen3.5",
+			Provider:        "siliconflow",
+			Model:           "Qwen/Qwen2.5-7B-Instruct",
 			MaxOutputTokens: 768,
 			MaxInputTokens:  30000,
 			NoThinking:      true,
@@ -90,22 +97,76 @@ func DefaultConfig() *Config {
 func Load() {
 	once.Do(func() {
 		Cfg = DefaultConfig()
+
+		loadDotEnvToEnv(resolveEnvDir())
+
 		configPath := resolveConfigPath()
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				_ = SaveDefault(configPath)
 				logo.Info("config: created default config at %s", configPath)
-				return
+			} else {
+				logo.Warn("config: read %s error: %s, using defaults", configPath, err)
 			}
-			logo.Warn("config: read %s error: %s, using defaults", configPath, err)
-			return
-		}
-		if err := convert.FromJsonE(data, Cfg); err != nil {
+		} else if err := yaml.Unmarshal(data, Cfg); err != nil {
 			logo.Warn("config: unmarshal error: %s, using defaults", err)
-			return
 		}
+
+		overrideFromEnv()
 	})
+}
+
+func resolveEnvDir() string {
+	if envDir != "" {
+		return envDir
+	}
+	dir, _ := os.Getwd()
+	return dir
+}
+
+func loadDotEnvToEnv(dir string) {
+	env := loadDotEnv(dir)
+	for k, v := range env {
+		if os.Getenv(k) == "" {
+			os.Setenv(k, v)
+		}
+	}
+}
+
+func overrideFromEnv() {
+	if v := os.Getenv("SILICONFLOW_API_KEY"); v != "" {
+		Cfg.Providers.SiliconFlow.APIKey = v
+	}
+	if v := os.Getenv("DEEPSEEK_API_KEY"); v != "" {
+		Cfg.Providers.DeepSeek.APIKey = v
+	}
+}
+
+func loadDotEnv(dir string) map[string]string {
+	result := make(map[string]string)
+	path := filepath.Join(dir, ".env")
+	f, err := os.Open(path)
+	if err != nil {
+		return result
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.Index(line, "=")
+		if idx < 1 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+		result[key] = value
+	}
+	return result
 }
 
 func resolveConfigPath() string {
@@ -130,7 +191,7 @@ func SaveDefault(configPath string) error {
 	if toSave == nil {
 		toSave = DefaultConfig()
 	}
-	data, err := convert.ToJsonE(toSave)
+	data, err := yaml.Marshal(toSave)
 	if err != nil {
 		return err
 	}

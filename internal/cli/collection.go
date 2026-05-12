@@ -26,10 +26,6 @@ var collectionAddCmd = &cobra.Command{
 	Short: "Add a collection",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if collectionName == "" {
-			return fmt.Errorf("--name is required")
-		}
-
 		absPath, err := filepath.Abs(args[0])
 		if err != nil {
 			return err
@@ -37,6 +33,10 @@ var collectionAddCmd = &cobra.Command{
 
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
 			return fmt.Errorf("path does not exist: %s", absPath)
+		}
+
+		if collectionName == "" {
+			collectionName = filepath.Base(absPath)
 		}
 
 		mask := collectionMask
@@ -56,17 +56,18 @@ var collectionAddCmd = &cobra.Command{
 		}
 
 		var resp struct {
-			Name    string `json:"name"`
-			Path    string `json:"path"`
-			Mask    string `json:"mask"`
-			Indexed int    `json:"indexed"`
+			Name   string `json:"name"`
+			Path   string `json:"path"`
+			Mask   string `json:"mask"`
+			Status string `json:"status"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
 			fmt.Print(string(body))
 			return nil
 		}
 
-		fmt.Printf("Added collection %q: path=%s mask=%s indexed=%d\n", resp.Name, resp.Path, resp.Mask, resp.Indexed)
+		fmt.Printf("Added collection %q: path=%s mask=%s\n", resp.Name, resp.Path, resp.Mask)
+		fmt.Println("Indexing in background. Use `lmd status` to check progress.")
 		return nil
 	},
 }
@@ -154,7 +155,7 @@ var collectionRenameCmd = &cobra.Command{
 }
 
 func init() {
-	collectionAddCmd.Flags().StringVar(&collectionName, "name", "", "collection name (required)")
+	collectionAddCmd.Flags().StringVar(&collectionName, "name", "", "collection name (defaults to directory name)")
 	collectionAddCmd.Flags().StringVar(&collectionMask, "mask", "**/*.{md,txt}", "file glob pattern")
 
 	collectionCmd.AddCommand(collectionAddCmd)

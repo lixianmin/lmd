@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -29,7 +30,7 @@ func TestProcessNewDoc(t *testing.T) {
 	initProcessorTestDB(t)
 	dao.AddCollection("notes", "/data", "**/*.md", nil)
 
-	mockLLM := llm.NewMockLLM("这是一个测试摘要")
+	mockLLM := llm.NewMockLLM("这是一个测试摘要，包含足够的文字来避免退化检测。")
 	mockEmbed := embedding.NewMockProvider(dao.EmbeddingDim)
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	p := NewProcessor(mockEmbed, mockLLM, cfg)
@@ -113,7 +114,7 @@ func TestProcessChangedDoc(t *testing.T) {
 	dao.CompleteDocument(oldDocId, 1000)
 
 	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
-	mockLLM := llm.NewMockLLM("new summary")
+	mockLLM := llm.NewMockLLM("这是一段新的摘要内容，足够长以通过退化检测。")
 	p := NewProcessor(embedding.NewMockProvider(dao.EmbeddingDim), mockLLM, cfg)
 
 	doc := PendingDoc{
@@ -147,5 +148,28 @@ func TestProcessChangedDoc(t *testing.T) {
 	}
 	if docs[0].FileModTime != 2000 {
 		t.Fatalf("expected file_mod_time=2000, got %d", docs[0].FileModTime)
+	}
+}
+
+func TestIsDegenerate(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		expect bool
+	}{
+		{"normal", "这是一段正常的摘要内容，包含多个不同的句子和词汇。", false},
+		{"short", "太短", true},
+		{"empty", "", true},
+		{"repeated", strings.Repeat("nanaa nanaa ", 40), true},
+		{"normal_long", "文档介绍了Elasticsearch的基本使用方法，包括索引创建、查询语法和聚合分析。主要内容包括：如何使用REST API进行文档的增删改查，如何构建复杂的布尔查询，以及如何使用桶聚合和指标聚合进行数据分析。结论是Elasticsearch是一个功能强大的搜索引擎，适合处理大规模数据的全文检索和分析需求。", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDegenerate(tt.text)
+			if got != tt.expect {
+				t.Errorf("isDegenerate(%q) = %v, want %v", tt.text, got, tt.expect)
+			}
+		})
 	}
 }

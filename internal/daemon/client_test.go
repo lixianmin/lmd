@@ -271,9 +271,9 @@ func TestClient_VSearch(t *testing.T) {
 	}
 }
 
-func TestClient_Query(t *testing.T) {
+func TestClient_Hybrid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/query" {
+	if r.Method != "POST" || r.URL.Path != "/hybrid" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"fmt"
 	"time"
@@ -66,10 +68,7 @@ func (my *Processor) processDocNew(ctx context.Context, doc PendingDoc) error {
 	var insertDuration time.Duration
 	batchSize := 8
 	for i := 0; i < len(doc.Chunks); i += batchSize {
-		end := i + batchSize
-		if end > len(doc.Chunks) {
-			end = len(doc.Chunks)
-		}
+		end := min(i+batchSize, len(doc.Chunks))
 		batch := doc.Chunks[i:end]
 
 		texts := make([]string, len(batch))
@@ -131,13 +130,46 @@ func (my *Processor) processDocNew(ctx context.Context, doc PendingDoc) error {
 
 func (my *Processor) generateSummary(ctx context.Context, title, content string) (string, error) {
 	content = my.truncateContent(content)
-	prompt := "你是一个知识库索引助手。阅读以下文档，用3-5句话(200-300字)概括其内容、主要论点和结论。\n\n" +
-		"文档标题: " + title + "\n" +
-		"文档内容:\n" + content + "\n\n" +
-		"直接输出摘要，不要加前缀和引号。"
+	prompt := "Extract ALL specific facts from the document below. " +
+		"Include every name, place, date, number, color, preference, action, event, brand, product, " +
+		"occupation, degree, measurement, personal detail, amount, percentage. " +
+		"One fact per line. Be exhaustive — every specific detail matters. Do not summarize or generalize.\n\n" +
+		"Document:\n" + content + "\n\nFacts:"
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
-	return my.llm.ChatCompletion(ctx, messages)
+
+	const maxRetries = 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		summary, err := my.llm.ChatCompletion(ctx, messages)
+		if err != nil {
+			return "", err
+		}
+		if !isDegenerate(summary) {
+			return summary, nil
+		}
+		logo.Warn("generateSummary: degenerate output (attempt %d/%d): %s", attempt+1, maxRetries, truncateString(summary, 80))
+	}
+
+	summary, err := my.llm.ChatCompletion(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	if isDegenerate(summary) {
+		logo.Warn("generateSummary: still degenerate after %d retries, using anyway: %s", maxRetries, truncateString(summary, 80))
+	}
+	return summary, nil
+}
+
+func isDegenerate(text string) bool {
+	if utf8.RuneCountInString(text) < 20 {
+		return true
+	}
+	var buf bytes.Buffer
+	w, _ := flate.NewWriter(&buf, flate.BestSpeed)
+	w.Write([]byte(text))
+	w.Close()
+	ratio := float64(buf.Len()) / float64(len(text))
+	return ratio < 0.25
 }
 
 func (my *Processor) truncateContent(content string) string {

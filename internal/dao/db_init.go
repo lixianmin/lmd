@@ -170,5 +170,3 @@ func addSourceDocIdColumn() {
 		logo.Warn("add source_doc_id column error: %s", err)
 	}
 }
-
-

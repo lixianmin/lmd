@@ -1,10 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -24,14 +25,14 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatalf("expected embedding batch_size 8, got %d", cfg.Embedding.BatchSize)
 	}
 
-	if cfg.Summary.Provider != "ollama" {
-		t.Fatalf("expected summary provider ollama, got %s", cfg.Summary.Provider)
+	if cfg.Summary.Provider != "siliconflow" {
+		t.Fatalf("expected summary provider siliconflow, got %s", cfg.Summary.Provider)
 	}
-	if cfg.Summary.Model != "qwen3.5" {
-		t.Fatalf("expected summary model qwen3.5, got %s", cfg.Summary.Model)
+	if cfg.Summary.Model != "Qwen/Qwen2.5-7B-Instruct" {
+		t.Fatalf("expected summary model Qwen/Qwen2.5-7B-Instruct, got %s", cfg.Summary.Model)
 	}
-	if cfg.Summary.MaxOutputTokens != 512 {
-		t.Fatalf("expected summary max_output_tokens 512, got %d", cfg.Summary.MaxOutputTokens)
+	if cfg.Summary.MaxOutputTokens != 768 {
+		t.Fatalf("expected summary max_output_tokens 768, got %d", cfg.Summary.MaxOutputTokens)
 	}
 	if cfg.Summary.MaxInputTokens != 30000 {
 		t.Fatalf("expected summary max_input_tokens 30000, got %d", cfg.Summary.MaxInputTokens)
@@ -40,11 +41,14 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatal("expected summary no_thinking true")
 	}
 
-	if cfg.Providers.Ollama.URL != "http://localhost:11434" {
-		t.Fatalf("expected ollama url, got %s", cfg.Providers.Ollama.URL)
+	if cfg.Providers.Ollama.BaseURL != "http://localhost:11434" {
+		t.Fatalf("expected ollama base_url, got %s", cfg.Providers.Ollama.BaseURL)
 	}
-	if cfg.Providers.SiliconFlow.URL != "https://api.siliconflow.cn/v1" {
-		t.Fatalf("expected siliconflow url, got %s", cfg.Providers.SiliconFlow.URL)
+	if cfg.Providers.SiliconFlow.BaseURL != "https://api.siliconflow.cn/v1" {
+		t.Fatalf("expected siliconflow base_url, got %s", cfg.Providers.SiliconFlow.BaseURL)
+	}
+	if cfg.Providers.DeepSeek.BaseURL != "https://api.deepseek.com/v1" {
+		t.Fatalf("expected deepseek base_url, got %s", cfg.Providers.DeepSeek.BaseURL)
 	}
 
 	if cfg.Database.Path == "" {
@@ -84,7 +88,7 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	var loaded Config
-	if err := json.Unmarshal(data, &loaded); err != nil {
+	if err := yaml.Unmarshal(data, &loaded); err != nil {
 		t.Fatal(err)
 	}
 	if loaded.Daemon.Port != 19999 {
@@ -121,7 +125,7 @@ func TestLoadPartialConfig(t *testing.T) {
 		Reset()
 	}()
 
-	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`{"daemon":{"port":19999}}`), 0644)
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("daemon:\n    port: 19999\n"), 0644)
 
 	Load()
 	if Cfg.Daemon.Port != 19999 {
@@ -130,8 +134,131 @@ func TestLoadPartialConfig(t *testing.T) {
 	if Cfg.Embedding.Provider != "ollama" {
 		t.Fatalf("expected default embedding provider ollama, got %s", Cfg.Embedding.Provider)
 	}
-	if Cfg.Summary.Provider != "ollama" {
-		t.Fatalf("expected default summary provider ollama, got %s", Cfg.Summary.Provider)
+	if Cfg.Summary.Provider != "siliconflow" {
+		t.Fatalf("expected default summary provider siliconflow, got %s", Cfg.Summary.Provider)
+	}
+}
+
+func TestLoadDotEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	envContent := "SILICONFLOW_API_KEY=sk-test-from-dotenv\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := loadDotEnv(dir)
+	if env["SILICONFLOW_API_KEY"] != "sk-test-from-dotenv" {
+		t.Fatalf("expected sk-test-from-dotenv, got %s", env["SILICONFLOW_API_KEY"])
+	}
+}
+
+func TestLoadDotEnvIgnoresCommentsAndBlanks(t *testing.T) {
+	dir := t.TempDir()
+
+	envContent := "# comment\n\nFOO=bar\n#another\nBAZ=qux\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := loadDotEnv(dir)
+	if len(env) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(env))
+	}
+	if env["FOO"] != "bar" {
+		t.Fatalf("expected bar, got %s", env["FOO"])
+	}
+	if env["BAZ"] != "qux" {
+		t.Fatalf("expected qux, got %s", env["BAZ"])
+	}
+}
+
+func TestLoadDotEnvMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	env := loadDotEnv(dir)
+	if len(env) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(env))
+	}
+}
+
+func TestEnvOverridesConfig(t *testing.T) {
+	dir := t.TempDir()
+	origDir := configDir
+	configDir = dir
+	Reset()
+	defer func() {
+		configDir = origDir
+		Reset()
+		os.Unsetenv("SILICONFLOW_API_KEY")
+	}()
+
+	os.Setenv("SILICONFLOW_API_KEY", "sk-from-env")
+
+	configContent := "providers:\n    siliconflow:\n        base_url: https://api.siliconflow.cn/v1\n        api_key: sk-from-config\n"
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(configContent), 0644)
+
+	Load()
+
+	if Cfg.Providers.SiliconFlow.APIKey != "sk-from-env" {
+		t.Fatalf("expected sk-from-env (env override), got %s", Cfg.Providers.SiliconFlow.APIKey)
+	}
+}
+
+func TestDotEnvOverridesConfigWhenNoEnvSet(t *testing.T) {
+	dir := t.TempDir()
+	origDir := configDir
+	origEnvDir := envDir
+	configDir = dir
+	envDir = dir
+	Reset()
+	defer func() {
+		configDir = origDir
+		envDir = origEnvDir
+		Reset()
+		os.Unsetenv("SILICONFLOW_API_KEY")
+	}()
+
+	os.Unsetenv("SILICONFLOW_API_KEY")
+
+	dotEnvContent := "SILICONFLOW_API_KEY=sk-from-dotenv\n"
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(dotEnvContent), 0644)
+
+	configContent := "providers:\n    siliconflow:\n        base_url: https://api.siliconflow.cn/v1\n        api_key: sk-from-config\n"
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(configContent), 0644)
+
+	Load()
+
+	if Cfg.Providers.SiliconFlow.APIKey != "sk-from-dotenv" {
+		t.Fatalf("expected sk-from-dotenv (.env override), got %s", Cfg.Providers.SiliconFlow.APIKey)
+	}
+}
+
+func TestEnvTakesPrecedenceOverDotEnv(t *testing.T) {
+	dir := t.TempDir()
+	origDir := configDir
+	origEnvDir := envDir
+	configDir = dir
+	envDir = dir
+	Reset()
+	defer func() {
+		configDir = origDir
+		envDir = origEnvDir
+		Reset()
+		os.Unsetenv("SILICONFLOW_API_KEY")
+	}()
+
+	os.Setenv("SILICONFLOW_API_KEY", "sk-from-env")
+
+	dotEnvContent := "SILICONFLOW_API_KEY=sk-from-dotenv\n"
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(dotEnvContent), 0644)
+
+	configContent := "providers:\n    siliconflow:\n        base_url: https://api.siliconflow.cn/v1\n        api_key: sk-from-config\n"
+	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(configContent), 0644)
+
+	Load()
+
+	if Cfg.Providers.SiliconFlow.APIKey != "sk-from-env" {
+		t.Fatalf("expected sk-from-env (env takes precedence), got %s", Cfg.Providers.SiliconFlow.APIKey)
 	}
 }
 
