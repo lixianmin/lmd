@@ -1,4 +1,4 @@
-.PHONY: build install both test test-verbose vet clean tidy fmt lint e2e integration integration-basic integration-vector
+.PHONY: build install both test test-verbose vet clean tidy fmt lint e2e integration integration-basic integration-vector rebuild
 
 BINARY  = lmd
 PKG     = github.com/lixianmin/lmd
@@ -57,3 +57,28 @@ integration-vector: install
 integration: integration-basic
 
 all: lint test integration-basic
+
+rebuild: build
+	@echo "=== Capturing collections ==="
+	@-$(GO) run -tags "$(TAGS)" $(MOD) $(CMD) status --json > /tmp/lmd-rebuild.json 2>/dev/null
+	@echo "=== Stopping daemon ==="
+	@-./$(BINARY) stop 2>/dev/null || true
+	@sleep 1
+	@echo "=== Deleting database ==="
+	@rm -f $$HOME/.cache/lmd/index.sqlite
+	@echo "=== Installing and starting ==="
+	@$(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
+	@$(GO) env GOPATH/bin/lmd daemon-start &
+	@sleep 3
+	@echo "=== Re-adding collections ==="
+	@python3 -c '\
+import json, sys, os; \
+d = json.load(sys.stdin); \
+for c in d.get("collections", []): \
+    name = c["name"]; \
+    path = c["path"]; \
+    os.system(f"$(GO) env GOPATH/bin/lmd collection add \"{path}\" --name \"{name}\"")' \
+	< /tmp/lmd-rebuild.json 2>/dev/null || \
+		echo "Note: collections re-add may fail if no previous collections existed"
+	@rm -f /tmp/lmd-rebuild.json
+	@echo "=== Rebuild complete ==="
