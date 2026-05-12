@@ -19,7 +19,7 @@ var envDir string
 type Config struct {
 	Providers ProviderConfig  `yaml:"providers"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
-	Summary   SummaryConfig   `yaml:"summary"`
+	Hyde HydeConfig `yaml:"hyde"`
 	Database  DatabaseConfig  `yaml:"database"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
 }
@@ -46,7 +46,7 @@ type EmbeddingConfig struct {
 	BatchSize   int    `yaml:"batch_size"`
 }
 
-type SummaryConfig struct {
+type HydeConfig struct {
 	Provider        string `yaml:"provider"`
 	Model           string `yaml:"model"`
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
@@ -81,7 +81,7 @@ func DefaultConfig() *Config {
 			QueryPrefix: "Instruct: Given a document query, retrieve the most relevant chunk.\nQuery: ",
 			BatchSize:   8,
 		},
-		Summary: SummaryConfig{
+		Hyde: HydeConfig{
 			Provider:        "siliconflow",
 			Model:           "Qwen/Qwen2.5-7B-Instruct",
 			MaxOutputTokens: 768,

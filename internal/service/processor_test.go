@@ -32,7 +32,7 @@ func TestProcessNewDoc(t *testing.T) {
 
 	mockLLM := llm.NewMockLLM("这是一个测试摘要，包含足够的文字来避免退化检测。")
 	mockEmbed := embedding.NewMockProvider(dao.EmbeddingDim)
-	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
+	cfg := config.HydeConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	p := NewProcessor(mockEmbed, mockLLM, cfg)
 
 	doc := PendingDoc{
@@ -88,7 +88,7 @@ func TestProcessDeletedDoc(t *testing.T) {
 	docId, _ := dao.InsertDocument("notes", "test.md", "Title", "body", 4, "h1")
 	dao.CompleteDocument(docId, 12345)
 
-	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
+	cfg := config.HydeConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	p := NewProcessor(embedding.NewMockProvider(dao.EmbeddingDim), llm.NewMockLLM("summary"), cfg)
 
 	doc := PendingDoc{
@@ -113,7 +113,7 @@ func TestProcessChangedDoc(t *testing.T) {
 	oldDocId, _ := dao.InsertDocument("notes", "test.md", "Old Title", "old body", 8, "old_hash")
 	dao.CompleteDocument(oldDocId, 1000)
 
-	cfg := config.SummaryConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
+	cfg := config.HydeConfig{MaxInputTokens: 30000, MaxOutputTokens: 200}
 	mockLLM := llm.NewMockLLM("这是一段新的摘要内容，足够长以通过退化检测。")
 	p := NewProcessor(embedding.NewMockProvider(dao.EmbeddingDim), mockLLM, cfg)
 

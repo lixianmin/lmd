@@ -22,7 +22,7 @@ type Processor struct {
 	maxInput      int
 }
 
-func NewProcessor(embedProv embedding.EmbeddingProvider, llmProv llm.LLMProvider, cfg config.SummaryConfig) *Processor {
+func NewProcessor(embedProv embedding.EmbeddingProvider, llmProv llm.LLMProvider, cfg config.HydeConfig) *Processor {
 	return &Processor{
 		embedProvider: embedProv,
 		llm:           llmProv,

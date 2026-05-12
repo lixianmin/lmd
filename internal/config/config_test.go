@@ -25,20 +25,20 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatalf("expected embedding batch_size 8, got %d", cfg.Embedding.BatchSize)
 	}
 
-	if cfg.Summary.Provider != "siliconflow" {
-		t.Fatalf("expected summary provider siliconflow, got %s", cfg.Summary.Provider)
+	if cfg.Hyde.Provider != "siliconflow" {
+		t.Fatalf("expected hyde provider siliconflow, got %s", cfg.Hyde.Provider)
 	}
-	if cfg.Summary.Model != "Qwen/Qwen2.5-7B-Instruct" {
-		t.Fatalf("expected summary model Qwen/Qwen2.5-7B-Instruct, got %s", cfg.Summary.Model)
+	if cfg.Hyde.Model != "Qwen/Qwen2.5-7B-Instruct" {
+		t.Fatalf("expected hyde model Qwen/Qwen2.5-7B-Instruct, got %s", cfg.Hyde.Model)
 	}
-	if cfg.Summary.MaxOutputTokens != 768 {
-		t.Fatalf("expected summary max_output_tokens 768, got %d", cfg.Summary.MaxOutputTokens)
+	if cfg.Hyde.MaxOutputTokens != 768 {
+		t.Fatalf("expected hyde max_output_tokens 768, got %d", cfg.Hyde.MaxOutputTokens)
 	}
-	if cfg.Summary.MaxInputTokens != 30000 {
-		t.Fatalf("expected summary max_input_tokens 30000, got %d", cfg.Summary.MaxInputTokens)
+	if cfg.Hyde.MaxInputTokens != 30000 {
+		t.Fatalf("expected hyde max_input_tokens 30000, got %d", cfg.Hyde.MaxInputTokens)
 	}
-	if !cfg.Summary.NoThinking {
-		t.Fatal("expected summary no_thinking true")
+	if !cfg.Hyde.NoThinking {
+		t.Fatal("expected hyde no_thinking true")
 	}
 
 	if cfg.Providers.Ollama.BaseURL != "http://localhost:11434" {
@@ -134,8 +134,8 @@ func TestLoadPartialConfig(t *testing.T) {
 	if Cfg.Embedding.Provider != "ollama" {
 		t.Fatalf("expected default embedding provider ollama, got %s", Cfg.Embedding.Provider)
 	}
-	if Cfg.Summary.Provider != "siliconflow" {
-		t.Fatalf("expected default summary provider siliconflow, got %s", Cfg.Summary.Provider)
+	if Cfg.Hyde.Provider != "siliconflow" {
+		t.Fatalf("expected default hyde provider siliconflow, got %s", Cfg.Hyde.Provider)
 	}
 }
 

@@ -596,7 +596,7 @@ func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
 	dao.SetMeta("rebuild.errors", "0")
 
 	var errors int
-	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
+	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Hyde)
 	for i, doc := range pending {
 		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
 			errors++

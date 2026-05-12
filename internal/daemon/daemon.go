@@ -140,7 +140,7 @@ func (my *Daemon) Stop() error {
 }
 
 func (my *Daemon) goLoop(later loom.Later) {
-	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
+	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Hyde)
 	closeChan := my.wc.C()
 
 	const indexSyncInterval = 60 * time.Second
@@ -313,15 +313,15 @@ func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
 
 func newLLM(config *config.Config) llm.LLMProvider {
 	var llmProv llm.LLMProvider
-	switch config.Summary.Provider {
+	switch config.Hyde.Provider {
 	case "ollama":
-		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.BaseURL, config.Summary.Model, config.Summary.NoThinking)
+		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.BaseURL, config.Hyde.Model, config.Hyde.NoThinking)
 	case "siliconflow":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.BaseURL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.BaseURL, config.Hyde.Model, config.Providers.SiliconFlow.APIKey)
 	case "deepseek":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.DeepSeek.BaseURL, config.Summary.Model, config.Providers.DeepSeek.APIKey)
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.DeepSeek.BaseURL, config.Hyde.Model, config.Providers.DeepSeek.APIKey)
 	default:
-		logo.Error("unknown summary provider: %s", config.Summary.Provider)
+		logo.Error("unknown hyde provider: %s", config.Hyde.Provider)
 		return nil
 	}
 
