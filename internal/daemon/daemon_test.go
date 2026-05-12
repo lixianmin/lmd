@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
-	"time"
 )
 
 func TestPidPath_UnderCacheDir(t *testing.T) {
@@ -115,55 +114,5 @@ func TestRegisterRoutes_HealthEndpoint(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", resp["status"])
-	}
-}
-
-func TestRebuildMu_RLockAllowsConcurrent(t *testing.T) {
-	d := &Daemon{}
-	done := make(chan struct{})
-
-	// 第一个 RLock
-	d.rebuildMu.RLock()
-	go func() {
-		// 第二个 RLock 应能并发获取（RLock 不互斥）
-		d.rebuildMu.RLock()
-		defer d.rebuildMu.RUnlock()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("RLock should not block another RLock")
-	}
-	d.rebuildMu.RUnlock()
-}
-
-func TestRebuildMu_LockBlocksRLock(t *testing.T) {
-	d := &Daemon{}
-
-	d.rebuildMu.Lock()
-
-	blocked := make(chan struct{})
-	go func() {
-		d.rebuildMu.RLock()
-		defer d.rebuildMu.RUnlock()
-		close(blocked)
-	}()
-
-	// RLock 应被 Lock 阻塞
-	select {
-	case <-blocked:
-		t.Fatal("RLock should be blocked by Lock")
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	d.rebuildMu.Unlock()
-
-	// Lock 释放后 RLock 应获取
-	select {
-	case <-blocked:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("RLock should acquire after Lock released")
 	}
 }

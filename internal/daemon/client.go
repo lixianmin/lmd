@@ -170,8 +170,4 @@ func (my *Client) CollectionRename(oldName, newName string) ([]byte, error) {
 	})
 }
 
-func (my *Client) Rebuild() ([]byte, error) {
-	return my.Post("/rebuild", nil)
-}
-
 

@@ -481,9 +481,7 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 
 	if my.chunkIndexer != nil {
 		go func() {
-			my.rebuildMu.RLock()
 			result, err := my.chunkIndexer.UpdateCollection(req.Name, absPath, mask, nil)
-			my.rebuildMu.RUnlock()
 			if err != nil {
 				logo.Error("handleCollectionAdd: index %s failed: %s", req.Name, err)
 				return
@@ -511,9 +509,7 @@ func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	my.rebuildMu.Lock()
 	err = dao.RemoveCollection(req.Name)
-	my.rebuildMu.Unlock()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -579,53 +575,6 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 
 	logo.Info("handleCollectionRename: %s -> %s", req.Old, req.New)
 	writeJSON(w, http.StatusOK, map[string]string{"old": req.Old, "new": req.New, "status": "renamed"})
-}
-
-func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
-	my.rebuildMu.Lock()
-	cols, err := dao.ListCollections()
-	if err != nil {
-		my.rebuildMu.Unlock()
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if len(cols) == 0 {
-		my.rebuildMu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]string{"status": "no collections"})
-		return
-	}
-
-	dao.CloseFTSStatements()
-	store := dao.DB
-	dao.DB = nil
-	store.Close()
-
-	dbPath := my.cfg.Database.Path
-	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
-		my.rebuildMu.Unlock()
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if err := dao.Init(dbPath); err != nil {
-		my.rebuildMu.Unlock()
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	for _, col := range cols {
-		if err := dao.AddCollection(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns); err != nil {
-			logo.Error("handleRebuild: restore collection %s failed: %s", col.Name, err)
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":      "rebuild started",
-		"collections": len(cols),
-	})
-
-	my.rebuildMu.Unlock()
-	logo.Info("rebuild: cleared data, pipelines will pick up %d collections", len(cols))
 }
 
 func (my *Daemon) handleMCP(w http.ResponseWriter, r *http.Request) {

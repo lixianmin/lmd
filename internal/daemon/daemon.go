@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -35,7 +34,6 @@ var PidPath = func() string {
 type Daemon struct {
 	cfg         *config.Config
 	server      *http.Server
-	rebuildMu   sync.RWMutex
 	wc          loom.WaitClose
 	etaStartAt  atomic.Int64
 	etaStartNum atomic.Int64
@@ -173,9 +171,6 @@ func (my *Daemon) goHydeLoop(later loom.Later) {
 }
 
 func (my *Daemon) runChunkPipeline() {
-	my.rebuildMu.RLock()
-	my.rebuildMu.RUnlock()
-
 	pending := my.scanDocChanges()
 	if len(pending) == 0 {
 		return
@@ -211,9 +206,6 @@ func (my *Daemon) runChunkPipeline() {
 }
 
 func (my *Daemon) runHydePipeline() {
-	my.rebuildMu.RLock()
-	my.rebuildMu.RUnlock()
-
 	docs, err := dao.FindDocsWithMissingHydeData(100)
 	if err != nil {
 		logo.Warn("hydePipeline: find docs failed: %s", err)

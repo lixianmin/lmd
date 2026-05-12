@@ -83,36 +83,6 @@ var statusCmd = &cobra.Command{
 	},
 }
 
-var rebuildCmd = &cobra.Command{
-	Use:   "rebuild",
-	Short: "Drop all data and rebuild index from scratch (keeps collections)",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.Rebuild()
-		if err != nil {
-			return err
-		}
-
-		if jsonOut {
-			printBody(body)
-			return nil
-		}
-
-		var resp struct {
-			Status      string `json:"status"`
-			Collections int    `json:"collections"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			fmt.Print(string(body))
-			return nil
-		}
-
-		fmt.Printf("Rebuild started: collections=%d (processing in background)\n", resp.Collections)
-		return nil
-	},
-}
-
 func init() {
 	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(rebuildCmd)
 }
