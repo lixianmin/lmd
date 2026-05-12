@@ -69,7 +69,7 @@ rebuild:
 	@rm -f $$HOME/.cache/lmd/index.sqlite
 	@echo "=== Installing and starting ==="
 	@$(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
-	@$(GO) env GOPATH/bin/lmd daemon-start &
+	@$$(go env GOPATH)/bin/lmd daemon-start &
 	@sleep 3
 	@echo "=== Re-adding collections ==="
 	@python3 -c '\
@@ -78,7 +78,7 @@ d = json.load(sys.stdin); \
 for c in d.get("collections", []): \
     name = c["name"]; \
     path = c["path"]; \
-    os.system(f"$(GO) env GOPATH/bin/lmd collection add \"{path}\" --name \"{name}\"")' \
+	@os.system(f"$$(go env GOPATH)/bin/lmd collection add \"{path}\" --name \"{name}\"")' \
 	< /tmp/lmd-rebuild.json 2>/dev/null || \
 		echo "Note: collections re-add may fail if no previous collections existed"
 	@rm -f /tmp/lmd-rebuild.json
