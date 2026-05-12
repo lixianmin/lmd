@@ -41,7 +41,7 @@ type Daemon struct {
 	etaStartNum atomic.Int64
 
 	tokenizer     tokenizer.Tokenizer
-	indexer       *service.Indexer
+	chunkIndexer *service.ChunkIndexer
 	searcher      *service.Searcher
 	embedProvider embedding.EmbeddingProvider
 	llmProvider   llm.LLMProvider
@@ -74,7 +74,7 @@ func (my *Daemon) Start(ctx context.Context) error {
 		return fmt.Errorf("embedding or llm provider init failed")
 	}
 
-	my.indexer = service.NewIndexer(tok)
+	my.chunkIndexer = service.NewChunkIndexer(tok)
 	my.searcher = service.NewSearcher(tok)
 
 	handler := registerRoutes(my)
@@ -146,43 +146,49 @@ func (my *Daemon) goLoop(later loom.Later) {
 	const indexSyncInterval = 60 * time.Second
 	pipelineTicker := later.NewTicker(indexSyncInterval)
 
+	my.runPipeline(processor, closeChan)
+
 	for {
 		select {
 		case <-closeChan:
 			return
 		case <-pipelineTicker.C:
-			pending := my.scanChanges()
-			if len(pending) == 0 {
-				continue
-			}
-
-			total := len(pending)
-			dao.SetMeta("pipeline.status", "running")
-			dao.SetMeta("pipeline.total", fmt.Sprintf("%d", total))
-
-			var errors int
-			for i, doc := range pending {
-				select {
-				case <-closeChan:
-					dao.SetMeta("pipeline.status", "idle")
-					return
-				default:
-				}
-				if err := processor.ProcessDoc(context.Background(), doc); err != nil {
-					errors++
-					logo.Warn("pipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
-				}
-				if (i+1)%50 == 0 {
-					dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", i+1))
-				}
-			}
-
-			dao.SetMeta("pipeline.status", "idle")
-			dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
-			if errors > 0 {
-				logo.Warn("pipeline: processed %d docs, errors=%d", total, errors)
-			}
+			my.runPipeline(processor, closeChan)
 		}
+	}
+}
+
+func (my *Daemon) runPipeline(processor *service.Processor, closeChan <-chan struct{}) {
+	pending := my.scanChanges()
+	if len(pending) == 0 {
+		return
+	}
+
+	total := len(pending)
+	dao.SetMeta("pipeline.status", "running")
+	dao.SetMeta("pipeline.total", fmt.Sprintf("%d", total))
+
+	var errors int
+	for i, doc := range pending {
+		select {
+		case <-closeChan:
+			dao.SetMeta("pipeline.status", "idle")
+			return
+		default:
+		}
+		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+			errors++
+			logo.Warn("pipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+		}
+		if (i+1)%50 == 0 {
+			dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", i+1))
+		}
+	}
+
+	dao.SetMeta("pipeline.status", "idle")
+	dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
+	if errors > 0 {
+		logo.Warn("pipeline: processed %d docs, errors=%d", total, errors)
 	}
 }
 
@@ -201,7 +207,7 @@ func (my *Daemon) scanChanges() []service.PendingDoc {
 		if strings.HasPrefix(col.Name, "@") {
 			continue
 		}
-		result, err := my.indexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		result, err := my.chunkIndexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 		if err != nil {
 			logo.Error("pipeline: scan %s failed: %s", col.Name, err)
 			continue
@@ -211,6 +217,17 @@ func (my *Daemon) scanChanges() []service.PendingDoc {
 		}
 		pending = append(pending, result...)
 	}
+
+	if len(pending) == 0 {
+		incomplete, err := my.chunkIndexer.ScanIncomplete(100)
+		if err != nil {
+			logo.Error("pipeline: scan incomplete failed: %s", err)
+		} else if len(incomplete) > 0 {
+			logo.Info("pipeline: found %d docs with missing embeddings", len(incomplete))
+			pending = incomplete
+		}
+	}
+
 	return pending
 }
 
@@ -283,9 +300,9 @@ func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
 	var embedProv embedding.EmbeddingProvider
 	switch config.Embedding.Provider {
 	case "ollama":
-		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model, config.Embedding.QueryPrefix)
+		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.BaseURL, config.Embedding.Model, config.Embedding.QueryPrefix)
 	case "siliconflow":
-		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey, config.Embedding.QueryPrefix)
+		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.BaseURL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey, config.Embedding.QueryPrefix)
 	default:
 		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
 		return nil
@@ -298,9 +315,11 @@ func newLLM(config *config.Config) llm.LLMProvider {
 	var llmProv llm.LLMProvider
 	switch config.Summary.Provider {
 	case "ollama":
-		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.URL, config.Summary.Model, config.Summary.NoThinking)
+		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.BaseURL, config.Summary.Model, config.Summary.NoThinking)
 	case "siliconflow":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.URL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.BaseURL, config.Summary.Model, config.Providers.SiliconFlow.APIKey)
+	case "deepseek":
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.DeepSeek.BaseURL, config.Summary.Model, config.Providers.DeepSeek.APIKey)
 	default:
 		logo.Error("unknown summary provider: %s", config.Summary.Provider)
 		return nil

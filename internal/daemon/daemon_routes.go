@@ -123,7 +123,7 @@ func (my *Daemon) handleVsearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
 }
 
-func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
+func (my *Daemon) handleHybrid(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query      string  `json:"query"`
 		Collection string  `json:"collection"`
@@ -160,7 +160,7 @@ func (my *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	results := service.FuseResults(lexHits, vecHits)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
 
-	logo.Info("handleQuery: query=%q collection=%s lex=%d vec=%d results=%d",
+	logo.Info("handleHybrid: query=%q collection=%s lex=%d vec=%d results=%d",
 		req.Query, req.Collection, len(lexHits), len(vecHits), len(results))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results})
 }
@@ -190,118 +190,6 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 		"error": "HyDE not available",
 		"hits":  []formatter.SearchHit{},
 	})
-}
-
-func (my *Daemon) handleSmartQuery(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Query    string  `json:"query"`
-		Limit    int     `json:"limit"`
-		MinScore float64 `json:"min_score"`
-		Strategy string  `json:"strategy"`
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := convert.FromJsonE(body, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.Limit <= 0 {
-		req.Limit = defaultSearchLimit
-	}
-	if req.Strategy == "" {
-		req.Strategy = "pos-or"
-	}
-
-	ctx := r.Context()
-	overfetch := safeOverfetch(req.Limit)
-
-	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@summaries", overfetch, 0, req.Strategy)
-	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@summaries", overfetch, 0)
-	if lexErr != nil {
-		logo.Warn("handleSmartQuery: lex search summaries failed: %s", lexErr)
-	}
-	if vecErr != nil {
-		logo.Warn("handleSmartQuery: vector search summaries failed: %s", vecErr)
-	}
-	summaryHits := service.FuseResults(lexHits, vecHits)
-	logo.Info("handleSmartQuery: level1 query=%q lexHits=%d vecHits=%d summaryHits=%d", req.Query, len(lexHits), len(vecHits), len(summaryHits))
-
-	if len(summaryHits) == 0 {
-		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
-		return
-	}
-
-	for i, h := range summaryHits {
-		snippet := h.Snippet
-		if len([]rune(snippet)) > 200 {
-			snippet = string([]rune(snippet)[:200]) + "..."
-		}
-		logo.Info("handleSmartQuery: level1[%d] score=%.4f chunkId=%d docRowId=%d title=%q snippet=%q", i, h.Score, h.ChunkId, h.DocRowId, h.Title, snippet)
-	}
-
-	docIdSet := make(map[int64]bool)
-	uniqueRowIds := make(map[int64]bool)
-	for _, h := range summaryHits {
-		if h.DocRowId > 0 {
-			uniqueRowIds[h.DocRowId] = true
-		}
-	}
-	if len(uniqueRowIds) > 0 {
-		ids := make([]int64, 0, len(uniqueRowIds))
-		for id := range uniqueRowIds {
-			ids = append(ids, id)
-		}
-		docs, err := dao.GetDocumentsByIds(ids)
-		if err != nil {
-			logo.Warn("handleSmartQuery: resolve doc ids failed: %s", err)
-		}
-		for _, doc := range docs {
-			logo.Info("handleSmartQuery: summary docId=%d path=%q sourceDocId=%d", doc.Id, doc.Path, doc.SourceDocId)
-			if doc.SourceDocId > 0 {
-				docIdSet[doc.SourceDocId] = true
-			}
-		}
-	}
-
-	if len(docIdSet) == 0 {
-		results := my.fullHybridSearch(ctx, req.Query, "", req.Limit, req.MinScore, req.Strategy)
-		writeJSON(w, http.StatusOK, map[string]any{"hits": results, "routed": false})
-		return
-	}
-
-	sourceDocIds := make([]int64, 0, len(docIdSet))
-	for id := range docIdSet {
-		sourceDocIds = append(sourceDocIds, id)
-	}
-	logo.Info("handleSmartQuery: level2 query=%q sourceDocIds=%v", req.Query, sourceDocIds)
-
-	lexHits2, lexErr2 := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch*2, req.Strategy)
-	vecHits2, vecErr2 := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch*2)
-	if lexErr2 != nil {
-		logo.Warn("handleSmartQuery: level2 lex search failed: %s", lexErr2)
-	}
-	if vecErr2 != nil {
-		logo.Warn("handleSmartQuery: level2 vector search failed: %s", vecErr2)
-	}
-
-	results := service.FuseResults(lexHits2, vecHits2)
-	results = filterAndLimit(results, req.MinScore, req.Limit)
-
-	logo.Info("handleSmartQuery: query=%q summary=%d docs=%d results=%d routed=true",
-		req.Query, len(summaryHits), len(docIdSet), len(results))
-	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
-}
-
-func (my *Daemon) fullHybridSearch(ctx context.Context, query, collection string, limit int, minScore float64, strategy string) []formatter.SearchHit {
-	overfetch := safeOverfetch(limit)
-	lexHits, _ := my.searcher.SearchLex(query, collection, overfetch, 0, strategy)
-	vecHits, _ := my.searcher.SearchVector(ctx, my.embedProvider, query, collection, overfetch, 0)
-	results := service.FuseResults(lexHits, vecHits)
-	return filterAndLimit(results, minScore, limit)
 }
 
 func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -520,24 +408,25 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var indexed int
-	if my.indexer != nil {
-		my.rebuildMu.RLock()
-		result, err := my.indexer.UpdateCollection(req.Name, absPath, mask, nil)
-		my.rebuildMu.RUnlock()
-		if err == nil {
-			indexed = result.Indexed + result.Updated
-			logo.Info("handleCollectionAdd: indexed %s +%d ~%d", req.Name, result.Indexed, result.Updated)
-		}
-	}
-
-	logo.Info("handleCollectionAdd: name=%s path=%s mask=%s indexed=%d", req.Name, absPath, mask, indexed)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{
 		"name":    req.Name,
 		"path":    absPath,
 		"mask":    mask,
-		"indexed": indexed,
+		"status":  "indexing",
 	})
+
+	if my.chunkIndexer != nil {
+		go func() {
+			my.rebuildMu.RLock()
+			result, err := my.chunkIndexer.UpdateCollection(req.Name, absPath, mask, nil)
+			my.rebuildMu.RUnlock()
+			if err != nil {
+				logo.Error("handleCollectionAdd: index %s failed: %s", req.Name, err)
+				return
+			}
+			logo.Info("handleCollectionAdd: indexed %s +%d ~%d", req.Name, result.Indexed, result.Updated)
+		}()
+	}
 }
 
 func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request) {
@@ -683,7 +572,7 @@ func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
 		if strings.HasPrefix(col.Name, "@") {
 			continue
 		}
-		result, err := my.indexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		result, err := my.chunkIndexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
 		if err != nil {
 			logo.Error("rebuild: scan %s failed: %s", col.Name, err)
 			continue

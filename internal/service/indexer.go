@@ -50,21 +50,21 @@ type UpdateResult struct {
 	DirtyDocIds []int64
 }
 
-type Indexer struct {
+type ChunkIndexer struct {
 	tokenizer       tokenizer.Tokenizer
 	markdownChunker chunker.Chunker
 	plainChunker    chunker.Chunker
 }
 
-func NewIndexer(tok tokenizer.Tokenizer) *Indexer {
-	return &Indexer{
+func NewChunkIndexer(tok tokenizer.Tokenizer) *ChunkIndexer {
+	return &ChunkIndexer{
 		tokenizer:       tok,
 		markdownChunker: chunker.NewMarkdownChunker(defaultChunkSize),
 		plainChunker:    chunker.NewPlainTextChunker(defaultChunkSize),
 	}
 }
 
-func (my *Indexer) chunkerForExt(ext string) chunker.Chunker {
+func (my *ChunkIndexer) chunkerForExt(ext string) chunker.Chunker {
 	switch ext {
 	case ".txt":
 		return my.plainChunker
@@ -96,7 +96,7 @@ type docInfo struct {
 	fileModTime int64
 }
 
-func (my *Indexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
+func (my *ChunkIndexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
 	pattern := globPattern
@@ -282,7 +282,7 @@ type existingDocInfo struct {
 	fileModTime int64
 }
 
-func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, ignorePatterns []string) ([]PendingDoc, error) {
+func (my *ChunkIndexer) ScanChanges(collectionName, rootDir, globPattern string, ignorePatterns []string) ([]PendingDoc, error) {
 	pattern := globPattern
 	if pattern == "" {
 		pattern = "**/*.{md,txt}"
@@ -476,7 +476,7 @@ func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, igno
 	return pending, nil
 }
 
-func (my *Indexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {
+func (my *ChunkIndexer) createChunks(docId int64, body, hash string, ch chunker.Chunker) error {
 	chunks, err := ch.Chunk(body)
 	if err != nil {
 		return err
@@ -546,4 +546,65 @@ func (my ignoreMatcher) matchFile(path string) bool {
 		}
 	}
 	return false
+}
+
+func (my *ChunkIndexer) ScanIncomplete(limit int) ([]PendingDoc, error) {
+	docs, err := dao.FindDocsWithMissingEmbeddings(limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(docs) == 0 {
+		return nil, nil
+	}
+
+	cols, err := dao.ListCollections()
+	if err != nil {
+		return nil, err
+	}
+	colMap := make(map[string]dao.CollectionRecord, len(cols))
+	for _, c := range cols {
+		colMap[c.Name] = c
+	}
+
+	var pending []PendingDoc
+	for _, doc := range docs {
+		col, ok := colMap[doc.Collection]
+		if !ok {
+			continue
+		}
+
+		absPath := filepath.Join(col.Path, doc.Path)
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			logo.Warn("scanIncomplete: read %s: %s", absPath, err)
+			continue
+		}
+
+		ch := my.chunkerForExt(filepath.Ext(doc.Path))
+		chunks, _ := ch.Chunk(string(content))
+		chunkData := make([]dao.ChunkData, len(chunks))
+		for i, c := range chunks {
+			chunkData[i] = dao.ChunkData{
+				Content:    c.Content,
+				Position:   c.StartLine,
+				TokenCount: c.TokenCount,
+				Hash:       doc.Hash,
+			}
+		}
+
+		pending = append(pending, PendingDoc{
+			Action:      DocChanged,
+			Collection:  doc.Collection,
+			RootDir:     col.Path,
+			Path:        doc.Path,
+			Title:       doc.Title,
+			Body:        string(content),
+			Hash:        doc.Hash,
+			FileSize:    doc.FileSize,
+			FileModTime: doc.FileModTime,
+			OldDocId:    doc.Id,
+			Chunks:      chunkData,
+		})
+	}
+	return pending, nil
 }

@@ -21,7 +21,7 @@ func TestIndexCollection(t *testing.T) {
 	}
 
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result, err := idx.UpdateCollection("test", dir, "*.md", nil)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestIndexCollectionIncremental(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
 	if result1.Indexed != 2 {
@@ -69,7 +69,7 @@ func TestIndexCollectionDetectDeletion(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
 
@@ -94,7 +94,7 @@ func TestTimestampUnchangedFilesSkipped(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
 	if result1.Indexed != 2 {
@@ -114,7 +114,7 @@ func TestTimestampChangedFilesReindexed(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
 	if result1.Indexed != 2 {
@@ -139,7 +139,7 @@ func TestNewFilesIndexed(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result1, _ := idx.UpdateCollection("test", dir, "*.md", nil)
 	if result1.Indexed != 2 {
@@ -234,7 +234,7 @@ func TestIndexTXTFiles(t *testing.T) {
 	}
 
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result, err := idx.UpdateCollection("test", dir, "*.{md,txt}", nil)
 	if err != nil {
@@ -251,9 +251,9 @@ func TestIndexTXTFiles(t *testing.T) {
 	}
 }
 
-func TestIndexerSelectsChunkerByExt(t *testing.T) {
+func TestChunkIndexerSelectsChunkerByExt(t *testing.T) {
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	mdChunker := idx.chunkerForExt(".md")
 	if _, ok := mdChunker.(*chunker.MarkdownChunker); !ok {
@@ -284,7 +284,7 @@ func TestIgnorePatternsExcludeFiles(t *testing.T) {
 
 	_ = dao.AddCollection("test", dir, "*.md", []string{"*.tmp", "*.log", ".git"})
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	result, err := idx.UpdateCollection("test", dir, "*.md", []string{"*.tmp", "*.log", ".git"})
 	if err != nil {
@@ -315,7 +315,7 @@ func TestScanChangesNewFiles(t *testing.T) {
 
 	dao.AddCollection("notes", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
 	if err != nil {
@@ -348,7 +348,7 @@ func TestScanChangesDetectDeletion(t *testing.T) {
 
 	dao.AddCollection("notes", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	idx.UpdateCollection("notes", dir, "*.md", nil)
 
@@ -375,7 +375,7 @@ func TestScanChangesUnchanged(t *testing.T) {
 
 	dao.AddCollection("notes", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	idx.UpdateCollection("notes", dir, "*.md", nil)
 
@@ -394,7 +394,7 @@ func TestScanChangesIncompleteDoc(t *testing.T) {
 
 	dao.AddCollection("notes", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
-	idx := NewIndexer(tok)
+	idx := NewChunkIndexer(tok)
 
 	dao.InsertDocument("notes", "chinese.md", "Chinese Title", "content", 7, "somehash")
 

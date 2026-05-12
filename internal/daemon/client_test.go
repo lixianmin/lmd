@@ -282,9 +282,9 @@ func TestClient_Query(t *testing.T) {
 	defer srv.Close()
 
 	c := &Client{baseURL: srv.URL, client: srv.Client()}
-	_, err := c.Query("hybrid", "col", 10, 0.5)
+	_, err := c.Hybrid("hybrid", "col", 10, 0.5)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("Hybrid failed: %v", err)
 	}
 }
 

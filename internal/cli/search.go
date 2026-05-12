@@ -69,13 +69,13 @@ var vsearchCmd = &cobra.Command{
 	},
 }
 
-var queryCmd = &cobra.Command{
-	Use:   "query <query>",
+var hybridCmd = &cobra.Command{
+	Use:   "hybrid <query>",
 	Short: "Hybrid search (BM25 + vector)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.Query(args[0], searchCollection, searchLimit, searchMinScore)
+		body, err := client.Hybrid(args[0], searchCollection, searchLimit, searchMinScore)
 		if err != nil {
 			return err
 		}
@@ -129,38 +129,6 @@ var hydeCmd = &cobra.Command{
 	},
 }
 
-var smartQueryCmd = &cobra.Command{
-	Use:   "smart-query <query>",
-	Short: "Two-level smart search using file summaries",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client := daemon.NewClient(config.Cfg.Daemon.Port)
-		body, err := client.SmartQuery(args[0], searchLimit, searchMinScore)
-		if err != nil {
-			return err
-		}
-
-		if jsonOut {
-			printBody(body)
-			return nil
-		}
-
-		var resp struct {
-			Hits   []formatter.SearchHit `json:"hits"`
-			Routed bool                  `json:"routed"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return err
-		}
-
-		if !resp.Routed {
-			fmt.Fprintf(os.Stderr, "smart-query: no summaries found, fallback to full search\n")
-		}
-
-		return formatResults(os.Stdout, resp.Hits)
-	},
-}
-
 func formatResponse(body []byte) error {
 	var resp struct {
 		Hits []formatter.SearchHit `json:"hits"`
@@ -194,12 +162,10 @@ func init() {
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "minimum score threshold")
 
 	vsearchCmd.Flags().AddFlagSet(searchCmd.Flags())
-	queryCmd.Flags().AddFlagSet(searchCmd.Flags())
-	hydeCmd.Flags().AddFlagSet(searchCmd.Flags())
+	hybridCmd.Flags().AddFlagSet(searchCmd.Flags())
 
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(vsearchCmd)
-	rootCmd.AddCommand(queryCmd)
+	rootCmd.AddCommand(hybridCmd)
 	rootCmd.AddCommand(hydeCmd)
-	rootCmd.AddCommand(smartQueryCmd)
 }

@@ -114,20 +114,12 @@ func (my *Client) VSearch(query, collection string, limit int, minScore float64)
 	})
 }
 
-func (my *Client) Query(query, collection string, limit int, minScore float64) ([]byte, error) {
-	return my.Post("/query", map[string]interface{}{
+func (my *Client) Hybrid(query, collection string, limit int, minScore float64) ([]byte, error) {
+	return my.Post("/hybrid", map[string]interface{}{
 		"query":      query,
 		"collection": collection,
 		"limit":      limit,
 		"min_score":  minScore,
-	})
-}
-
-func (my *Client) SmartQuery(query string, limit int, minScore float64) ([]byte, error) {
-	return my.Post("/smart-query", map[string]interface{}{
-		"query":     query,
-		"limit":     limit,
-		"min_score": minScore,
 	})
 }
 

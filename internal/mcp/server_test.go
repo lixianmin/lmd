@@ -56,7 +56,7 @@ func TestHandleToolsList(t *testing.T) {
 	for _, tool := range result.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"search", "vsearch", "query", "get", "status", "list_collections", "smart_query"} {
+	for _, name := range []string{"search", "vsearch", "hybrid", "get", "status", "list_collections"} {
 		if !names[name] {
 			t.Fatalf("expected '%s' tool", name)
 		}

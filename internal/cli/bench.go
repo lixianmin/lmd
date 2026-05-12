@@ -41,14 +41,16 @@ QMD fixture format:
 // ─── Backend types ─────────────────────────────────────────────────────────
 
 type benchBackend struct {
-	name     string
-	endpoint string
+	name       string
+	endpoint   string
+	needsColl  bool
 }
 
 var benchBackends = []benchBackend{
-	{"search", "/search"},
-	{"vsearch", "/vsearch"},
-	{"query", "/query"},
+	{"search", "/search", true},
+	{"vsearch", "/vsearch", true},
+	{"hybrid", "/hybrid", true},
+	{"hyde", "/hyde", true},
 }
 
 // ─── Fixture ───────────────────────────────────────────────────────────────
@@ -140,7 +142,7 @@ func runLongMemEval() error {
 		backends = filterBackends(benchMode)
 	}
 
-	return runBench("bench_full", queries, backends...)
+	return runBench("longmemeval", queries, backends...)
 }
 
 func filterBackends(mode string) []benchBackend {
@@ -209,11 +211,13 @@ func runBench(collection string, queries []benchQuery, backends ...benchBackend)
 				limit = 10
 			}
 
-			body := map[string]interface{}{
-				"query":      q.Query,
-				"collection": collection,
-				"limit":      limit,
-			}
+		body := map[string]interface{}{
+			"query": q.Query,
+			"limit": limit,
+		}
+		if be.needsColl {
+			body["collection"] = collection
+		}
 			if benchStrategy != "" {
 				body["strategy"] = benchStrategy
 			}
