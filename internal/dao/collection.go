@@ -72,13 +72,18 @@ func RemoveCollection(name string) error {
 		}
 
 		if len(docIds) > 0 {
-			if err := removeChunksByDocIds(tx, docIds); err != nil {
-				return err
+			const batchSize = 500 // SQLite max variable limit is 999, stay well under
+			for batch := 0; batch < len(docIds); batch += batchSize {
+				end := min(batch+batchSize, len(docIds))
+				batchIds := docIds[batch:end]
+				if err := removeChunksByDocIds(tx, batchIds); err != nil {
+					return err
+				}
+				if err := removeOrphanSummaries(tx, batchIds); err != nil {
+					return err
+				}
 			}
 			if err := removeDocsByCollection(tx, name); err != nil {
-				return err
-			}
-			if err := removeOrphanSummaries(tx, docIds); err != nil {
 				return err
 			}
 		}
