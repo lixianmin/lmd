@@ -283,9 +283,9 @@ func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
 	var embedProv embedding.EmbeddingProvider
 	switch config.Embedding.Provider {
 	case "ollama":
-		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model)
+		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.URL, config.Embedding.Model, config.Embedding.QueryPrefix)
 	case "siliconflow":
-		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey)
+		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.URL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey, config.Embedding.QueryPrefix)
 	default:
 		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
 		return nil

@@ -30,6 +30,11 @@ func NewProcessor(embedProv embedding.EmbeddingProvider, llmProv llm.LLMProvider
 }
 
 func (my *Processor) ProcessDoc(ctx context.Context, doc PendingDoc) error {
+	if doc.Action != DocDeleted && !dao.CollectionExists(doc.Collection) {
+		logo.Info("processor: skip doc, collection %q removed", doc.Collection)
+		return nil
+	}
+
 	switch doc.Action {
 	case DocDeleted:
 		logo.Info("processor: deleting doc %d (%s/%s)", doc.OldDocId, doc.Collection, doc.Path)
@@ -126,10 +131,10 @@ func (my *Processor) processDocNew(ctx context.Context, doc PendingDoc) error {
 
 func (my *Processor) generateSummary(ctx context.Context, title, content string) (string, error) {
 	content = my.truncateContent(content)
-	prompt := "你是一个知识库索引助手。阅读以下文档，用1-2句话(不超过100字)概括其内容和核心主题。\n\n" +
+	prompt := "你是一个知识库索引助手。阅读以下文档，用3-5句话(200-300字)概括其内容、主要论点和结论。\n\n" +
 		"文档标题: " + title + "\n" +
 		"文档内容:\n" + content + "\n\n" +
-		"请直接输出摘要，不要加前缀和引号。"
+		"直接输出摘要，不要加前缀和引号。"
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
 	return my.llm.ChatCompletion(ctx, messages)

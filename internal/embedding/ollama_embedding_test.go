@@ -20,7 +20,7 @@ func TestOllamaProvider_Embed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProvider(server.URL, "test-model")
+	p := NewOllamaProvider(server.URL, "test-model", "")
 	vec, err := p.Embed(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestOllamaProvider_EmbedBatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProvider(server.URL, "test-model")
+	p := NewOllamaProvider(server.URL, "test-model", "")
 	vecs, err := p.EmbedBatch(context.Background(), []string{"a", "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -49,14 +49,14 @@ func TestOllamaProvider_EmbedBatch(t *testing.T) {
 }
 
 func TestOllamaProvider_Dimension(t *testing.T) {
-	p := NewOllamaProvider("http://localhost:11434", "test")
+	p := NewOllamaProvider("http://localhost:11434", "test", "")
 	if p.Dimension() != 1024 {
 		t.Fatalf("expected 1024, got %d", p.Dimension())
 	}
 }
 
 func TestOllamaProvider_ModelName(t *testing.T) {
-	p := NewOllamaProvider("http://localhost:11434", "my-model")
+	p := NewOllamaProvider("http://localhost:11434", "my-model", "")
 	if p.ModelName() != "my-model" {
 		t.Fatalf("expected my-model, got %s", p.ModelName())
 	}
@@ -83,13 +83,13 @@ func TestOllamaProvider_EmbedQuery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProvider(server.URL, "test")
+	p := NewOllamaProvider(server.URL, "test", "PREFIX: ")
 	_, err := p.EmbedQuery(context.Background(), "docker命令")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if receivedInput != EmbedQueryPrefix+"docker命令" {
+	if receivedInput != "PREFIX: docker命令" {
 		t.Fatalf("expected query to have prefix, got: %q", receivedInput)
 	}
 }
@@ -100,7 +100,7 @@ func TestOllamaProvider_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProvider(server.URL, "bad-model")
+	p := NewOllamaProvider(server.URL, "bad-model", "")
 	_, err := p.Embed(context.Background(), "test")
 	if err == nil {
 		t.Fatal("expected error for 404 response")

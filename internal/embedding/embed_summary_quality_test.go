@@ -15,7 +15,7 @@ func TestEmbedQuality_SummaryVsFullDoc(t *testing.T) {
 		t.Skip("set RUN_INTEGRATION=1 to run embedding quality tests")
 	}
 
-	p := NewOllamaProvider(baseURL, "batiai/qwen3-embedding:0.6b")
+	p := NewOllamaProvider(baseURL, "batiai/qwen3-embedding:0.6b", "")
 	defer p.Close()
 	ctx := context.Background()
 

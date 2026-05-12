@@ -36,9 +36,10 @@ type ProviderItem struct {
 }
 
 type EmbeddingConfig struct {
-	Provider  string `yaml:"provider"`
-	Model     string `yaml:"model"`
-	BatchSize int    `yaml:"batch_size"`
+	Provider    string `yaml:"provider"`
+	Model       string `yaml:"model"`
+	QueryPrefix string `yaml:"query_prefix"`
+	BatchSize   int    `yaml:"batch_size"`
 }
 
 type SummaryConfig struct {
@@ -46,7 +47,7 @@ type SummaryConfig struct {
 	Model           string `yaml:"model"`
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
 	MaxInputTokens  int    `yaml:"max_input_tokens"`
-	NoThinking bool `yaml:"no_thinking"`
+	NoThinking      bool   `yaml:"no_thinking"`
 }
 
 type DatabaseConfig struct {
@@ -68,16 +69,17 @@ func DefaultConfig() *Config {
 			},
 		},
 		Embedding: EmbeddingConfig{
-			Provider:  "ollama",
-			Model:     "batiai/qwen3-embedding:0.6b",
-			BatchSize: 8,
+			Provider:    "ollama",
+			Model:       "batiai/qwen3-embedding:0.6b",
+			QueryPrefix: "Instruct: Given a document query, retrieve the most relevant chunk.\nQuery: ",
+			BatchSize:   8,
 		},
 		Summary: SummaryConfig{
 			Provider:        "ollama",
 			Model:           "qwen3.5",
-			MaxOutputTokens: 512,
+			MaxOutputTokens: 768,
 			MaxInputTokens:  30000,
-			NoThinking: true,
+			NoThinking:      true,
 		},
 		Database: DatabaseConfig{
 			Path: filepath.Join(os.Getenv("HOME"), ".cache", "lmd", "index.sqlite"),

@@ -16,7 +16,7 @@ func TestEmbedQuality_DiagnoseScore1(t *testing.T) {
 		t.Skip("set RUN_INTEGRATION=1")
 	}
 
-	p := NewOllamaProvider(baseURL, "batiai/qwen3-embedding:0.6b")
+	p := NewOllamaProvider(baseURL, "batiai/qwen3-embedding:0.6b", "")
 	defer p.Close()
 	ctx := context.Background()
 

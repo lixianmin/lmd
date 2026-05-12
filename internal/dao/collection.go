@@ -21,6 +21,12 @@ type CollectionRecord struct {
 	DocCount       int
 }
 
+func CollectionExists(name string) bool {
+	var count int
+	DB.db.QueryRow("SELECT COUNT(1) FROM collections WHERE name=?", name).Scan(&count)
+	return count > 0
+}
+
 func AddCollection(name, path, globPattern string, ignorePatterns []string) error {
 	var ignoreJSON *string
 	if len(ignorePatterns) > 0 {
@@ -72,6 +78,9 @@ func RemoveCollection(name string) error {
 			if err := removeDocsByCollection(tx, name); err != nil {
 				return err
 			}
+			if err := removeOrphanSummaries(tx, docIds); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -117,6 +126,37 @@ func removeDocsByCollection(tx *sql.Tx, name string) error {
 	defer stmt.Close()
 	_, err = stmt.Exec(name)
 	return err
+}
+
+func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
+	summaryRows, err := tx.Query(
+		buildInQuery("SELECT id FROM documents WHERE collection='@summaries' AND source_doc_id IN (", len(deletedDocIds), ")"),
+		int64SliceToAny(deletedDocIds)...,
+	)
+	if err != nil {
+		return err
+	}
+	var summaryDocIds []int64
+	for summaryRows.Next() {
+		var id int64
+		if err := summaryRows.Scan(&id); err != nil {
+			summaryRows.Close()
+			return err
+		}
+		summaryDocIds = append(summaryDocIds, id)
+	}
+	summaryRows.Close()
+	if err := summaryRows.Err(); err != nil {
+		return err
+	}
+
+	if len(summaryDocIds) > 0 {
+		if err := removeChunksByDocIds(tx, summaryDocIds); err != nil {
+			return err
+		}
+		return execInQuery(tx, "DELETE FROM documents WHERE id IN (", summaryDocIds)
+	}
+	return nil
 }
 
 func execInQuery(tx *sql.Tx, prefix string, ids []int64) error {

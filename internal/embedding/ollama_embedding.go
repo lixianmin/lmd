@@ -13,16 +13,18 @@ import (
 const ollamaHTTPTimeout = 120 * time.Second // Ollama HTTP 客户端超时
 
 type OllamaEmbedding struct {
-	baseURL string
-	model   string
-	client  *http.Client
+	baseURL     string
+	model       string
+	queryPrefix string
+	client      *http.Client
 }
 
-func NewOllamaProvider(url, model string) *OllamaEmbedding {
+func NewOllamaProvider(url, model, queryPrefix string) *OllamaEmbedding {
 	return &OllamaEmbedding{
-		baseURL: url,
-		model:   model,
-		client:  &http.Client{Timeout: ollamaHTTPTimeout},
+		baseURL:     url,
+		model:       model,
+		queryPrefix: queryPrefix,
+		client:      &http.Client{Timeout: ollamaHTTPTimeout},
 	}
 }
 
@@ -71,7 +73,7 @@ func (my *OllamaEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]
 }
 
 func (my *OllamaEmbedding) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, EmbedQueryPrefix+query)
+	return my.Embed(ctx, my.queryPrefix+query)
 }
 
 func (my *OllamaEmbedding) Dimension() int { return EmbeddingDim }

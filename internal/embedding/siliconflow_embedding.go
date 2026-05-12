@@ -11,21 +11,23 @@ import (
 )
 
 type SiliconFlowEmbedding struct {
-	baseURL string
-	model   string
-	apiKey  string
-	client  *http.Client
+	baseURL     string
+	model       string
+	apiKey      string
+	queryPrefix string
+	client      *http.Client
 }
 
-func NewSiliconFlowEmbedding(url, model, apiKey string) *SiliconFlowEmbedding {
+func NewSiliconFlowEmbedding(url, model, apiKey, queryPrefix string) *SiliconFlowEmbedding {
 	for len(url) > 0 && url[len(url)-1] == '/' {
 		url = url[:len(url)-1]
 	}
 	return &SiliconFlowEmbedding{
-		baseURL: url,
-		model:   model,
-		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 120 * time.Second},
+		baseURL:     url,
+		model:       model,
+		apiKey:      apiKey,
+		queryPrefix: queryPrefix,
+		client:      &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -84,7 +86,7 @@ func (my *SiliconFlowEmbedding) Embed(ctx context.Context, text string) ([]float
 }
 
 func (my *SiliconFlowEmbedding) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, EmbedQueryPrefix+query)
+	return my.Embed(ctx, my.queryPrefix+query)
 }
 
 func (my *SiliconFlowEmbedding) Dimension() int {

@@ -11,11 +11,16 @@ import (
 const mockHashSlotSize = 8 // mock 向量每个 hash slot 的维度组大小
 
 type MockProvider struct {
-	dim int
+	dim         int
+	queryPrefix string
 }
 
 func NewMockProvider(dim int) *MockProvider {
 	return &MockProvider{dim: dim}
+}
+
+func NewMockProviderWithPrefix(dim int, queryPrefix string) *MockProvider {
+	return &MockProvider{dim: dim, queryPrefix: queryPrefix}
 }
 
 func (my *MockProvider) Embed(ctx context.Context, text string) ([]float32, error) {
@@ -31,7 +36,7 @@ func (my *MockProvider) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 }
 
 func (my *MockProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return my.Embed(ctx, EmbedQueryPrefix+query)
+	return my.Embed(ctx, my.queryPrefix+query)
 }
 
 func (my *MockProvider) Dimension() int    { return my.dim }

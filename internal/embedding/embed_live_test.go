@@ -22,7 +22,7 @@ func TestEmbedQuality_LiveVectorSearch(t *testing.T) {
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
 	}
-	p := NewOllamaProvider(ollamaURL, "batiai/qwen3-embedding:0.6b")
+	p := NewOllamaProvider(ollamaURL, "batiai/qwen3-embedding:0.6b", "")
 	defer p.Close()
 
 	ctx := context.Background()

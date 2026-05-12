@@ -558,7 +558,10 @@ func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := dao.RemoveCollection(req.Name); err != nil {
+	my.rebuildMu.Lock()
+	err = dao.RemoveCollection(req.Name)
+	my.rebuildMu.Unlock()
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
