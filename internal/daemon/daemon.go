@@ -208,6 +208,9 @@ func (my *Daemon) runChunkPipeline() {
 }
 
 func (my *Daemon) runHydePipeline() {
+	my.rebuildMu.RLock()
+	defer my.rebuildMu.RUnlock()
+
 	docs, err := dao.FindDocsWithMissingHydeData(100)
 	if err != nil {
 		logo.Warn("hydePipeline: find docs failed: %s", err)
