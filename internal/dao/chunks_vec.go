@@ -130,7 +130,7 @@ func InsertVectors(items []struct {
 	})
 }
 
-func InsertChunksAndVectors(docId int64, collection string, chunks []ChunkData, tokenized []string, vecs [][]float32) ([]ChunkRecord, error) {
+func InsertChunksAndVectors(docId int64, collection string, startSeq int, chunks []ChunkData, tokenized []string, vecs [][]float32) ([]ChunkRecord, error) {
 	if len(chunks) != len(tokenized) || len(chunks) != len(vecs) {
 		return nil, fmt.Errorf("chunks(%d), tokenized(%d), vecs(%d) length mismatch", len(chunks), len(tokenized), len(vecs))
 	}
@@ -155,29 +155,30 @@ func InsertChunksAndVectors(docId int64, collection string, chunks []ChunkData, 
 		}
 		defer vecStmt.Close()
 
-		for i, c := range chunks {
-			r, err := chunkStmt.Exec(docId, i, c.Content, c.Position, c.TokenCount, c.Hash)
-			if err != nil {
-				return err
-			}
-			rowsAffected, _ := r.RowsAffected()
-			if rowsAffected == 0 {
-				continue
-			}
-			chunkId, _ := r.LastInsertId()
+	for i, c := range chunks {
+		seq := startSeq + i
+		r, err := chunkStmt.Exec(docId, seq, c.Content, c.Position, c.TokenCount, c.Hash)
+		if err != nil {
+			return err
+		}
+		rowsAffected, _ := r.RowsAffected()
+		if rowsAffected == 0 {
+			continue
+		}
+		chunkId, _ := r.LastInsertId()
 
-			ftsStmt.Exec(chunkId, tokenized[i])
+		ftsStmt.Exec(chunkId, tokenized[i])
 
-			blob, err := sqlite_vec.SerializeFloat32(padVector(vecs[i]))
-			if err != nil {
-				return err
-			}
-			if _, err := vecStmt.Exec(chunkId, blob, docId, collection); err != nil {
-				return err
-			}
+		blob, err := sqlite_vec.SerializeFloat32(padVector(vecs[i]))
+		if err != nil {
+			return err
+		}
+		if _, err := vecStmt.Exec(chunkId, blob, docId, collection); err != nil {
+			return err
+		}
 
-			result = append(result, ChunkRecord{
-				Id: chunkId, DocId: docId, Seq: i,
+		result = append(result, ChunkRecord{
+			Id: chunkId, DocId: docId, Seq: seq,
 				Content: c.Content, Position: c.Position,
 				TokenCount: c.TokenCount, Hash: c.Hash,
 			})

@@ -139,11 +139,11 @@ func (my *Daemon) Stop() error {
 	})
 }
 
-const indexSyncInterval = 60 * time.Second
-
 func (my *Daemon) goLoop(later loom.Later) {
 	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
 	closeChan := my.wc.C()
+
+	const indexSyncInterval = 60 * time.Second
 	pipelineTicker := later.NewTicker(indexSyncInterval)
 
 	for {
@@ -152,15 +152,35 @@ func (my *Daemon) goLoop(later loom.Later) {
 			return
 		case <-pipelineTicker.C:
 			pending := my.scanChanges()
-			for _, doc := range pending {
+			if len(pending) == 0 {
+				continue
+			}
+
+			total := len(pending)
+			dao.SetMeta("pipeline.status", "running")
+			dao.SetMeta("pipeline.total", fmt.Sprintf("%d", total))
+
+			var errors int
+			for i, doc := range pending {
 				select {
 				case <-closeChan:
+					dao.SetMeta("pipeline.status", "idle")
 					return
 				default:
 				}
 				if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+					errors++
 					logo.Warn("pipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
 				}
+				if (i+1)%50 == 0 {
+					dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", i+1))
+				}
+			}
+
+			dao.SetMeta("pipeline.status", "idle")
+			dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
+			if errors > 0 {
+				logo.Warn("pipeline: processed %d docs, errors=%d", total, errors)
 			}
 		}
 	}

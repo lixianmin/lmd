@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lixianmin/lmd/internal/config"
@@ -33,25 +34,32 @@ func (my *Processor) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 	case DocDeleted:
 		logo.Info("processor: deleting doc %d (%s/%s)", doc.OldDocId, doc.Collection, doc.Path)
 		return dao.DeleteDocumentAndSummary(doc.OldDocId)
-	case DocNew, DocChanged:
-		return my.processNewOrChanged(ctx, doc)
+	case DocChanged:
+		return my.processDocChanged(ctx, doc)
+	case DocNew:
+		return my.processDocNew(ctx, doc)
 	}
 	return nil
 }
 
-func (my *Processor) processNewOrChanged(ctx context.Context, doc PendingDoc) error {
-	if doc.Action == DocChanged {
-		if err := dao.DeleteDocumentAndSummary(doc.OldDocId); err != nil {
-			return fmt.Errorf("delete old doc: %w", err)
-		}
+func (my *Processor) processDocChanged(ctx context.Context, doc PendingDoc) error {
+	if err := dao.DeleteDocumentAndSummary(doc.OldDocId); err != nil {
+		return fmt.Errorf("delete old doc: %w", err)
 	}
+	return my.processDocNew(ctx, doc)
+}
+
+func (my *Processor) processDocNew(ctx context.Context, doc PendingDoc) error {
+	totalStart := time.Now()
 
 	docId, err := dao.InsertDocument(doc.Collection, doc.Path, doc.Title, doc.Body, doc.FileSize, doc.Hash)
 	if err != nil {
 		return fmt.Errorf("insert document: %w", err)
 	}
 
-	batchSize := 20 // embedding batch size
+	var embedDuration time.Duration
+	var insertDuration time.Duration
+	batchSize := 8
 	for i := 0; i < len(doc.Chunks); i += batchSize {
 		end := i + batchSize
 		if end > len(doc.Chunks) {
@@ -64,7 +72,9 @@ func (my *Processor) processNewOrChanged(ctx context.Context, doc PendingDoc) er
 			texts[j] = c.Content
 		}
 
+		t := time.Now()
 		vecs, err := my.embedProvider.EmbedBatch(ctx, texts)
+		embedDuration += time.Since(t)
 		if err != nil {
 			return fmt.Errorf("embed chunks batch %d: %w", i/batchSize, err)
 		}
@@ -74,20 +84,26 @@ func (my *Processor) processNewOrChanged(ctx context.Context, doc PendingDoc) er
 			tokenized[j] = c.Content
 		}
 
-		if _, err := dao.InsertChunksAndVectors(docId, doc.Collection, batch, tokenized, vecs); err != nil {
+		t = time.Now()
+		if _, err := dao.InsertChunksAndVectors(docId, doc.Collection, i, batch, tokenized, vecs); err != nil {
 			return fmt.Errorf("insert chunks batch %d: %w", i/batchSize, err)
 		}
+		insertDuration += time.Since(t)
 	}
 
+	t := time.Now()
 	summary, err := my.generateSummary(ctx, doc.Title, doc.Body)
 	if err != nil {
 		return fmt.Errorf("generate summary: %w", err)
 	}
+	summaryDuration := time.Since(t)
 
+	t = time.Now()
 	summaryVecs, err := my.embedProvider.EmbedBatch(ctx, []string{summary})
 	if err != nil {
 		return fmt.Errorf("embed summary: %w", err)
 	}
+	summaryEmbedDuration := time.Since(t)
 
 	if _, err := dao.UpsertSummaryWithVector(docId, doc.Hash, summary, summary, summaryVecs[0]); err != nil {
 		return fmt.Errorf("insert summary: %w", err)
@@ -97,7 +113,14 @@ func (my *Processor) processNewOrChanged(ctx context.Context, doc PendingDoc) er
 		return fmt.Errorf("complete document: %w", err)
 	}
 
-	logo.Info("processor: completed doc %d (%s/%s)", docId, doc.Collection, doc.Path)
+	fullPath := doc.RootDir + "/" + doc.Path
+	total := time.Since(totalStart)
+	logo.Info("processor: doc %d (%s) chunks=%d embed=%.2fs insert=%.2fs summary_llm=%.2fs summary_embed=%.2fs total=%.2fs",
+		docId, fullPath,
+		len(doc.Chunks), embedDuration.Seconds(), insertDuration.Seconds(),
+		summaryDuration.Seconds(), summaryEmbedDuration.Seconds(), total.Seconds())
+	logo.JsonI("summary", summary, "doc", docId, "path", fullPath)
+
 	return nil
 }
 

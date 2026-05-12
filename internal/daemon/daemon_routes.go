@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lixianmin/got/convert"
+	"github.com/lixianmin/got/loom"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/formatter"
 	"github.com/lixianmin/lmd/internal/mcp"
@@ -433,7 +434,25 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"summary_total":  totalDocsForSummary,
 		"summary_done":   summaryCount,
 		"collections":    collections,
+		"rebuild":        readProgressMeta("rebuild"),
+		"pipeline":       readProgressMeta("pipeline"),
 	})
+}
+
+func readProgressMeta(prefix string) map[string]string {
+	status, _, _ := dao.GetMeta(prefix + ".status")
+	if status == "" {
+		return nil
+	}
+	total, _, _ := dao.GetMeta(prefix + ".total")
+	processed, _, _ := dao.GetMeta(prefix + ".processed")
+	errors, _, _ := dao.GetMeta(prefix + ".errors")
+	return map[string]string{
+		"status":    status,
+		"total":     total,
+		"processed": processed,
+		"errors":    errors,
+	}
 }
 
 func formatETA(d time.Duration) string {
@@ -607,9 +626,6 @@ func (my *Daemon) handleCollectionRename(w http.ResponseWriter, r *http.Request)
 }
 
 func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	logo.Info("handleRebuild: starting")
-
 	my.rebuildMu.Lock()
 	cols, err := dao.ListCollections()
 	if err != nil {
@@ -646,23 +662,64 @@ func (my *Daemon) handleRebuild(w http.ResponseWriter, r *http.Request) {
 			logo.Error("handleRebuild: restore collection %s failed: %s", col.Name, err)
 		}
 	}
-	my.rebuildMu.Unlock()
 
-	pending := my.scanChanges()
-	if len(pending) > 0 {
-		processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
-		for _, doc := range pending {
-			if err := processor.ProcessDoc(context.Background(), doc); err != nil {
-				logo.Warn("handleRebuild: process %s/%s failed: %s", doc.Collection, doc.Path, err)
-			}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     "rebuild started",
+		"collections": len(cols),
+	})
+
+	loom.Go(func(later loom.Later) {
+		my.rebuildProcessPending(cols)
+		my.rebuildMu.Unlock()
+	})
+}
+
+func (my *Daemon) rebuildProcessPending(cols []dao.CollectionRecord) {
+	var pending []service.PendingDoc
+	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "@") {
+			continue
 		}
+		result, err := my.indexer.ScanChanges(col.Name, col.Path, col.GlobPattern, col.IgnorePatterns)
+		if err != nil {
+			logo.Error("rebuild: scan %s failed: %s", col.Name, err)
+			continue
+		}
+		if len(result) > 0 {
+			logo.Info("rebuild: %s found %d pending docs", col.Name, len(result))
+		}
+		pending = append(pending, result...)
 	}
 
-	logo.Info("handleRebuild: collections restored, processed %d docs", len(pending))
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"collections": len(cols),
-		"elapsed":     time.Since(start).String(),
-	})
+	total := len(pending)
+	if total == 0 {
+		dao.SetMeta("rebuild.status", "idle")
+		logo.Info("rebuild: no pending docs")
+		return
+	}
+
+	dao.SetMeta("rebuild.status", "running")
+	dao.SetMeta("rebuild.total", fmt.Sprintf("%d", total))
+	dao.SetMeta("rebuild.processed", "0")
+	dao.SetMeta("rebuild.errors", "0")
+
+	var errors int
+	processor := service.NewProcessor(my.embedProvider, my.llmProvider, my.cfg.Summary)
+	for i, doc := range pending {
+		if err := processor.ProcessDoc(context.Background(), doc); err != nil {
+			errors++
+			dao.SetMeta("rebuild.errors", fmt.Sprintf("%d", errors))
+			logo.Warn("rebuild: process %s/%s failed: %s", doc.Collection, doc.Path, err)
+		}
+		if (i+1)%50 == 0 {
+			dao.SetMeta("rebuild.processed", fmt.Sprintf("%d", i+1))
+			pct := float64(i+1) / float64(total) * 100
+			logo.Info("rebuild: progress %d/%d (%.1f%%) errors=%d", i+1, total, pct, errors)
+		}
+	}
+	dao.SetMeta("rebuild.processed", fmt.Sprintf("%d", total))
+	dao.SetMeta("rebuild.status", "idle")
+	logo.Info("rebuild: done, processed %d docs, errors=%d", total, errors)
 }
 
 func (my *Daemon) handleMCP(w http.ResponseWriter, r *http.Request) {

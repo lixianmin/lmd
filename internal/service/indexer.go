@@ -31,6 +31,7 @@ const (
 type PendingDoc struct {
 	Action      DocAction
 	Collection  string
+	RootDir     string
 	Path        string
 	Title       string
 	Body        string
@@ -374,41 +375,10 @@ func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, igno
 						Hash:       hash,
 					}
 				}
-				pending = append(pending, PendingDoc{
-					Action:      DocChanged,
-					Collection:  collectionName,
-					Path:        relPath,
-					Title:       title,
-					Body:        body,
-					Hash:        hash,
-					FileSize:    int64(len(content)),
-					FileModTime: fileModTime,
-					OldDocId:    existing.id,
-					Chunks:      chunkData,
-				})
-				return nil
-			}
-
-			if existing.hash == hash {
-				return nil
-			}
-
-			title := extractTitle(string(content), relPath)
-			body := string(content)
-			ch := my.chunkerForExt(filepath.Ext(relPath))
-			chunks, _ := ch.Chunk(body)
-			chunkData := make([]dao.ChunkData, len(chunks))
-			for i, c := range chunks {
-				chunkData[i] = dao.ChunkData{
-					Content:    c.Content,
-					Position:   c.StartLine,
-					TokenCount: c.TokenCount,
-					Hash:       hash,
-				}
-			}
 			pending = append(pending, PendingDoc{
 				Action:      DocChanged,
 				Collection:  collectionName,
+				RootDir:     rootDir,
 				Path:        relPath,
 				Title:       title,
 				Body:        body,
@@ -421,12 +391,10 @@ func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, igno
 			return nil
 		}
 
-		content, err := os.ReadFile(path)
-		if err != nil {
-			logo.Warn("scanChanges: read error %s: %s", path, err)
+		if existing.hash == hash {
 			return nil
 		}
-		hash := hashContent(content)
+
 		title := extractTitle(string(content), relPath)
 		body := string(content)
 		ch := my.chunkerForExt(filepath.Ext(relPath))
@@ -441,9 +409,45 @@ func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, igno
 			}
 		}
 		pending = append(pending, PendingDoc{
-			Action:      DocNew,
+			Action:      DocChanged,
 			Collection:  collectionName,
+			RootDir:     rootDir,
 			Path:        relPath,
+			Title:       title,
+			Body:        body,
+			Hash:        hash,
+			FileSize:    int64(len(content)),
+			FileModTime: fileModTime,
+			OldDocId:    existing.id,
+			Chunks:      chunkData,
+		})
+		return nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		logo.Warn("scanChanges: read error %s: %s", path, err)
+		return nil
+	}
+	hash := hashContent(content)
+	title := extractTitle(string(content), relPath)
+	body := string(content)
+	ch := my.chunkerForExt(filepath.Ext(relPath))
+	chunks, _ := ch.Chunk(body)
+	chunkData := make([]dao.ChunkData, len(chunks))
+	for i, c := range chunks {
+		chunkData[i] = dao.ChunkData{
+			Content:    c.Content,
+			Position:   c.StartLine,
+			TokenCount: c.TokenCount,
+			Hash:       hash,
+		}
+	}
+	pending = append(pending, PendingDoc{
+		Action:      DocNew,
+		Collection:  collectionName,
+		RootDir:     rootDir,
+		Path:        relPath,
 			Title:       title,
 			Body:        body,
 			Hash:        hash,
@@ -462,6 +466,7 @@ func (my *Indexer) ScanChanges(collectionName, rootDir, globPattern string, igno
 			pending = append(pending, PendingDoc{
 				Action:     DocDeleted,
 				Collection: collectionName,
+				RootDir:    rootDir,
 				Path:       path,
 				OldDocId:   info.id,
 			})

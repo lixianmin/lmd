@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -331,7 +332,7 @@ func TestInsertChunksAndVectors(t *testing.T) {
 	vecs[0][0] = 0.5
 	vecs[1][0] = 0.8
 
-	inserted, err := InsertChunksAndVectors(docId, "notes", chunks, tokenized, vecs)
+	inserted, err := InsertChunksAndVectors(docId, "notes", 0, chunks, tokenized, vecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +367,7 @@ func TestInsertChunksAndVectorsMismatch(t *testing.T) {
 	tokenized := []string{"a"}
 	vecs := make([][]float32, 2)
 
-	_, err := InsertChunksAndVectors(docId, "notes", chunks, tokenized, vecs)
+	_, err := InsertChunksAndVectors(docId, "notes", 0, chunks, tokenized, vecs)
 	if err == nil {
 		t.Fatal("expected error for mismatched lengths")
 	}
@@ -404,5 +405,61 @@ func TestInsertChunksIgnoreDuplicate(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("expected still 2 chunks after duplicate insert, got %d", len(got))
+	}
+}
+
+func TestInsertChunksAndVectorsBatchSeq(t *testing.T) {
+	initTestDB(t)
+	mustAddCollection(t, "notes", "/data")
+
+	docId, err := InsertDocument("notes", "big.md", "Big Doc", "body", 4, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	totalChunks := 25
+	allChunks := make([]ChunkData, totalChunks)
+	allTokenized := make([]string, totalChunks)
+	allVecs := make([][]float32, totalChunks)
+	for i := 0; i < totalChunks; i++ {
+		allChunks[i] = ChunkData{Content: fmt.Sprintf("chunk %d", i), Position: i, TokenCount: 1, Hash: "h1"}
+		allTokenized[i] = allChunks[i].Content
+		allVecs[i] = make([]float32, EmbeddingDim)
+		allVecs[i][0] = float32(i)
+	}
+
+	batch0 := allChunks[:20]
+	tok0 := allTokenized[:20]
+	vec0 := allVecs[:20]
+	records0, err := InsertChunksAndVectors(docId, "notes", 0, batch0, tok0, vec0)
+	if err != nil {
+		t.Fatalf("batch 0: %v", err)
+	}
+	if len(records0) != 20 {
+		t.Fatalf("batch 0: expected 20 records, got %d", len(records0))
+	}
+
+	batch1 := allChunks[20:]
+	tok1 := allTokenized[20:]
+	vec1 := allVecs[20:]
+	records1, err := InsertChunksAndVectors(docId, "notes", 20, batch1, tok1, vec1)
+	if err != nil {
+		t.Fatalf("batch 1: %v", err)
+	}
+	if len(records1) != 5 {
+		t.Fatalf("batch 1: expected 5 records, got %d", len(records1))
+	}
+
+	all, err := GetChunksByDocId(docId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 25 {
+		t.Fatalf("expected 25 total chunks, got %d", len(all))
+	}
+	for i, c := range all {
+		if c.Seq != i {
+			t.Fatalf("chunk %d: expected seq=%d, got seq=%d", i, i, c.Seq)
+		}
 	}
 }

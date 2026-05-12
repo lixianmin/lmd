@@ -140,6 +140,7 @@ func createTables() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_source_doc_id ON documents(source_doc_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
+		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.db.Exec(s); err != nil {
