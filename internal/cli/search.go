@@ -151,6 +151,7 @@ func init() {
 
 	vsearchCmd.Flags().AddFlagSet(searchCmd.Flags())
 	hybridCmd.Flags().AddFlagSet(searchCmd.Flags())
+	hydeCmd.Flags().AddFlagSet(searchCmd.Flags())
 
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(vsearchCmd)
