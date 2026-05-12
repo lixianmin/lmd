@@ -65,6 +65,7 @@ func (my *HyDEIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 	}
 
 	logo.JsonI("hyde_doc", sourceDoc.Id, "path", doc.Path, "questions", len(questions), "keywords", len(keywords), "elapsed", time.Since(t0).String())
+	logo.Info("hyde: %s\n  QUESTIONS:\n%s\n  KEYWORDS: %s", doc.Path, strings.Join(questions, "\n  "), strings.Join(keywords, ", "))
 	return nil
 }
 
@@ -77,7 +78,8 @@ func (my *HyDEIndexer) generateQuestions(ctx context.Context, content string) ([
 
 	prompt := "Given the document below, generate 5-10 questions that this document could answer. " +
 		"Focus on specific facts, details, and information mentioned in the text. " +
-		"One question per line. Be specific — ask about names, numbers, places, dates, colors, preferences.\n\n" +
+		"One question per line. Be specific — ask about names, numbers, places, dates, colors, preferences. " +
+		"IMPORTANT: write the questions in the same language as the document.\n\n" +
 		"Document:\n" + truncated + "\n\nQuestions:"
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
@@ -135,9 +137,4 @@ func extractKeywords(content string) []string {
 	}
 
 	return result
-}
-
-func (my *HyDEIndexer) ScanChanges(collectionName, rootDir, globPattern string, ignorePatterns []string) ([]PendingDoc, error) {
-	ci := &ChunkIndexer{tokenizer: my.tokenizer}
-	return ci.ScanChanges(collectionName, rootDir, globPattern, ignorePatterns)
 }
