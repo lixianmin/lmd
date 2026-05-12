@@ -359,7 +359,7 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		pending = 0
 	}
 
-	hydeTotal, hydeDone := dao.GetSummaryCounts()
+	hydeTotal, hydeDone := dao.GetHydeCounts()
 
 	var eta string
 	if pending > 0 {

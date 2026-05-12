@@ -39,7 +39,7 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		pending = 0
 	}
 
-	hydeTotal, hydeDone := dao.GetSummaryCounts()
+	hydeTotal, hydeDone := dao.GetHydeCounts()
 
 	var eta string
 	if pending > 0 {

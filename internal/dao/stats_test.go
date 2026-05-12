@@ -25,10 +25,10 @@ func TestGetChunkCounts(t *testing.T) {
 	}
 }
 
-func TestGetSummaryCounts(t *testing.T) {
+func TestGetHydeCounts(t *testing.T) {
 	initTestDB(t)
 
-	total, done := GetSummaryCounts()
+	total, done := GetHydeCounts()
 	if total != 0 || done != 0 {
 		t.Fatalf("expected (0,0), got (%d,%d)", total, done)
 	}
@@ -44,21 +44,21 @@ func TestGetSummaryCounts(t *testing.T) {
 	}
 	mustUpsertDoc(t, doc2)
 
-	total, done = GetSummaryCounts()
-	if total != 1 {
-		t.Fatalf("expected total=1 (only docs with chunks), got %d", total)
+	total, done = GetHydeCounts()
+	if total != 2 {
+		t.Fatalf("expected total=2, got %d", total)
 	}
 	if done != 0 {
 		t.Fatalf("expected done=0, got %d", done)
 	}
 
-	mustInsertDocWithChunks(t, "@summaries", "a.md", chunks)
-	total, done = GetSummaryCounts()
-	if total != 1 {
-		t.Fatalf("expected total=1 after summary, got %d", total)
+	mustInsertDocWithChunks(t, "@hyde", "a.md", chunks)
+	total, done = GetHydeCounts()
+	if total != 2 {
+		t.Fatalf("expected total=2 after hyde, got %d", total)
 	}
 	if done != 1 {
-		t.Fatalf("expected done=1 after summary, got %d", done)
+		t.Fatalf("expected done=1 after hyde, got %d", done)
 	}
 }
 
