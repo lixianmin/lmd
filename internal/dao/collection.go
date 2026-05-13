@@ -135,7 +135,7 @@ func removeDocsByCollection(tx *sql.Tx, name string) error {
 
 func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
 	summaryRows, err := tx.Query(
-		buildInQuery("SELECT id FROM documents WHERE collection='@summaries' AND source_doc_id IN (", len(deletedDocIds), ")"),
+		buildInQuery("SELECT id FROM documents WHERE collection IN ('@summaries', '@hyde') AND source_doc_id IN (", len(deletedDocIds), ")"),
 		int64SliceToAny(deletedDocIds)...,
 	)
 	if err != nil {

@@ -167,7 +167,9 @@ func InsertChunksAndVectors(docId int64, collection string, startSeq int, chunks
 		}
 		chunkId, _ := r.LastInsertId()
 
-		ftsStmt.Exec(chunkId, tokenized[i])
+		if _, err := ftsStmt.Exec(chunkId, tokenized[i]); err != nil {
+			return err
+		}
 
 		blob, err := sqlite_vec.SerializeFloat32(padVector(vecs[i]))
 		if err != nil {

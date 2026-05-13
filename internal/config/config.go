@@ -35,7 +35,7 @@ type ProviderConfig struct {
 }
 
 type ProviderItem struct {
-	BaseURL string `yaml:"base_url"`
+	BaseUrl string `yaml:"base_url"`
 	APIKey  string `yaml:"api_key,omitempty"`
 }
 
@@ -65,16 +65,16 @@ func DefaultConfig() *Config {
 		},
 		Providers: ProviderConfig{
 			Ollama: ProviderItem{
-				BaseURL: "http://localhost:11434",
+				BaseUrl: "http://localhost:11434",
 			},
 			SiliconFlow: ProviderItem{
-				BaseURL: "https://api.siliconflow.cn/v1",
+				BaseUrl: "https://api.siliconflow.cn/v1",
 				APIKey:  "sk-your-api-key-here",
 			},
-		DeepSeek: ProviderItem{
-			BaseURL: "https://api.deepseek.com/v1",
-			APIKey:  "sk-your-api-key-here",
-		},
+			DeepSeek: ProviderItem{
+				BaseUrl: "https://api.deepseek.com/v1",
+				APIKey:  "sk-your-api-key-here",
+			},
 		},
 		Embedding: EmbeddingConfig{
 			Provider:    "ollama",

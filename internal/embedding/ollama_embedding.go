@@ -82,5 +82,3 @@ func (my *OllamaEmbedding) EmbedQuery(ctx context.Context, query string) ([]floa
 func (my *OllamaEmbedding) Dimension() int { return EmbeddingDim }
 
 func (my *OllamaEmbedding) ModelName() string { return my.model }
-
-func (my *OllamaEmbedding) Close() error { return nil }

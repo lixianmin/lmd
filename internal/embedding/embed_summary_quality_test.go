@@ -16,7 +16,6 @@ func TestEmbedQuality_SummaryVsFullDoc(t *testing.T) {
 	}
 
 	p := NewOllamaProvider(baseURL, "batiai/qwen3-embedding:0.6b", "")
-	defer p.Close()
 	ctx := context.Background()
 
 	query := "什么是原子性，跟事务有什么关系"

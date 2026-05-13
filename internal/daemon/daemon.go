@@ -352,29 +352,29 @@ func parseDuration(s string, defaultDuration time.Duration) time.Duration {
 }
 
 func newEmbedding(config *config.Config) embedding.EmbeddingProvider {
-	var embedProv embedding.EmbeddingProvider
+	var provider embedding.EmbeddingProvider
 	switch config.Embedding.Provider {
 	case "ollama":
-		embedProv = embedding.NewOllamaProvider(config.Providers.Ollama.BaseURL, config.Embedding.Model, config.Embedding.QueryPrefix)
+		provider = embedding.NewOllamaProvider(config.Providers.Ollama.BaseUrl, config.Embedding.Model, config.Embedding.QueryPrefix)
 	case "siliconflow":
-		embedProv = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.BaseURL, config.Embedding.Model, config.Providers.SiliconFlow.APIKey, config.Embedding.QueryPrefix)
+		provider = embedding.NewSiliconFlowEmbedding(config.Providers.SiliconFlow.BaseUrl, config.Providers.SiliconFlow.APIKey, config.Embedding.Model, config.Embedding.QueryPrefix)
 	default:
 		logo.Error("unknown embedding provider: %s", config.Embedding.Provider)
 		return nil
 	}
 
-	return embedProv
+	return provider
 }
 
 func newLLM(config *config.Config) llm.LLMProvider {
 	var llmProv llm.LLMProvider
 	switch config.Hyde.Provider {
 	case "ollama":
-		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.BaseURL, config.Hyde.Model, config.Hyde.NoThinking)
+		llmProv = llm.NewOllamaLLM(config.Providers.Ollama.BaseUrl, config.Hyde.Model, config.Hyde.NoThinking)
 	case "siliconflow":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.BaseURL, config.Hyde.Model, config.Providers.SiliconFlow.APIKey)
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.SiliconFlow.BaseUrl, config.Hyde.Model, config.Providers.SiliconFlow.APIKey, config.Hyde.MaxOutputTokens, config.Hyde.NoThinking)
 	case "deepseek":
-		llmProv = llm.NewSiliconFlowLLM(config.Providers.DeepSeek.BaseURL, config.Hyde.Model, config.Providers.DeepSeek.APIKey)
+		llmProv = llm.NewSiliconFlowLLM(config.Providers.DeepSeek.BaseUrl, config.Hyde.Model, config.Providers.DeepSeek.APIKey, config.Hyde.MaxOutputTokens, config.Hyde.NoThinking)
 	default:
 		logo.Error("unknown hyde provider: %s", config.Hyde.Provider)
 		return nil

@@ -41,14 +41,14 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatal("expected hyde no_thinking true")
 	}
 
-	if cfg.Providers.Ollama.BaseURL != "http://localhost:11434" {
-		t.Fatalf("expected ollama base_url, got %s", cfg.Providers.Ollama.BaseURL)
+	if cfg.Providers.Ollama.BaseUrl != "http://localhost:11434" {
+		t.Fatalf("expected ollama base_url, got %s", cfg.Providers.Ollama.BaseUrl)
 	}
-	if cfg.Providers.SiliconFlow.BaseURL != "https://api.siliconflow.cn/v1" {
-		t.Fatalf("expected siliconflow base_url, got %s", cfg.Providers.SiliconFlow.BaseURL)
+	if cfg.Providers.SiliconFlow.BaseUrl != "https://api.siliconflow.cn/v1" {
+		t.Fatalf("expected siliconflow base_url, got %s", cfg.Providers.SiliconFlow.BaseUrl)
 	}
-	if cfg.Providers.DeepSeek.BaseURL != "https://api.deepseek.com/v1" {
-		t.Fatalf("expected deepseek base_url, got %s", cfg.Providers.DeepSeek.BaseURL)
+	if cfg.Providers.DeepSeek.BaseUrl != "https://api.deepseek.com/v1" {
+		t.Fatalf("expected deepseek base_url, got %s", cfg.Providers.DeepSeek.BaseUrl)
 	}
 
 	if cfg.Database.Path == "" {

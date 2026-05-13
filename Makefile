@@ -58,6 +58,7 @@ integration: integration-basic
 
 all: lint test integration-basic
 
+
 rebuild:
 	@echo "=== Capturing collections ==="
 	@-./$(BINARY) status --json > /tmp/lmd-rebuild.json 2>/dev/null
@@ -69,17 +70,10 @@ rebuild:
 	@rm -f $$HOME/.cache/lmd/index.sqlite
 	@echo "=== Installing and starting ==="
 	@$(GO) install -tags "$(TAGS)" -ldflags "$(LDFLAGS)" $(MOD) $(CMD)
-	@$$(go env GOPATH)/bin/lmd daemon-start &
+	@$(shell $(GO) env GOPATH)/bin/lmd daemon-start &
 	@sleep 3
 	@echo "=== Re-adding collections ==="
-	@python3 -c '\
-import json, sys, os; \
-d = json.load(sys.stdin); \
-for c in d.get("collections", []): \
-    name = c["name"]; \
-    path = c["path"]; \
-	@os.system(f"$$(go env GOPATH)/bin/lmd collection add \"{path}\" --name \"{name}\"")' \
-	< /tmp/lmd-rebuild.json 2>/dev/null || \
+	@python3 scripts/re_add_collections.py /tmp/lmd-rebuild.json $(shell $(GO) env GOPATH)/bin/lmd || \
 		echo "Note: collections re-add may fail if no previous collections existed"
 	@rm -f /tmp/lmd-rebuild.json
 	@echo "=== Rebuild complete ==="

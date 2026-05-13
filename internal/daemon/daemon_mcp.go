@@ -76,6 +76,8 @@ func (my *Daemon) handleToolCall(toolName string, params json.RawMessage) (inter
 		return my.handleToolSearch(params)
 	case "hybrid":
 		return my.handleToolHybrid(params)
+	case "hyde":
+		return my.handleToolHyde(params)
 	case "vsearch":
 		return my.handleToolVsearch(params)
 	case "get":
@@ -214,4 +216,71 @@ func truncateForLog(s string, maxRunes int) string {
 		return s
 	}
 	return string(runes[:maxRunes]) + "..."
+}
+
+func (my *Daemon) handleToolHyde(params json.RawMessage) (interface{}, error) {
+	var req struct {
+		Query      string  `json:"query"`
+		Collection string  `json:"collection"`
+		Limit      int     `json:"limit"`
+		MinScore   float64 `json:"min_score"`
+		Strategy   string  `json:"strategy"`
+	}
+	if err := convert.FromJsonE(params, &req); err != nil {
+		return nil, err
+	}
+	if req.Limit <= 0 {
+		req.Limit = defaultSearchLimit
+	}
+	if req.Strategy == "" {
+		req.Strategy = "pos-or"
+	}
+
+	ctx := context.Background()
+	overfetch := safeOverfetch(req.Limit)
+
+	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@hyde", overfetch, 0, req.Strategy)
+	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@hyde", overfetch, 0)
+	if lexErr != nil && vecErr != nil {
+		return nil, fmt.Errorf("hyde search failed")
+	}
+	hydeHits := service.FuseResults(lexHits, vecHits)
+
+	docIds := make(map[int64]bool)
+	for _, h := range hydeHits {
+		if h.DocRowId > 0 {
+			docIds[h.DocRowId] = true
+		}
+	}
+	hydeDocIds := make([]int64, 0, len(docIds))
+	for id := range docIds {
+		hydeDocIds = append(hydeDocIds, id)
+	}
+
+	if len(hydeDocIds) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
+		return map[string]interface{}{"hits": results, "routed": false}, nil
+	}
+
+	hydeDocs, err := dao.GetDocumentsByIds(hydeDocIds)
+	if err != nil {
+		return nil, err
+	}
+	sourceDocIds := make([]int64, 0, len(hydeDocs))
+	for _, d := range hydeDocs {
+		if d.SourceDocId > 0 {
+			sourceDocIds = append(sourceDocIds, d.SourceDocId)
+		}
+	}
+	if len(sourceDocIds) == 0 {
+		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
+		return map[string]interface{}{"hits": results, "routed": false}, nil
+	}
+
+	overfetch = safeOverfetch(req.Limit)
+	lexHits2, _ := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch, req.Strategy)
+	vecHits2, _ := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch)
+	results := service.FuseResults(lexHits2, vecHits2)
+	results = filterAndLimit(results, req.MinScore, req.Limit)
+	return map[string]interface{}{"hits": results, "routed": true}, nil
 }

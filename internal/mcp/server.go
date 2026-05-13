@@ -13,9 +13,10 @@ import (
 const mcpScannerBufSize = 1024 * 1024 // MCP JSON-RPC 扫描器缓冲区大小（1 MB）
 
 var toolDefs = []ToolDef{
-	{Name: "search", Description: "BM25 keyword search across all documents and memories"},
+	{Name: "search", Description: "BM25 keyword search across all documents"},
 	{Name: "vsearch", Description: "Vector semantic search"},
-	{Name: "hybrid", Description: "Hybrid search (BM25 + vector) across all documents and memories"},
+	{Name: "hybrid", Description: "Hybrid search (BM25 + vector)"},
+	{Name: "hyde", Description: "Two-level HyDE search: Level 1 over @hyde → Level 2 in source docs"},
 	{Name: "get", Description: "Retrieve document by path or docid"},
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},

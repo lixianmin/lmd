@@ -12,5 +12,4 @@ type EmbeddingProvider interface {
 	EmbedQuery(ctx context.Context, query string) ([]float32, error)
 	Dimension() int
 	ModelName() string
-	Close() error
 }

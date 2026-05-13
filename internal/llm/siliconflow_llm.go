@@ -11,31 +11,34 @@ import (
 )
 
 type SiliconFlowLLM struct {
-	baseURL   string
-	model     string
-	apiKey    string
-	maxTokens int
-	client    *http.Client
+	baseURL    string
+	model      string
+	apiKey     string
+	maxTokens  int
+	noThinking bool
+	client     *http.Client
 }
 
-func NewSiliconFlowLLM(url, model, apiKey string) *SiliconFlowLLM {
+func NewSiliconFlowLLM(url, model, apiKey string, maxTokens int, noThinking bool) *SiliconFlowLLM {
 	for len(url) > 0 && url[len(url)-1] == '/' {
 		url = url[:len(url)-1]
 	}
 	return &SiliconFlowLLM{
-		baseURL:   url,
-		model:     model,
-		apiKey:    apiKey,
-		maxTokens: 512,
-		client:    &http.Client{Timeout: 120 * time.Second},
+		baseURL:    url,
+		model:      model,
+		apiKey:     apiKey,
+		maxTokens:  maxTokens,
+		noThinking: noThinking,
+		client:     &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
 type sfChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature float64   `json:"temperature,omitempty"`
+	Model          string    `json:"model"`
+	Messages       []Message `json:"messages"`
+	MaxTokens      int       `json:"max_tokens,omitempty"`
+	Temperature    float64   `json:"temperature,omitempty"`
+	EnableThinking bool      `json:"enable_thinking,omitempty"`
 }
 
 type sfChatResponse struct {
@@ -48,10 +51,11 @@ type sfChatResponse struct {
 
 func (my *SiliconFlowLLM) ChatCompletion(ctx context.Context, messages []Message) (string, error) {
 	reqBody := sfChatRequest{
-		Model:       my.model,
-		Messages:    messages,
-		MaxTokens:   my.maxTokens,
-		Temperature: 0.3,
+		Model:          my.model,
+		Messages:       messages,
+		MaxTokens:      my.maxTokens,
+		Temperature:    0.3,
+		EnableThinking: !my.noThinking,
 	}
 
 	body, err := json.Marshal(reqBody)

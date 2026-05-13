@@ -45,7 +45,7 @@ func (my *HyDEIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 		return fmt.Errorf("generate questions: %w", err)
 	}
 
-	keywords := extractKeywords(doc.Body)
+	keywords := my.extractKeywords(doc.Body)
 
 	content := "QUESTIONS:\n" + strings.Join(questions, "\n") + "\n\nKEYWORDS:\n" + strings.Join(keywords, ", ")
 
@@ -70,19 +70,19 @@ func (my *HyDEIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 }
 
 func (my *HyDEIndexer) generateQuestions(ctx context.Context, content string) ([]string, error) {
-	maxRunes := min(my.maxInput*3, 8000)
+	maxRunes := my.maxInput * 3
 	runes := []rune(content)
 	if len(runes) > maxRunes {
 		runes = runes[:maxRunes]
 	}
 	truncated := string(runes)
 
-	prompt := "Given the document below, generate 5-10 questions that this document could answer. " +
-		"Focus on specific facts, details, and information mentioned in the text. " +
-		"One question per line. Be specific — ask about names, numbers, places, dates, colors, preferences. " +
-		"IMPORTANT: write the questions in the same language as the document. " +
-		"Do NOT repeat the same word or phrase over and over. Write normally.\n\n" +
-		"Document:\n" + truncated + "\n\nQuestions:"
+	prompt := "根据下面的文档，生成 5-10 个该文档可以回答的问题。" +
+		"关注文档中提到的具体事实、细节和信息。" +
+		"每行一个问题。要具体——询问名称、数字、地点、日期、颜色、偏好等。" +
+		"重要：用与文档相同的语言编写问题。" +
+		"不要重复相同的词或短语，正常书写。\n\n" +
+		"文档：\n" + truncated + "\n\n问题："
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
 	maxRetries := 3
@@ -107,7 +107,7 @@ func (my *HyDEIndexer) generateQuestions(ctx context.Context, content string) ([
 		var questions []string
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if len(line) > 10 && strings.Contains(line, "?") {
+			if len(line) > 10 && (strings.Contains(line, "?") || strings.Contains(line, "？")) {
 				questions = append(questions, line)
 			}
 		}
@@ -137,17 +137,18 @@ func isRepetitive(s string) bool {
 	return float64(len(seen))/float64(len(words)) < 0.2
 }
 
-func extractKeywords(content string) []string {
+func (my *HyDEIndexer) extractKeywords(content string) []string {
 	type freq struct {
 		word  string
 		count int
 	}
 
+	words := my.tokenizer.Cut(content)
+
 	freqs := make(map[string]int)
-	words := strings.Fields(content)
 	for _, w := range words {
 		w = strings.Trim(w, ".,?!;:()[]{}'\"-")
-		if len(w) <= 2 {
+		if len([]rune(w)) < 2 {
 			continue
 		}
 		if _, ok := stopWords[strings.ToLower(w)]; ok {

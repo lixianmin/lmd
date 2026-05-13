@@ -367,37 +367,12 @@ func (my *ChunkIndexer) ScanChanges(collectionName, rootDir, globPattern string,
 			}
 			hash := hashContent(content)
 
-			if existing.fileModTime == 0 {
-				title := extractTitle(string(content), relPath)
-				body := string(content)
-				ch := my.chunkerForExt(filepath.Ext(relPath))
-				chunks, _ := ch.Chunk(body)
-				chunkData := make([]dao.ChunkData, len(chunks))
-				for i, c := range chunks {
-					chunkData[i] = dao.ChunkData{
-						Content:    c.Content,
-						Position:   c.StartLine,
-						TokenCount: c.TokenCount,
-						Hash:       hash,
+			if existing.hash == hash {
+				if existing.fileModTime == 0 {
+					if err := dao.CompleteDocument(existing.id, hash, fileModTime); err != nil {
+						logo.Warn("scanChanges: fixup fileModTime for doc %d: %s", existing.id, err)
 					}
 				}
-				pending = append(pending, PendingDoc{
-					Action:      DocChanged,
-					Collection:  collectionName,
-					RootDir:     rootDir,
-					Path:        relPath,
-					Title:       title,
-					Body:        body,
-					Hash:        hash,
-					FileSize:    int64(len(content)),
-					FileModTime: fileModTime,
-					OldDocId:    existing.id,
-					Chunks:      chunkData,
-				})
-				return nil
-			}
-
-			if existing.hash == hash {
 				return nil
 			}
 
@@ -665,7 +640,7 @@ func (my *ChunkIndexer) processDocNew(ctx context.Context, doc PendingDoc) error
 
 		tokenized := make([]string, len(batch))
 		for j, c := range batch {
-			tokenized[j] = c.Content
+			tokenized[j] = my.tokenizer.TokenizeToString(c.Content)
 		}
 
 		t = time.Now()
@@ -675,7 +650,7 @@ func (my *ChunkIndexer) processDocNew(ctx context.Context, doc PendingDoc) error
 		insertDuration += time.Since(t)
 	}
 
-	if err := dao.CompleteDocument(docId, doc.FileModTime); err != nil {
+	if err := dao.CompleteDocument(docId, doc.Hash, doc.FileModTime); err != nil {
 		return fmt.Errorf("complete document: %w", err)
 	}
 

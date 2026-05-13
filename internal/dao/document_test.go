@@ -413,8 +413,8 @@ func TestInsertDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Hash != "hash123" {
-		t.Fatalf("expected hash 'hash123', got '%s'", doc.Hash)
+	if doc.Hash != "" {
+		t.Fatalf("expected empty hash (two-phase write), got '%s'", doc.Hash)
 	}
 	if doc.FileModTime != 0 {
 		t.Fatalf("expected file_mod_time=0 (incomplete), got %d", doc.FileModTime)
@@ -430,7 +430,7 @@ func TestCompleteDocument(t *testing.T) {
 
 	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, "hash1")
 
-	err := CompleteDocument(docId, 1234567890)
+	err := CompleteDocument(docId, "hash1", 1234567890)
 	if err != nil {
 		t.Fatal(err)
 	}

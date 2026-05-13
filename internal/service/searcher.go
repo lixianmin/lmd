@@ -37,6 +37,10 @@ func (my *Searcher) SearchLexByDocIds(query string, docIds []int64, limit int, s
 
 	var ftsQuery string
 	switch strategy {
+	case "pos-must":
+		ftsQuery = my.buildFTSQueryPosMust(query)
+	case "pos-or", "":
+		ftsQuery = my.buildFTSQueryPosOr(query)
 	case "and":
 		ftsQuery = buildFTSQueryAND(tokenized)
 	default:

@@ -23,7 +23,6 @@ func TestEmbedQuality_LiveVectorSearch(t *testing.T) {
 		ollamaURL = "http://localhost:11434"
 	}
 	p := NewOllamaProvider(ollamaURL, "batiai/qwen3-embedding:0.6b", "")
-	defer p.Close()
 
 	ctx := context.Background()
 	query := "什么是原子性，跟事务有什么关系"

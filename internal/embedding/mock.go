@@ -41,7 +41,6 @@ func (my *MockProvider) EmbedQuery(ctx context.Context, query string) ([]float32
 
 func (my *MockProvider) Dimension() int    { return my.dim }
 func (my *MockProvider) ModelName() string { return "mock" }
-func (my *MockProvider) Close() error      { return nil }
 
 func (my *MockProvider) textToVector(text string) []float32 {
 	vec := make([]float32, my.dim)

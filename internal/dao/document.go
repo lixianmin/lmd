@@ -44,8 +44,8 @@ func ShortDocId(docId string) string {
 func InsertDocument(collection, path, title, body string, fileSize int64, hash string) (int64, error) {
 	docId := generateDocId(collection, path, hash)
 	result, err := WithExec(
-		"INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, DATETIME('now','+8 hours'), DATETIME('now','+8 hours'), DATETIME('now','+8 hours'))",
-		docId, collection, path, title, body, hash, fileSize,
+		"INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', ?, 0, DATETIME('now','+8 hours'), DATETIME('now','+8 hours'), DATETIME('now','+8 hours'))",
+		docId, collection, path, title, body, fileSize,
 	)
 	if err != nil {
 		return 0, err
@@ -54,10 +54,10 @@ func InsertDocument(collection, path, title, body string, fileSize int64, hash s
 	return id, nil
 }
 
-func CompleteDocument(docId int64, fileModTime int64) error {
+func CompleteDocument(docId int64, hash string, fileModTime int64) error {
 	_, err := WithExec(
-		"UPDATE documents SET file_mod_time=?, updated_at=DATETIME('now','+8 hours') WHERE id=?",
-		fileModTime, docId,
+		"UPDATE documents SET hash=?, file_mod_time=?, updated_at=DATETIME('now','+8 hours') WHERE id=?",
+		hash, fileModTime, docId,
 	)
 	return err
 }
@@ -176,10 +176,37 @@ func deleteDocChunksAndVecs(tx *sql.Tx, docId int64) error {
 
 func DeleteDocument(id int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
+		hydeRows, err := tx.Query("SELECT id FROM documents WHERE collection='@hyde' AND source_doc_id=?", id)
+		if err != nil {
+			return err
+		}
+		var hydeIds []int64
+		for hydeRows.Next() {
+			var hid int64
+			if err := hydeRows.Scan(&hid); err != nil {
+				hydeRows.Close()
+				return err
+			}
+			hydeIds = append(hydeIds, hid)
+		}
+		hydeRows.Close()
+		if err := hydeRows.Err(); err != nil {
+			return err
+		}
+
+		for _, hid := range hydeIds {
+			if err := deleteDocChunksAndVecs(tx, hid); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", hid); err != nil {
+				return err
+			}
+		}
+
 		if err := deleteDocChunksAndVecs(tx, id); err != nil {
 			return err
 		}
-		_, err := tx.Exec("DELETE FROM documents WHERE id=?", id)
+		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
 		return err
 	})
 }
@@ -200,6 +227,9 @@ func DeleteDocumentAndSummary(docId int64) error {
 			summaryIds = append(summaryIds, sid)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 
 		for _, sid := range summaryIds {
 			if err := deleteDocChunksAndVecs(tx, sid); err != nil {
