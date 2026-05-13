@@ -55,7 +55,10 @@ func (my *OllamaLLM) ChatCompletion(ctx context.Context, messages []Message) (st
 		Think:     !my.noThinking,
 	}
 
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("ollama marshal: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", my.baseURL+"/api/chat", bytes.NewReader(body))
 	if err != nil {

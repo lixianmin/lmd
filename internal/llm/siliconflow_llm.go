@@ -54,7 +54,10 @@ func (my *SiliconFlowLLM) ChatCompletion(ctx context.Context, messages []Message
 		Temperature: 0.3,
 	}
 
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("siliconflow marshal: %w", err)
+	}
 	url := fmt.Sprintf("%s/chat/completions", my.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))

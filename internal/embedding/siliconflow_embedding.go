@@ -44,7 +44,10 @@ type sfEmbedResponse struct {
 
 func (my *SiliconFlowEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	reqBody := sfEmbedRequest{Model: my.model, Input: texts}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("siliconflow embed marshal: %w", err)
+	}
 
 	url := fmt.Sprintf("%s/embeddings", my.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))

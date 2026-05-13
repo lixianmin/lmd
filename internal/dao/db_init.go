@@ -29,10 +29,12 @@ func Init(dbPath string) error {
 
 	var err error
 	DB = &Store{}
-	DB.db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=wal&_foreign_keys=on&_busy_timeout=5000")
+	DB.db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=wal&_foreign_keys=on&_busy_timeout=10000")
 	if err != nil {
 		return err
 	}
+	DB.db.SetMaxOpenConns(1)
+	DB.db.SetMaxIdleConns(1)
 
 	if err := createTables(); err != nil {
 		return err

@@ -19,7 +19,7 @@ var envDir string
 type Config struct {
 	Providers ProviderConfig  `yaml:"providers"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
-	Hyde HydeConfig `yaml:"hyde"`
+	Hyde      HydeConfig      `yaml:"hyde"`
 	Database  DatabaseConfig  `yaml:"database"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
 }
@@ -69,11 +69,12 @@ func DefaultConfig() *Config {
 			},
 			SiliconFlow: ProviderItem{
 				BaseURL: "https://api.siliconflow.cn/v1",
-				APIKey: "sk-your-api-key-here",
+				APIKey:  "sk-your-api-key-here",
 			},
-			DeepSeek: ProviderItem{
-				BaseURL: "https://api.deepseek.com/v1",
-			},
+		DeepSeek: ProviderItem{
+			BaseURL: "https://api.deepseek.com/v1",
+			APIKey:  "sk-your-api-key-here",
+		},
 		},
 		Embedding: EmbeddingConfig{
 			Provider:    "ollama",

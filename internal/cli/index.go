@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/lixianmin/lmd/internal/config"
 	"github.com/lixianmin/lmd/internal/daemon"
@@ -32,15 +31,9 @@ var statusCmd = &cobra.Command{
 			Embedded     int    `json:"embedded"`
 			Pending      int    `json:"pending"`
 			ETA          string `json:"eta"`
-			HydeTotal int    `json:"hyde_total"`
-			HydeDone  int    `json:"hyde_done"`
-			Pipeline *struct {
-				Status    string `json:"status"`
-				Total     string `json:"total"`
-				Processed string `json:"processed"`
-				Errors    string `json:"errors"`
-			} `json:"pipeline"`
-			Collections []struct {
+		HydeTotal int    `json:"hyde_total"`
+		HydeDone  int    `json:"hyde_done"`
+		Collections []struct {
 				Name       string `json:"name"`
 				Path       string `json:"path"`
 				Glob       string `json:"glob"`
@@ -67,17 +60,6 @@ var statusCmd = &cobra.Command{
 			for _, c := range resp.Collections {
 				fmt.Printf("%-15s %8d %8d %s\n", c.Name, c.DocCount, c.ChunkCount, c.Path)
 			}
-		}
-		if resp.Pipeline != nil && resp.Pipeline.Status == "running" {
-			fmt.Println()
-			total, _ := strconv.Atoi(resp.Pipeline.Total)
-			processed, _ := strconv.Atoi(resp.Pipeline.Processed)
-			errors, _ := strconv.Atoi(resp.Pipeline.Errors)
-			pct := float64(0)
-			if total > 0 {
-				pct = float64(processed) / float64(total) * 100
-			}
-			fmt.Printf("Pipeline:   %d/%d (%.1f%%) errors=%d\n", processed, total, pct, errors)
 		}
 		return nil
 	},

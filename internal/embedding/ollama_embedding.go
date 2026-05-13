@@ -44,7 +44,10 @@ func (my *OllamaEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]
 		"model": my.model,
 		"input": texts,
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("ollama embed marshal: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", my.baseURL+"/api/embed", bytes.NewReader(body))
 	if err != nil {

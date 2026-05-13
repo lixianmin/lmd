@@ -177,15 +177,11 @@ func (my *Daemon) runChunkPipeline() {
 	}
 
 	total := len(pending)
-	dao.SetMeta("pipeline.status", "running")
-	dao.SetMeta("pipeline.total", fmt.Sprintf("%d", total))
-
 	closeChan := my.wc.C()
 	var errors int
-	for i, doc := range pending {
+	for _, doc := range pending {
 		select {
 		case <-closeChan:
-			dao.SetMeta("pipeline.status", "idle")
 			return
 		default:
 		}
@@ -193,13 +189,8 @@ func (my *Daemon) runChunkPipeline() {
 			errors++
 			logo.Warn("chunkPipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
 		}
-		if (i+1)%50 == 0 {
-			dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", i+1))
-		}
 	}
 
-	dao.SetMeta("pipeline.status", "idle")
-	dao.SetMeta("pipeline.processed", fmt.Sprintf("%d", total))
 	if errors > 0 {
 		logo.Warn("chunkPipeline: processed %d docs, errors=%d", total, errors)
 	}

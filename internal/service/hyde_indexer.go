@@ -70,39 +70,71 @@ func (my *HyDEIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 }
 
 func (my *HyDEIndexer) generateQuestions(ctx context.Context, content string) ([]string, error) {
-	truncated := content
-	maxChars := 8000
-	if len(truncated) > maxChars {
-		truncated = truncated[:maxChars]
+	maxRunes := min(my.maxInput*3, 8000)
+	runes := []rune(content)
+	if len(runes) > maxRunes {
+		runes = runes[:maxRunes]
 	}
+	truncated := string(runes)
 
 	prompt := "Given the document below, generate 5-10 questions that this document could answer. " +
 		"Focus on specific facts, details, and information mentioned in the text. " +
 		"One question per line. Be specific — ask about names, numbers, places, dates, colors, preferences. " +
-		"IMPORTANT: write the questions in the same language as the document.\n\n" +
+		"IMPORTANT: write the questions in the same language as the document. " +
+		"Do NOT repeat the same word or phrase over and over. Write normally.\n\n" +
 		"Document:\n" + truncated + "\n\nQuestions:"
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
+	maxRetries := 3
 
-	response, err := my.llm.ChatCompletion(ctx, messages)
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(response), "\n")
-	var questions []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if len(line) > 10 && strings.Contains(line, "?") {
-			questions = append(questions, line)
+	for attempt := range maxRetries {
+		response, err := my.llm.ChatCompletion(ctx, messages)
+		if err != nil {
+			if attempt == maxRetries-1 {
+				return nil, err
+			}
+			continue
 		}
+
+		if isRepetitive(response) {
+			if attempt < maxRetries-1 {
+				continue
+			}
+			return nil, fmt.Errorf("repetitive output after %d retries", maxRetries)
+		}
+
+		lines := strings.Split(strings.TrimSpace(response), "\n")
+		var questions []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if len(line) > 10 && strings.Contains(line, "?") {
+				questions = append(questions, line)
+			}
+		}
+
+		if len(questions) > 0 {
+			return questions, nil
+		}
+
+		if attempt < maxRetries-1 {
+			continue
+		}
+		return nil, fmt.Errorf("no valid questions after %d retries", maxRetries)
 	}
 
-	if len(questions) == 0 {
-		questions = append(questions, response)
-	}
+	return nil, fmt.Errorf("failed to generate questions")
+}
 
-	return questions, nil
+func isRepetitive(s string) bool {
+	words := strings.Fields(s)
+	if len(words) < 10 {
+		return false
+	}
+	seen := make(map[string]int, len(words))
+	for _, w := range words {
+		seen[strings.ToLower(w)]++
+	}
+	return float64(len(seen))/float64(len(words)) < 0.2
 }
 
 func extractKeywords(content string) []string {

@@ -378,33 +378,16 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"database":       my.cfg.Database.Path,
-		"documents":      totalDocs,
-		"chunks":         chunkCount,
-		"embedded":       embedCount,
-		"pending":        pending,
-		"eta":            eta,
-		"hyde_total":    hydeTotal,
-		"hyde_done":     hydeDone,
-		"collections":    collections,
-		"pipeline":       readProgressMeta("pipeline"),
+		"database":    my.cfg.Database.Path,
+		"documents":   totalDocs,
+		"chunks":      chunkCount,
+		"embedded":    embedCount,
+		"pending":     pending,
+		"eta":         eta,
+		"hyde_total": hydeTotal,
+		"hyde_done":  hydeDone,
+		"collections": collections,
 	})
-}
-
-func readProgressMeta(prefix string) map[string]string {
-	status, _, _ := dao.GetMeta(prefix + ".status")
-	if status == "" {
-		return nil
-	}
-	total, _, _ := dao.GetMeta(prefix + ".total")
-	processed, _, _ := dao.GetMeta(prefix + ".processed")
-	errors, _, _ := dao.GetMeta(prefix + ".errors")
-	return map[string]string{
-		"status":    status,
-		"total":     total,
-		"processed": processed,
-		"errors":    errors,
-	}
 }
 
 func formatETA(d time.Duration) string {
