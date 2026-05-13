@@ -31,7 +31,7 @@ func TestEmbedQuality_LiveVectorSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := dao.QueryVectorsByCollection(queryVec, "@summaries", 5)
+	results, err := dao.QueryVectorsByCollection(queryVec, "@hyde", 5)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,7 @@ func TestSearchBM25(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 
@@ -47,7 +47,7 @@ func TestSearchBM25WithCollection(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 
@@ -67,7 +67,7 @@ func TestSearchBM25English(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 
@@ -87,7 +87,7 @@ func TestSearchPosMust(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 
@@ -118,7 +118,7 @@ func TestSearchPosOr(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 
@@ -138,7 +138,7 @@ func TestSearchPosWeight(t *testing.T) {
 	_ = dao.AddCollection("test", dir, "*.md", nil)
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
-	_, _ = idx.UpdateCollection("test", dir, "*.md", nil)
+	indexHelper(t, idx, "test", dir, "*.md", nil)
 
 	searcher := NewSearcher(tok)
 

@@ -456,19 +456,8 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 		"name":   req.Name,
 		"path":   absPath,
 		"mask":   mask,
-		"status": "indexing",
+		"status": "added",
 	})
-
-	if my.chunkIndexer != nil {
-		go func() {
-			result, err := my.chunkIndexer.UpdateCollection(req.Name, absPath, mask, nil)
-			if err != nil {
-				logo.Error("handleCollectionAdd: index %s failed: %s", req.Name, err)
-				return
-			}
-			logo.Info("handleCollectionAdd: indexed %s +%d ~%d", req.Name, result.Indexed, result.Updated)
-		}()
-	}
 }
 
 func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request) {

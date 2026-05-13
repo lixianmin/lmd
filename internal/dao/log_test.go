@@ -155,34 +155,3 @@ func TestDocumentsLog_RenameCollection(t *testing.T) {
 	}
 }
 
-func TestDocumentsLog_DeleteAndSummary(t *testing.T) {
-	initTestDB(t)
-
-	sourceId, _ := InsertDocument("notes", "source.md", "Source", "content", 7, 1234567890, "hs")
-
-	summaryIdStr := generateDocId("@summaries", "source.md", "hs2")
-	UpsertDocument(&DocumentRecord{
-		Collection: "@summaries", Path: "source.md", Title: "",
-		Body: "summary content", Hash: "hs2", FileSize: 5, FileModTime: 0,
-		SourceDocId: sourceId,
-	})
-
-	var summaryId int64
-	DB.db.QueryRow("SELECT id FROM documents WHERE doc_id=?", summaryIdStr).Scan(&summaryId)
-
-	if err := DeleteDocumentAndSummary(sourceId); err != nil {
-		t.Fatal(err)
-	}
-
-	var sourceLog int
-	DB.db.QueryRow("SELECT COUNT(*) FROM documents_log WHERE doc_id=? AND operation='DELETE'", sourceId).Scan(&sourceLog)
-	if sourceLog != 1 {
-		t.Fatalf("expected 1 DELETE log for source doc, got %d", sourceLog)
-	}
-
-	var summaryLog int
-	DB.db.QueryRow("SELECT COUNT(*) FROM documents_log WHERE doc_id=? AND operation='DELETE'", summaryId).Scan(&summaryLog)
-	if summaryLog != 1 {
-		t.Fatalf("expected 1 DELETE log for summary doc, got %d", summaryLog)
-	}
-}

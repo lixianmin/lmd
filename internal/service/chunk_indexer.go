@@ -30,6 +30,7 @@ const (
 	DocNew DocAction = iota
 	DocChanged
 	DocDeleted
+	DocUpdateEmbeds
 )
 
 type PendingDoc struct {
@@ -46,13 +47,6 @@ type PendingDoc struct {
 	Chunks      []dao.ChunkData
 }
 
-type UpdateResult struct {
-	Indexed     int
-	Updated     int
-	Unchanged   int
-	Removed     int
-	DirtyDocIds []int64
-}
 
 type ChunkIndexer struct {
 	tokenizer       tokenizer.Tokenizer
@@ -97,190 +91,6 @@ func expandGlobPattern(pattern string) []string {
 	return result
 }
 
-type docInfo struct {
-	hash        string
-	fileModTime int64
-}
-
-func (my *ChunkIndexer) UpdateCollection(collectionName, rootDir, globPattern string, ignorePatterns []string) (*UpdateResult, error) {
-	result := &UpdateResult{}
-
-	pattern := globPattern
-	if pattern == "" {
-		pattern = "**/*.{md,txt}"
-	}
-
-	patterns := expandGlobPattern(pattern)
-
-	existingDocs, err := dao.ListDocumentsByCollection(collectionName)
-	if err != nil {
-		return nil, err
-	}
-	existingPaths := make(map[string]docInfo)
-	for _, d := range existingDocs {
-		existingPaths[d.Path] = docInfo{hash: d.Hash, fileModTime: d.FileModTime}
-	}
-
-	ignoreMatcher := newIgnoreMatcher(ignorePatterns)
-
-	foundPaths := make(map[string]bool)
-
-	err = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			logo.Warn("indexer: walk error %s: %s", path, err)
-			return nil
-		}
-		if d.IsDir() {
-			if ignoreMatcher.matchDir(path) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-
-		if ignoreMatcher.matchFile(path) {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			logo.Warn("indexer: rel path error %s: %s", path, err)
-			return nil
-		}
-
-		matched := false
-		for _, p := range patterns {
-			if strings.Contains(p, "**/") {
-				matched, _ = filepath.Match(strings.TrimPrefix(p, "**/"), filepath.Base(relPath))
-			} else {
-				matched, _ = filepath.Match(p, filepath.Base(relPath))
-			}
-			if matched {
-				break
-			}
-		}
-		if !matched {
-			return nil
-		}
-
-		stat, err := os.Stat(path)
-		if err != nil {
-			logo.Warn("indexer: stat error %s: %s", path, err)
-			return nil
-		}
-		fileModTime := stat.ModTime().UnixNano()
-
-		relPath = filepath.ToSlash(relPath)
-		foundPaths[relPath] = true
-
-		if existing, exists := existingPaths[relPath]; exists {
-			if existing.fileModTime == fileModTime {
-				result.Unchanged++
-				return nil
-			}
-
-			content, err := os.ReadFile(path)
-			if err != nil {
-				logo.Warn("indexer: read error %s: %s", path, err)
-				return nil
-			}
-			hash := hashContent(content)
-
-			if existing.hash == hash {
-				doc := &dao.DocumentRecord{
-					Collection:  collectionName,
-					Path:        relPath,
-					Hash:        hash,
-					FileSize:    int64(len(content)),
-					FileModTime: fileModTime,
-				}
-				if err := dao.UpsertDocument(doc); err != nil {
-					logo.Warn("indexer: upsert fileModTime for %s/%s failed: %s", collectionName, relPath, err)
-				}
-				result.Unchanged++
-				return nil
-			}
-
-			result.Updated++
-
-			title := extractTitle(string(content), relPath)
-			body := string(content)
-
-			existingDoc, _ := dao.GetDocumentByPath(collectionName, relPath)
-			if existingDoc != nil {
-				logo.Info("indexer: updating %s/%s (old chunks deleted)", collectionName, relPath)
-				if err := dao.DeleteVectorsByDocId(existingDoc.Id); err != nil {
-					return err
-				}
-			}
-
-			doc := &dao.DocumentRecord{
-				Collection:  collectionName,
-				Path:        relPath,
-				Title:       title,
-				Body:        body,
-				Hash:        hash,
-				FileSize:    int64(len(content)),
-				FileModTime: fileModTime,
-			}
-
-			if err := dao.UpsertDocument(doc); err != nil {
-				return err
-			}
-
-			result.DirtyDocIds = append(result.DirtyDocIds, doc.Id)
-
-			ch := my.chunkerForExt(filepath.Ext(relPath))
-			return my.createChunks(doc.Id, body, hash, ch)
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			logo.Warn("indexer: read error %s: %s", path, err)
-			return nil
-		}
-
-		hash := hashContent(content)
-		result.Indexed++
-
-		title := extractTitle(string(content), relPath)
-		body := string(content)
-
-		doc := &dao.DocumentRecord{
-			Collection:  collectionName,
-			Path:        relPath,
-			Title:       title,
-			Body:        body,
-			Hash:        hash,
-			FileSize:    int64(len(content)),
-			FileModTime: fileModTime,
-		}
-
-		if err := dao.UpsertDocument(doc); err != nil {
-			return err
-		}
-
-		result.DirtyDocIds = append(result.DirtyDocIds, doc.Id)
-
-		ch := my.chunkerForExt(filepath.Ext(relPath))
-		return my.createChunks(doc.Id, body, hash, ch)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for path := range existingPaths {
-		if !foundPaths[path] {
-			doc, err := dao.GetDocumentByPath(collectionName, path)
-			if err == nil {
-				logo.Info("indexer: removing deleted file %s/%s", collectionName, path)
-				dao.DeleteDocument(doc.Id)
-				result.Removed++
-			}
-		}
-	}
-
-	return result, nil
-}
 
 type existingDocInfo struct {
 	id          int64
@@ -349,7 +159,7 @@ func (my *ChunkIndexer) ScanChanges(collectionName, rootDir, globPattern string,
 			logo.Warn("scanChanges: stat error %s: %s", path, err)
 			return nil
 		}
-		fileModTime := stat.ModTime().UnixNano()
+		fileModTime := stat.ModTime().Unix()
 
 		relPath = filepath.ToSlash(relPath)
 		foundPaths[relPath] = true
@@ -372,9 +182,13 @@ func (my *ChunkIndexer) ScanChanges(collectionName, rootDir, globPattern string,
 					if err := dao.UpdateFileModTime(existing.id, fileModTime); err != nil {
 						logo.Warn("scanChanges: fixup fileModTime for doc %d: %s", existing.id, err)
 					}
+				} else {
+					logo.Info("scanChanges: %s mtime drifted (db=%d file=%d hash ok)", relPath, existing.fileModTime, fileModTime)
 				}
 				return nil
 			}
+
+			logo.Info("scanChanges: %s changed (db=%s file=%s mtime db=%d file=%d)", relPath, trunc16(existing.hash), trunc16(hash), existing.fileModTime, fileModTime)
 
 			title := extractTitle(string(content), relPath)
 			body := string(content)
@@ -486,6 +300,13 @@ func hashContent(content []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+func trunc16(s string) string {
+	if len(s) > 16 {
+		return s[:16]
+	}
+	return s
+}
+
 var headingRe = regexp.MustCompile(`^#\s+(.+)$`)
 
 func extractTitle(content, fallback string) string {
@@ -574,7 +395,7 @@ func (my *ChunkIndexer) ScanIncomplete(limit int) ([]PendingDoc, error) {
 		}
 
 		pending = append(pending, PendingDoc{
-			Action:      DocChanged,
+			Action:      DocUpdateEmbeds,
 			Collection:  doc.Collection,
 			RootDir:     col.Path,
 			Path:        doc.Path,
@@ -599,14 +420,60 @@ func (my *ChunkIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 	switch doc.Action {
 	case DocDeleted:
 		logo.Info("chunkIndexer: deleting doc %d (%s/%s)", doc.OldDocId, doc.Collection, doc.Path)
-		return dao.DeleteDocumentAndSummary(doc.OldDocId)
+		return dao.DeleteDocument(doc.OldDocId)
 	case DocChanged:
-		if err := dao.DeleteDocumentAndSummary(doc.OldDocId); err != nil {
+		if err := dao.DeleteDocument(doc.OldDocId); err != nil {
 			return fmt.Errorf("delete old doc: %w", err)
 		}
 		return my.processDocNew(ctx, doc)
 	case DocNew:
 		return my.processDocNew(ctx, doc)
+	case DocUpdateEmbeds:
+		return my.processEmbeds(ctx, doc)
+	}
+	return nil
+}
+
+func (my *ChunkIndexer) processEmbeds(ctx context.Context, doc PendingDoc) error {
+	chunks, err := dao.GetChunksByDocId(doc.OldDocId)
+	if err != nil {
+		return fmt.Errorf("get chunks: %w", err)
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	batchSize := 8
+	for i := 0; i < len(chunks); i += batchSize {
+		end := min(i+batchSize, len(chunks))
+		batch := chunks[i:end]
+
+		texts := make([]string, len(batch))
+		for j, c := range batch {
+			texts[j] = c.Content
+		}
+
+		vecs, err := my.embedProvider.EmbedBatch(ctx, texts)
+		if err != nil {
+			return fmt.Errorf("embed batch: %w", err)
+		}
+
+		items := make([]struct {
+			ChunkId    int64
+			DocId      int64
+			Collection string
+			Embedding  []float32
+		}, len(batch))
+		for j, c := range batch {
+			items[j].ChunkId = c.Id
+			items[j].DocId = doc.OldDocId
+			items[j].Collection = doc.Collection
+			items[j].Embedding = vecs[j]
+		}
+
+		if err := dao.InsertVectors(items); err != nil {
+			return fmt.Errorf("insert vectors: %w", err)
+		}
 	}
 	return nil
 }

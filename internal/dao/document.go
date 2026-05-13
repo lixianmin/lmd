@@ -270,56 +270,6 @@ func DeleteDocument(id int64) error {
 	})
 }
 
-func DeleteDocumentAndSummary(docId int64) error {
-	return withTransaction(func(tx *sql.Tx) error {
-		var docDocId, docPath string
-		tx.QueryRow("SELECT doc_id, path FROM documents WHERE id=?", docId).Scan(&docDocId, &docPath)
-
-		rows, err := tx.Query("SELECT id FROM documents WHERE source_doc_id=?", docId)
-		if err != nil {
-			return err
-		}
-		var summaryIds []int64
-		for rows.Next() {
-			var sid int64
-			if err := rows.Scan(&sid); err != nil {
-				rows.Close()
-				return err
-			}
-			summaryIds = append(summaryIds, sid)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-
-		for _, sid := range summaryIds {
-			if err := deleteDocChunksAndVecs(tx, sid); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", sid); err != nil {
-				return err
-			}
-			if err := insertDocumentsLog(tx, sid, "DELETE", map[string]interface{}{
-				"doc_id": docDocId, "path": docPath, "reason": "summary_orphan",
-			}); err != nil {
-				return err
-			}
-		}
-
-		if err := deleteDocChunksAndVecs(tx, docId); err != nil {
-			return err
-		}
-		_, err = tx.Exec("DELETE FROM documents WHERE id=?", docId)
-		if err != nil {
-			return err
-		}
-		return insertDocumentsLog(tx, docId, "DELETE", map[string]interface{}{
-			"doc_id": docDocId, "path": docPath,
-		})
-	})
-}
-
 func GetDocumentsByIds(ids []int64) ([]DocumentRecord, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -499,7 +449,7 @@ func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 		FROM documents d
 		WHERE d.collection NOT LIKE '@%'
 		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
-		AND NOT EXISTS (SELECT 1 FROM chunks_vec_rowids v JOIN chunks c ON c.id = v.chunk_id WHERE c.doc_id = d.id)
+		AND NOT EXISTS (SELECT 1 FROM chunks_vec v WHERE v.chunk_id IN (SELECT c.id FROM chunks c WHERE c.doc_id = d.id))
 		LIMIT ?`
 	rows, err := withQuery(query, limit)
 	if err != nil {

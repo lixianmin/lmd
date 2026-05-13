@@ -1,7 +1,6 @@
 package dao
 
 import (
-	"strconv"
 	"testing"
 )
 
@@ -358,42 +357,6 @@ func TestUpsertHydeDataIdempotent(t *testing.T) {
 	DB.db.QueryRow("SELECT COUNT(*) FROM chunks WHERE doc_id=?", docId1).Scan(&count)
 	if count != 0 {
 		t.Fatalf("expected 0 chunks for old docId %d, got %d", docId1, count)
-	}
-}
-
-func TestDeleteDocumentAndSummary(t *testing.T) {
-	initTestDB(t)
-	mustAddCollection(t, "notes", "/data")
-	mustAddCollection(t, "@summaries", "/data")
-
-	doc := &DocumentRecord{Collection: "notes", Path: "a.md", Title: "A", Body: "body", Hash: "h1", FileSize: 4}
-	UpsertDocument(doc)
-
-	chunks := []ChunkData{{Content: "chunk1", Position: 0, TokenCount: 1, Hash: "h1"}}
-	InsertChunks(doc.Id, chunks, []string{"chunk1"})
-
-	summaryDoc := &DocumentRecord{
-		Collection: "@summaries", Path: "/@summary/" + strconv.FormatInt(doc.Id, 10),
-		Title: "Summary", Body: "summary text", Hash: "sh1", FileSize: 12, SourceDocId: doc.Id,
-	}
-	UpsertDocument(summaryDoc)
-	summaryChunks := []ChunkData{{Content: "summary text", Position: 0, TokenCount: 2, Hash: "sh1"}}
-	InsertChunks(summaryDoc.Id, summaryChunks, []string{"summary text"})
-
-	err := DeleteDocumentAndSummary(doc.Id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := GetDocumentById(doc.Id); err == nil {
-		t.Fatal("original document should be deleted")
-	}
-	if _, err := GetDocumentBySourceDocId("@summaries", doc.Id); err == nil {
-		t.Fatal("summary document should be deleted")
-	}
-	chunksAfter, _ := GetChunksByDocId(doc.Id)
-	if len(chunksAfter) != 0 {
-		t.Fatalf("expected 0 chunks, got %d", len(chunksAfter))
 	}
 }
 

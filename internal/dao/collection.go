@@ -79,7 +79,7 @@ func RemoveCollection(name string) error {
 				if err := removeChunksByDocIds(tx, batchIds); err != nil {
 					return err
 				}
-				if err := removeOrphanSummaries(tx, batchIds); err != nil {
+				if err := removeOrphanHyde(tx, batchIds); err != nil {
 					return err
 				}
 			}
@@ -99,19 +99,19 @@ func removeChunksByDocIds(tx *sql.Tx, docIds []int64) error {
 	}
 	var chunkIds []int64
 	var chunkMeta []map[string]int64
-		for chunkRows.Next() {
-			var id, docId int64
-			if err := chunkRows.Scan(&id, &docId); err != nil {
-				chunkRows.Close()
-				return err
-			}
-			chunkIds = append(chunkIds, id)
-			chunkMeta = append(chunkMeta, map[string]int64{"id": id, "doc_id": docId})
-		}
-		chunkRows.Close()
-		if err := chunkRows.Err(); err != nil {
+	for chunkRows.Next() {
+		var id, docId int64
+		if err := chunkRows.Scan(&id, &docId); err != nil {
+			chunkRows.Close()
 			return err
 		}
+		chunkIds = append(chunkIds, id)
+		chunkMeta = append(chunkMeta, map[string]int64{"id": id, "doc_id": docId})
+	}
+	chunkRows.Close()
+	if err := chunkRows.Err(); err != nil {
+		return err
+	}
 
 	if len(chunkIds) > 0 {
 		if err := execInQuery(tx, "DELETE FROM chunks_vec WHERE chunk_id IN (", chunkIds); err != nil {
@@ -142,9 +142,9 @@ func removeDocsByCollection(tx *sql.Tx, name string) error {
 		return err
 	}
 	type docInfo struct {
-		id    int64
+		id     int64
 		doc_id string
-		path  string
+		path   string
 	}
 	var docs []docInfo
 	for docRows.Next() {
@@ -180,16 +180,16 @@ func removeDocsByCollection(tx *sql.Tx, name string) error {
 	return nil
 }
 
-func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
+func removeOrphanHyde(tx *sql.Tx, deletedDocIds []int64) error {
 	summaryRows, err := tx.Query(
-		buildInQuery("SELECT id, doc_id, path, source_doc_id FROM documents WHERE collection IN ('@summaries', '@hyde') AND source_doc_id IN (", len(deletedDocIds), ")"),
+		buildInQuery("SELECT id, doc_id, path, source_doc_id FROM documents WHERE collection = '@hyde' AND source_doc_id IN (", len(deletedDocIds), ")"),
 		int64SliceToAny(deletedDocIds)...,
 	)
 	if err != nil {
 		return err
 	}
-	var summaryDocIds []int64
-	var summaryMeta []map[string]interface{}
+	var hydeDocIds []int64
+	var hydeMeta []map[string]interface{}
 	for summaryRows.Next() {
 		var id, sourceDocId int64
 		var doc_id, path string
@@ -197,8 +197,8 @@ func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
 			summaryRows.Close()
 			return err
 		}
-		summaryDocIds = append(summaryDocIds, id)
-		summaryMeta = append(summaryMeta, map[string]interface{}{
+		hydeDocIds = append(hydeDocIds, id)
+		hydeMeta = append(hydeMeta, map[string]interface{}{
 			"id": id, "doc_id": doc_id, "path": path, "source_doc_id": sourceDocId,
 		})
 	}
@@ -207,16 +207,16 @@ func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
 		return err
 	}
 
-	if len(summaryDocIds) > 0 {
-		if err := removeChunksByDocIds(tx, summaryDocIds); err != nil {
+	if len(hydeDocIds) > 0 {
+		if err := removeChunksByDocIds(tx, hydeDocIds); err != nil {
 			return err
 		}
-		if err := execInQuery(tx, "DELETE FROM documents WHERE id IN (", summaryDocIds); err != nil {
+		if err := execInQuery(tx, "DELETE FROM documents WHERE id IN (", hydeDocIds); err != nil {
 			return err
 		}
-		for _, m := range summaryMeta {
+		for _, m := range hydeMeta {
 			if err := insertDocumentsLog(tx, m["id"].(int64), "DELETE", map[string]interface{}{
-				"doc_id": m["doc_id"], "path": m["path"], "source_doc_id": m["source_doc_id"], "reason": "orphan_summary",
+				"doc_id": m["doc_id"], "path": m["path"], "source_doc_id": m["source_doc_id"], "reason": "orphan_hyde",
 			}); err != nil {
 				return err
 			}
@@ -327,9 +327,9 @@ func RenameCollection(oldName, newName string) error {
 			return err
 		}
 		type docInfo struct {
-			id    int64
+			id     int64
 			doc_id string
-			path  string
+			path   string
 		}
 		var docs []docInfo
 		for docRows.Next() {
@@ -352,8 +352,8 @@ func RenameCollection(oldName, newName string) error {
 
 		for _, d := range docs {
 			if err := insertDocumentsLog(tx, d.id, "UPDATE", map[string]interface{}{
-				"doc_id":        d.doc_id,
-				"path":         d.path,
+				"doc_id":         d.doc_id,
+				"path":           d.path,
 				"old_collection": oldName,
 				"new_collection": newName,
 			}); err != nil {
