@@ -40,15 +40,24 @@ type Daemon struct {
 
 	tokenizer     tokenizer.Tokenizer
 	chunkIndexer  *service.ChunkIndexer
-	hydeIndexer   *service.HyDEIndexer
 	searcher      *service.Searcher
 	embedProvider embedding.EmbeddingProvider
 	llmProvider   llm.LLMProvider
+
+	chunkCmd chan struct{}
 }
 
 func NewDaemon(cfg *config.Config) *Daemon {
 	return &Daemon{
-		cfg: cfg,
+		cfg:      cfg,
+		chunkCmd: make(chan struct{}, 64),
+	}
+}
+
+func (my *Daemon) sendChunkCommand() {
+	select {
+	case my.chunkCmd <- struct{}{}:
+	default:
 	}
 }
 
@@ -74,7 +83,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 	}
 
 	my.chunkIndexer = service.NewChunkIndexer(tok, my.embedProvider)
-	my.hydeIndexer = service.NewHyDEIndexer(my.llmProvider, my.embedProvider, tok, my.cfg.Hyde)
 	my.searcher = service.NewSearcher(tok)
 
 	handler := registerRoutes(my)
@@ -95,7 +103,6 @@ func (my *Daemon) Start(ctx context.Context) error {
 
 	logo.Info("daemon: listening on %s", addr)
 	loom.Go(my.goChunkLoop)
-	loom.Go(my.goHydeLoop)
 
 	// ETA baseline: record embedded count at startup for average speed calculation
 	_, embedded := dao.GetChunkCounts()
@@ -151,21 +158,8 @@ func (my *Daemon) goChunkLoop(later loom.Later) {
 			return
 		case <-ticker.C:
 			my.runChunkPipeline()
-		}
-	}
-}
-
-func (my *Daemon) goHydeLoop(later loom.Later) {
-	closeChan := my.wc.C()
-	my.runHydePipeline()
-
-	ticker := later.NewTicker(60 * time.Second)
-	for {
-		select {
-		case <-closeChan:
-			return
-		case <-ticker.C:
-			my.runHydePipeline()
+		case <-my.chunkCmd:
+			my.runChunkPipeline()
 		}
 	}
 }
@@ -193,60 +187,6 @@ func (my *Daemon) runChunkPipeline() {
 
 	if errors > 0 {
 		logo.Warn("chunkPipeline: processed %d docs, errors=%d", total, errors)
-	}
-}
-
-func (my *Daemon) runHydePipeline() {
-	docs, err := dao.FindDocsWithMissingHydeData(100)
-	if err != nil {
-		logo.Warn("hydePipeline: find docs failed: %s", err)
-		return
-	}
-	if len(docs) == 0 {
-		return
-	}
-
-	cols, err := dao.ListCollections()
-	if err != nil {
-		logo.Warn("hydePipeline: list collections failed: %s", err)
-		return
-	}
-	colMap := make(map[string]dao.CollectionRecord, len(cols))
-	for _, c := range cols {
-		colMap[c.Name] = c
-	}
-
-	logo.Info("hydePipeline: found %d docs with missing hyde data", len(docs))
-	closeChan := my.wc.C()
-
-	var errors int
-	for _, doc := range docs {
-		select {
-		case <-closeChan:
-			return
-		default:
-		}
-		col, ok := colMap[doc.Collection]
-		if !ok {
-			continue
-		}
-		pending := service.PendingDoc{
-			Action:     service.DocNew,
-			Collection: doc.Collection,
-			RootDir:    col.Path,
-			Path:       doc.Path,
-			Title:      doc.Title,
-			Body:       doc.Body,
-			Hash:       doc.Hash,
-			FileSize:   doc.FileSize,
-		}
-		if err := my.hydeIndexer.ProcessDoc(context.Background(), pending); err != nil {
-			errors++
-			logo.Warn("hydePipeline: process %s/%s failed: %s", doc.Collection, doc.Path, err)
-		}
-	}
-	if errors > 0 {
-		logo.Warn("hydePipeline: processed %d docs, errors=%d", len(docs), errors)
 	}
 }
 

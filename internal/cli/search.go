@@ -91,7 +91,7 @@ var hybridCmd = &cobra.Command{
 
 var hydeCmd = &cobra.Command{
 	Use:   "hyde <query>",
-	Short: "Two-level HyDE search (Level1 @hyde -> Level2 precision -> fallback hybrid)",
+	Short: "HyDE search (LLM generates hypothetical passage, then hybrid retrieval)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)
@@ -104,14 +104,14 @@ var hydeCmd = &cobra.Command{
 			return nil
 		}
 		var resp struct {
-			Hits   []formatter.SearchHit `json:"hits"`
-			Routed bool                  `json:"routed"`
+			Hits          []formatter.SearchHit `json:"hits"`
+			HydeGenerated bool                  `json:"hyde_generated"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return err
 		}
-		if !resp.Routed {
-			fmt.Fprintf(os.Stderr, "hyde: no @hyde matches, fallback to global hybrid search\n")
+		if !resp.HydeGenerated {
+			fmt.Fprintf(os.Stderr, "hyde: LLM generation failed, fallback to hybrid search\n")
 		}
 		return formatResults(os.Stdout, resp.Hits)
 	},

@@ -9,6 +9,7 @@ import (
 
 	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/dao"
+	"github.com/lixianmin/lmd/internal/llm"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/logo"
 )
@@ -39,8 +40,6 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		pending = 0
 	}
 
-	hydeTotal, hydeDone := dao.GetHydeCounts()
-
 	var eta string
 	if pending > 0 {
 		startNum := my.etaStartNum.Load()
@@ -64,8 +63,6 @@ func (my *Daemon) buildStatus() (interface{}, error) {
 		"embedded":       embedCount,
 		"pending":        pending,
 		"eta":            eta,
-		"hyde_total":   hydeTotal,
-		"hyde_done":    hydeDone,
 		"collections":    stats,
 	}, nil
 }
@@ -238,49 +235,27 @@ func (my *Daemon) handleToolHyde(params json.RawMessage) (interface{}, error) {
 
 	ctx := context.Background()
 	overfetch := safeOverfetch(req.Limit)
+	lexHits, _ := my.searcher.SearchLex(req.Query, req.Collection, overfetch, 0, req.Strategy)
 
-	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@hyde", overfetch, 0, req.Strategy)
-	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@hyde", overfetch, 0)
-	if lexErr != nil && vecErr != nil {
-		return nil, fmt.Errorf("hyde search failed")
-	}
-	hydeHits := service.FuseResults(lexHits, vecHits)
-
-	docIds := make(map[int64]bool)
-	for _, h := range hydeHits {
-		if h.DocRowId > 0 {
-			docIds[h.DocRowId] = true
-		}
-	}
-	hydeDocIds := make([]int64, 0, len(docIds))
-	for id := range docIds {
-		hydeDocIds = append(hydeDocIds, id)
-	}
-
-	if len(hydeDocIds) == 0 {
-		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
-		return map[string]interface{}{"hits": results, "routed": false}, nil
-	}
-
-	hydeDocs, err := dao.GetDocumentsByIds(hydeDocIds)
+	prompt := "根据以下问题，生成一段可能包含答案的假设性段落。" +
+		"用与问题相同的语言回答。直接写出段落内容，不要添加任何前缀或说明。\n\n问题：" + req.Query
+	messages := []llm.Message{{Role: "user", Content: prompt}}
+	hypothetical, err := my.llmProvider.ChatCompletion(ctx, messages)
 	if err != nil {
-		return nil, err
-	}
-	sourceDocIds := make([]int64, 0, len(hydeDocs))
-	for _, d := range hydeDocs {
-		if d.SourceDocId > 0 {
-			sourceDocIds = append(sourceDocIds, d.SourceDocId)
-		}
-	}
-	if len(sourceDocIds) == 0 {
+		logo.Info("handleToolHyde: LLM failed, fallback to hybrid: %s", err)
 		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
-		return map[string]interface{}{"hits": results, "routed": false}, nil
+		return map[string]interface{}{"hits": results, "hyde_generated": false}, nil
 	}
 
-	overfetch = safeOverfetch(req.Limit)
-	lexHits2, _ := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch, req.Strategy)
-	vecHits2, _ := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch)
-	results := service.FuseResults(lexHits2, vecHits2)
+	vecHits, err := my.searcher.SearchVector(ctx, my.embedProvider, hypothetical, req.Collection, overfetch, 0)
+	if err != nil {
+		results := service.FuseResults(lexHits, nil)
+		results = filterAndLimit(results, req.MinScore, req.Limit)
+		return map[string]interface{}{"hits": results, "hyde_generated": true}, nil
+	}
+
+	results := service.FuseResults(lexHits, vecHits)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
-	return map[string]interface{}{"hits": results, "routed": true}, nil
+	logo.Info("handleToolHyde: query=%q hyde_len=%d results=%d", req.Query, len([]rune(hypothetical)), len(results))
+	return map[string]interface{}{"hits": results, "hyde_generated": true}, nil
 }

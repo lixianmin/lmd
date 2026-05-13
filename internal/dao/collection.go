@@ -79,9 +79,6 @@ func RemoveCollection(name string) error {
 				if err := removeChunksByDocIds(tx, batchIds); err != nil {
 					return err
 				}
-				if err := removeOrphanHyde(tx, batchIds); err != nil {
-					return err
-				}
 			}
 			if err := removeDocsByCollection(tx, name); err != nil {
 				return err
@@ -175,51 +172,6 @@ func removeDocsByCollection(tx *sql.Tx, name string) error {
 			"doc_id": d.doc_id, "path": d.path, "reason": "collection_remove",
 		}); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func removeOrphanHyde(tx *sql.Tx, deletedDocIds []int64) error {
-	summaryRows, err := tx.Query(
-		buildInQuery("SELECT id, doc_id, path, source_doc_id FROM documents WHERE collection = '@hyde' AND source_doc_id IN (", len(deletedDocIds), ")"),
-		int64SliceToAny(deletedDocIds)...,
-	)
-	if err != nil {
-		return err
-	}
-	var hydeDocIds []int64
-	var hydeMeta []map[string]interface{}
-	for summaryRows.Next() {
-		var id, sourceDocId int64
-		var doc_id, path string
-		if err := summaryRows.Scan(&id, &doc_id, &path, &sourceDocId); err != nil {
-			summaryRows.Close()
-			return err
-		}
-		hydeDocIds = append(hydeDocIds, id)
-		hydeMeta = append(hydeMeta, map[string]interface{}{
-			"id": id, "doc_id": doc_id, "path": path, "source_doc_id": sourceDocId,
-		})
-	}
-	summaryRows.Close()
-	if err := summaryRows.Err(); err != nil {
-		return err
-	}
-
-	if len(hydeDocIds) > 0 {
-		if err := removeChunksByDocIds(tx, hydeDocIds); err != nil {
-			return err
-		}
-		if err := execInQuery(tx, "DELETE FROM documents WHERE id IN (", hydeDocIds); err != nil {
-			return err
-		}
-		for _, m := range hydeMeta {
-			if err := insertDocumentsLog(tx, m["id"].(int64), "DELETE", map[string]interface{}{
-				"doc_id": m["doc_id"], "path": m["path"], "source_doc_id": m["source_doc_id"], "reason": "orphan_hyde",
-			}); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

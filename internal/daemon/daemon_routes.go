@@ -13,6 +13,7 @@ import (
 	"github.com/lixianmin/got/convert"
 	"github.com/lixianmin/lmd/internal/dao"
 	"github.com/lixianmin/lmd/internal/formatter"
+	"github.com/lixianmin/lmd/internal/llm"
 	"github.com/lixianmin/lmd/internal/mcp"
 	"github.com/lixianmin/lmd/internal/service"
 	"github.com/lixianmin/logo"
@@ -190,63 +191,33 @@ func (my *Daemon) handleHyde(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	overfetch := safeOverfetch(req.Limit)
+	lexHits, _ := my.searcher.SearchLex(req.Query, req.Collection, overfetch, 0, req.Strategy)
 
-	lexHits, lexErr := my.searcher.SearchLex(req.Query, "@hyde", overfetch, 0, req.Strategy)
-	vecHits, vecErr := my.searcher.SearchVector(ctx, my.embedProvider, req.Query, "@hyde", overfetch, 0)
-	if lexErr != nil && vecErr != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "hyde search failed"})
-		return
-	}
-	hydeHits := service.FuseResults(lexHits, vecHits)
-
-	if len(hydeHits) == 0 {
+	prompt := "根据以下问题，生成一段可能包含答案的假设性段落。" +
+		"用与问题相同的语言回答。直接写出段落内容，不要添加任何前缀或说明。\n\n问题：" + req.Query
+	messages := []llm.Message{{Role: "user", Content: prompt}}
+	hypothetical, err := my.llmProvider.ChatCompletion(ctx, messages)
+	if err != nil {
+		logo.Info("handleHyde: LLM failed, fallback to hybrid: %s", err)
 		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "hyde_generated": false})
 		return
 	}
 
-	uniqueRowIds := make(map[int64]bool)
-	for _, h := range hydeHits {
-		if h.DocRowId > 0 {
-			uniqueRowIds[h.DocRowId] = true
-		}
-	}
-	docIdSet := make(map[int64]bool)
-	if len(uniqueRowIds) > 0 {
-		ids := make([]int64, 0, len(uniqueRowIds))
-		for id := range uniqueRowIds {
-			ids = append(ids, id)
-		}
-		docs, err := dao.GetDocumentsByIds(ids)
-		if err == nil {
-			for _, doc := range docs {
-				if doc.SourceDocId > 0 {
-					docIdSet[doc.SourceDocId] = true
-				}
-			}
-		}
-	}
-
-	if len(docIdSet) == 0 {
-		results := my.fullHybridSearch(ctx, req.Query, req.Collection, req.Limit, req.MinScore, req.Strategy)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": false})
+	vecHits, err := my.searcher.SearchVector(ctx, my.embedProvider, hypothetical, req.Collection, overfetch, 0)
+	if err != nil {
+		results := service.FuseResults(lexHits, nil)
+		results = filterAndLimit(results, req.MinScore, req.Limit)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "hyde_generated": true})
 		return
 	}
 
-	sourceDocIds := make([]int64, 0, len(docIdSet))
-	for id := range docIdSet {
-		sourceDocIds = append(sourceDocIds, id)
-	}
-
-	lexHits2, _ := my.searcher.SearchLexByDocIds(req.Query, sourceDocIds, overfetch*2, req.Strategy)
-	vecHits2, _ := my.searcher.SearchVectorByDocIds(ctx, my.embedProvider, req.Query, sourceDocIds, overfetch*2)
-
-	results := service.FuseResults(lexHits2, vecHits2)
+	results := service.FuseResults(lexHits, vecHits)
 	results = filterAndLimit(results, req.MinScore, req.Limit)
 
-	logo.Info("handleHyde: query=%q hyde=%d docs=%d results=%d routed=true",
-		req.Query, len(hydeHits), len(docIdSet), len(results))
-	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "routed": true})
+	logo.Info("handleHyde: query=%q hyde_len=%d lex=%d vec=%d results=%d",
+		req.Query, len([]rune(hypothetical)), len(lexHits), len(vecHits), len(results))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"hits": results, "hyde_generated": true})
 }
 
 func (my *Daemon) fullHybridSearch(ctx context.Context, query, collection string, limit int, minScore float64, strategy string) []formatter.SearchHit {
@@ -355,8 +326,6 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	chunkCount, embedCount := dao.GetChunkCounts()
 	pending := max(chunkCount-embedCount, 0)
 
-	hydeTotal, hydeDone := dao.GetHydeCounts()
-
 	var eta string
 	if pending > 0 {
 		startNum := my.etaStartNum.Load()
@@ -381,8 +350,6 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"embedded":    embedCount,
 		"pending":     pending,
 		"eta":         eta,
-		"hyde_total":  hydeTotal,
-		"hyde_done":   hydeDone,
 		"collections": collections,
 	})
 }
@@ -458,6 +425,8 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 		"mask":   mask,
 		"status": "added",
 	})
+
+	my.sendChunkCommand()
 }
 
 func (my *Daemon) handleCollectionRemove(w http.ResponseWriter, r *http.Request) {

@@ -189,6 +189,7 @@ Agent 维护此文件，单条简短清晰（<200字）。包含 4 种数据：
 2. 其它所有 db 相关的代码在 dao 目录下
 3. 禁止其它目录出现 sql 语句
 4. 注意是否需要使用 transaction 以确保数据满足ACID
+5. 支持 update, delete 操作的表，都需创建对应的 log 表，比如所有对 player 表的修改，都需要在 player_log 表中记录一条日志，以便跟踪数据变化流程
 
 ### 2 golang
 

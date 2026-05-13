@@ -47,12 +47,3 @@ func GetChunkCountsByCollection() map[string]int {
 	return result
 }
 
-func GetHydeCounts() (totalDocs int, hydeDocs int) {
-	if DB == nil || DB.db == nil {
-		return
-	}
-	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection NOT LIKE '@%'").Scan(&totalDocs)
-	DB.db.QueryRow("SELECT COUNT(*) FROM documents WHERE collection = '@hyde'").Scan(&hydeDocs)
-	return
-}
-

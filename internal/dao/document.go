@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
 type DocumentRecord struct {
@@ -225,43 +223,10 @@ func DeleteDocument(id int64) error {
 		var docDocId, docPath string
 		tx.QueryRow("SELECT doc_id, path FROM documents WHERE id=?", id).Scan(&docDocId, &docPath)
 
-		hydeRows, err := tx.Query("SELECT id FROM documents WHERE collection='@hyde' AND source_doc_id=?", id)
-		if err != nil {
-			return err
-		}
-		var hydeIds []int64
-		for hydeRows.Next() {
-			var hid int64
-			if err := hydeRows.Scan(&hid); err != nil {
-				hydeRows.Close()
-				return err
-			}
-			hydeIds = append(hydeIds, hid)
-		}
-		hydeRows.Close()
-		if err := hydeRows.Err(); err != nil {
-			return err
-		}
-
-		for _, hydeId := range hydeIds {
-			if err := deleteDocChunksAndVecs(tx, hydeId); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", hydeId); err != nil {
-				return err
-			}
-			if err := insertDocumentsLog(tx, hydeId, "DELETE", map[string]interface{}{
-				"doc_id": docDocId, "path": docPath, "reason": "hyde_orphan",
-			}); err != nil {
-				return err
-			}
-		}
-
 		if err := deleteDocChunksAndVecs(tx, id); err != nil {
 			return err
 		}
-		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
-		if err != nil {
+		if _, err := tx.Exec("DELETE FROM documents WHERE id=?", id); err != nil {
 			return err
 		}
 		return insertDocumentsLog(tx, id, "DELETE", map[string]interface{}{
@@ -336,113 +301,6 @@ func GetDocumentHash(collection, path string) (string, error) {
 	return hash, err
 }
 
-func UpsertHydeData(sourceDocId int64, hash, content, tokenizedContent string, vec []float32) (int64, error) {
-	var docId int64
-	err := withTransaction(func(tx *sql.Tx) error {
-		existingRows, err := tx.Query("SELECT id FROM documents WHERE collection='@hyde' AND source_doc_id=?", sourceDocId)
-		if err != nil {
-			return err
-		}
-		var existingIds []int64
-		for existingRows.Next() {
-			var eid int64
-			if err := existingRows.Scan(&eid); err != nil {
-				existingRows.Close()
-				return err
-			}
-			existingIds = append(existingIds, eid)
-		}
-		existingRows.Close()
-
-		for _, did := range existingIds {
-			chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", did)
-			if err != nil {
-				return err
-			}
-			var cids []int64
-			for chunkRows.Next() {
-				var cid int64
-				if err := chunkRows.Scan(&cid); err != nil {
-					chunkRows.Close()
-					return err
-				}
-				cids = append(cids, cid)
-			}
-			chunkRows.Close()
-			if err := chunkRows.Err(); err != nil {
-				return err
-			}
-
-			for _, cid := range cids {
-				if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
-					return err
-				}
-				if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
-					return err
-				}
-				if err := insertChunksLog(tx, cid, did, "DELETE", map[string]interface{}{
-					"doc_id": did, "reason": "hyde_replace",
-				}); err != nil {
-					return err
-				}
-			}
-
-			if _, err := tx.Exec("DELETE FROM chunks WHERE doc_id=?", did); err != nil {
-				return err
-			}
-			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", did); err != nil {
-				return err
-			}
-			if err := insertDocumentsLog(tx, did, "DELETE", map[string]interface{}{
-				"source_doc_id": sourceDocId, "reason": "hyde_replace",
-			}); err != nil {
-				return err
-			}
-		}
-
-		docIdStr := generateDocId("@hyde", fmt.Sprintf("%d", sourceDocId), hash)
-		res, err := tx.Exec(`INSERT INTO documents (doc_id, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
-			VALUES (?, '@hyde', ?, '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
-			docIdStr, fmt.Sprintf("/@hyde/%d", sourceDocId), hash, sourceDocId)
-		if err != nil {
-			return err
-		}
-		docId, _ = res.LastInsertId()
-
-		chunkRes, err := tx.Exec("INSERT INTO chunks (doc_id, seq, content, position, token_count, hash) VALUES (?, 0, ?, 0, 0, ?)", docId, content, hash)
-		if err != nil {
-			return err
-		}
-		chunkId, _ := chunkRes.LastInsertId()
-
-		_, err = tx.Exec("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", chunkId, tokenizedContent)
-		if err != nil {
-			return err
-		}
-
-		serialized, err := sqlite_vec.SerializeFloat32(padVector(vec))
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, '@hyde')", chunkId, serialized, docId)
-		if err != nil {
-			return err
-		}
-
-		if err := insertDocumentsLog(tx, docId, "INSERT", map[string]interface{}{
-			"source_doc_id": sourceDocId,
-			"doc_id":         docIdStr,
-		}); err != nil {
-			return err
-		}
-
-		return insertChunksLog(tx, chunkId, docId, "INSERT", map[string]interface{}{
-			"doc_id": docId, "hash": hash,
-		})
-	})
-	return docId, err
-}
-
 func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 	query := `
 		SELECT d.id, d.doc_id, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
@@ -450,32 +308,6 @@ func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 		WHERE d.collection NOT LIKE '@%'
 		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
 		AND NOT EXISTS (SELECT 1 FROM chunks_vec v WHERE v.chunk_id IN (SELECT c.id FROM chunks c WHERE c.doc_id = d.id))
-		LIMIT ?`
-	rows, err := withQuery(query, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var docs []DocumentRecord
-	for rows.Next() {
-		var doc DocumentRecord
-		if err := rows.Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
-			&doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
-			return nil, err
-		}
-		docs = append(docs, doc)
-	}
-	return docs, rows.Err()
-}
-
-func FindDocsWithMissingHydeData(limit int) ([]DocumentRecord, error) {
-	query := `
-		SELECT d.id, d.doc_id, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
-		FROM documents d
-		WHERE d.collection NOT LIKE '@%'
-		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
-		AND NOT EXISTS (SELECT 1 FROM documents h WHERE h.collection='@hyde' AND h.source_doc_id = d.id)
 		LIMIT ?`
 	rows, err := withQuery(query, limit)
 	if err != nil {

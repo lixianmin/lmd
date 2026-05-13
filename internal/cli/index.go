@@ -31,8 +31,6 @@ var statusCmd = &cobra.Command{
 			Embedded    int    `json:"embedded"`
 			Pending     int    `json:"pending"`
 			ETA         string `json:"eta"`
-			HydeTotal   int    `json:"hyde_total"`
-			HydeDone    int    `json:"hyde_done"`
 			Collections []struct {
 				Name       string `json:"name"`
 				Path       string `json:"path"`
@@ -53,7 +51,6 @@ var statusCmd = &cobra.Command{
 		if resp.Pending > 0 && resp.ETA != "" {
 			fmt.Printf("Embed ETA:  %s\n", resp.ETA)
 		}
-		fmt.Printf("HyDE:       %d/%d\n", resp.HydeDone, resp.HydeTotal)
 		if len(resp.Collections) > 0 {
 			fmt.Println()
 			fmt.Printf("%-15s %8s %8s %s\n", "COLLECTION", "DOCS", "CHUNKS", "PATH")
