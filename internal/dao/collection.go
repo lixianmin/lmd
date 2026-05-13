@@ -93,18 +93,20 @@ func RemoveCollection(name string) error {
 }
 
 func removeChunksByDocIds(tx *sql.Tx, docIds []int64) error {
-	chunkRows, err := tx.Query(buildInQuery("SELECT id FROM chunks WHERE doc_id IN (", len(docIds), ")"), int64SliceToAny(docIds)...)
+	chunkRows, err := tx.Query(buildInQuery("SELECT id, doc_id FROM chunks WHERE doc_id IN (", len(docIds), ")"), int64SliceToAny(docIds)...)
 	if err != nil {
 		return err
 	}
 	var chunkIds []int64
+	var chunkMeta []map[string]int64
 		for chunkRows.Next() {
-			var id int64
-			if err := chunkRows.Scan(&id); err != nil {
+			var id, docId int64
+			if err := chunkRows.Scan(&id, &docId); err != nil {
 				chunkRows.Close()
 				return err
 			}
 			chunkIds = append(chunkIds, id)
+			chunkMeta = append(chunkMeta, map[string]int64{"id": id, "doc_id": docId})
 		}
 		chunkRows.Close()
 		if err := chunkRows.Err(); err != nil {
@@ -120,35 +122,85 @@ func removeChunksByDocIds(tx *sql.Tx, docIds []int64) error {
 		}
 	}
 
-	return execInQuery(tx, "DELETE FROM chunks WHERE doc_id IN (", docIds)
+	if err := execInQuery(tx, "DELETE FROM chunks WHERE doc_id IN (", docIds); err != nil {
+		return err
+	}
+
+	for _, m := range chunkMeta {
+		if err := insertChunksLog(tx, m["id"], m["doc_id"], "DELETE", map[string]interface{}{
+			"reason": "collection_remove",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func removeDocsByCollection(tx *sql.Tx, name string) error {
+	docRows, err := tx.Query("SELECT id, doc_id, path FROM documents WHERE collection=?", name)
+	if err != nil {
+		return err
+	}
+	type docInfo struct {
+		id    int64
+		doc_id string
+		path  string
+	}
+	var docs []docInfo
+	for docRows.Next() {
+		var d docInfo
+		if err := docRows.Scan(&d.id, &d.doc_id, &d.path); err != nil {
+			docRows.Close()
+			return err
+		}
+		docs = append(docs, d)
+	}
+	docRows.Close()
+	if err := docRows.Err(); err != nil {
+		return err
+	}
+
 	stmt, err := tx.Prepare("DELETE FROM documents WHERE collection=?")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	_, err = stmt.Exec(name)
-	return err
+	if err != nil {
+		return err
+	}
+
+	for _, d := range docs {
+		if err := insertDocumentsLog(tx, d.id, "DELETE", map[string]interface{}{
+			"doc_id": d.doc_id, "path": d.path, "reason": "collection_remove",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
 	summaryRows, err := tx.Query(
-		buildInQuery("SELECT id FROM documents WHERE collection IN ('@summaries', '@hyde') AND source_doc_id IN (", len(deletedDocIds), ")"),
+		buildInQuery("SELECT id, doc_id, path, source_doc_id FROM documents WHERE collection IN ('@summaries', '@hyde') AND source_doc_id IN (", len(deletedDocIds), ")"),
 		int64SliceToAny(deletedDocIds)...,
 	)
 	if err != nil {
 		return err
 	}
 	var summaryDocIds []int64
+	var summaryMeta []map[string]interface{}
 	for summaryRows.Next() {
-		var id int64
-		if err := summaryRows.Scan(&id); err != nil {
+		var id, sourceDocId int64
+		var doc_id, path string
+		if err := summaryRows.Scan(&id, &doc_id, &path, &sourceDocId); err != nil {
 			summaryRows.Close()
 			return err
 		}
 		summaryDocIds = append(summaryDocIds, id)
+		summaryMeta = append(summaryMeta, map[string]interface{}{
+			"id": id, "doc_id": doc_id, "path": path, "source_doc_id": sourceDocId,
+		})
 	}
 	summaryRows.Close()
 	if err := summaryRows.Err(); err != nil {
@@ -159,7 +211,16 @@ func removeOrphanSummaries(tx *sql.Tx, deletedDocIds []int64) error {
 		if err := removeChunksByDocIds(tx, summaryDocIds); err != nil {
 			return err
 		}
-		return execInQuery(tx, "DELETE FROM documents WHERE id IN (", summaryDocIds)
+		if err := execInQuery(tx, "DELETE FROM documents WHERE id IN (", summaryDocIds); err != nil {
+			return err
+		}
+		for _, m := range summaryMeta {
+			if err := insertDocumentsLog(tx, m["id"].(int64), "DELETE", map[string]interface{}{
+				"doc_id": m["doc_id"], "path": m["path"], "source_doc_id": m["source_doc_id"], "reason": "orphan_summary",
+			}); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -260,8 +321,46 @@ func RenameCollection(oldName, newName string) error {
 		if n == 0 {
 			return errors.New("collection not found: " + oldName)
 		}
+
+		docRows, err := tx.Query("SELECT id, doc_id, path FROM documents WHERE collection=?", oldName)
+		if err != nil {
+			return err
+		}
+		type docInfo struct {
+			id    int64
+			doc_id string
+			path  string
+		}
+		var docs []docInfo
+		for docRows.Next() {
+			var d docInfo
+			if err := docRows.Scan(&d.id, &d.doc_id, &d.path); err != nil {
+				docRows.Close()
+				return err
+			}
+			docs = append(docs, d)
+		}
+		docRows.Close()
+		if err := docRows.Err(); err != nil {
+			return err
+		}
+
 		_, err = tx.Exec("UPDATE documents SET collection=? WHERE collection=?", newName, oldName)
-		return err
+		if err != nil {
+			return err
+		}
+
+		for _, d := range docs {
+			if err := insertDocumentsLog(tx, d.id, "UPDATE", map[string]interface{}{
+				"doc_id":        d.doc_id,
+				"path":         d.path,
+				"old_collection": oldName,
+				"new_collection": newName,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

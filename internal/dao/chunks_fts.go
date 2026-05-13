@@ -27,7 +27,7 @@ func prepareFTSStatements() error {
 
 	var err error
 	ftsSearchAll, err = DB.db.Prepare(`
-		SELECT c.id, d.id, d.docid, d.collection, d.path, d.title, c.content,
+		SELECT c.id, d.id, d.doc_id, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score, c.position
 		FROM chunks_fts f
 		JOIN chunks c ON c.id = f.rowid
@@ -40,7 +40,7 @@ func prepareFTSStatements() error {
 	}
 
 	ftsSearchByCollection, err = DB.db.Prepare(`
-		SELECT c.id, d.id, d.docid, d.collection, d.path, d.title, c.content,
+		SELECT c.id, d.id, d.doc_id, d.collection, d.path, d.title, c.content,
 			   abs(rank) as raw_score, c.position
 		FROM chunks_fts f
 		JOIN chunks c ON c.id = f.rowid
@@ -104,7 +104,7 @@ func SearchFTSByDocIds(tokenizedQuery string, docIds []int64, limit int) ([]FTSS
 	}
 	args = append(args, limit)
 
-	query := fmt.Sprintf(`SELECT c.id, d.id, d.docid, d.collection, d.path, d.title, c.content,
+	query := fmt.Sprintf(`SELECT c.id, d.id, d.doc_id, d.collection, d.path, d.title, c.content,
 		abs(rank) as raw_score, c.position
 		FROM chunks_fts f
 		JOIN chunks c ON c.id = f.rowid
@@ -135,7 +135,7 @@ func SearchFTSBM25(tokenizedQuery string, collection string, limit int) ([]FTSSe
 	var query string
 	var args []any
 	if collection != "" {
-		query = `SELECT c.id, d.id, d.docid, d.collection, d.path, d.title, c.content,
+		query = `SELECT c.id, d.id, d.doc_id, d.collection, d.path, d.title, c.content,
 			abs(bm25(chunks_fts, 1.5, 4.0, 1.0)) as raw_score, c.position
 		FROM chunks_fts
 		JOIN chunks c ON c.id = chunks_fts.rowid
@@ -144,7 +144,7 @@ func SearchFTSBM25(tokenizedQuery string, collection string, limit int) ([]FTSSe
 		ORDER BY rank LIMIT ?`
 		args = []any{tokenizedQuery, collection, limit}
 	} else {
-		query = `SELECT c.id, d.id, d.docid, d.collection, d.path, d.title, c.content,
+		query = `SELECT c.id, d.id, d.doc_id, d.collection, d.path, d.title, c.content,
 			abs(bm25(chunks_fts, 1.5, 4.0, 1.0)) as raw_score, c.position
 		FROM chunks_fts
 		JOIN chunks c ON c.id = chunks_fts.rowid

@@ -284,7 +284,7 @@ func (my *Daemon) handleGet(w http.ResponseWriter, r *http.Request) {
 		if len(parts) == 2 {
 			doc, err = dao.GetDocumentByPath(parts[0], parts[1])
 		} else {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "use collection/path or #docid format"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "use collection/path or #doc_id format"})
 			return
 		}
 	}
@@ -338,9 +338,9 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	chunkCounts := dao.GetChunkCountsByCollection()
 
 	totalDocs := 0
-	collections := make([]map[string]interface{}, len(cols))
+	collections := make([]map[string]any, len(cols))
 	for i, c := range cols {
-		collections[i] = map[string]interface{}{
+		collections[i] = map[string]any{
 			"name":        c.Name,
 			"path":        c.Path,
 			"glob":        c.GlobPattern,
@@ -353,10 +353,7 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunkCount, embedCount := dao.GetChunkCounts()
-	pending := chunkCount - embedCount
-	if pending < 0 {
-		pending = 0
-	}
+	pending := max(chunkCount-embedCount, 0)
 
 	hydeTotal, hydeDone := dao.GetHydeCounts()
 
@@ -384,8 +381,8 @@ func (my *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"embedded":    embedCount,
 		"pending":     pending,
 		"eta":         eta,
-		"hyde_total": hydeTotal,
-		"hyde_done":  hydeDone,
+		"hyde_total":  hydeTotal,
+		"hyde_done":   hydeDone,
 		"collections": collections,
 	})
 }
@@ -456,10 +453,10 @@ func (my *Daemon) handleCollectionAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
-		"name":    req.Name,
-		"path":    absPath,
-		"mask":    mask,
-		"status":  "indexing",
+		"name":   req.Name,
+		"path":   absPath,
+		"mask":   mask,
+		"status": "indexing",
 	})
 
 	if my.chunkIndexer != nil {

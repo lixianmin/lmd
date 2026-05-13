@@ -16,8 +16,8 @@ var (
 )
 
 var getCmd = &cobra.Command{
-	Use:   "get <path-or-docid>",
-	Short: "Get a document by path or docid",
+Use:   "get <path-or-doc_id>",
+Short: "Get a document by path or doc_id",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := daemon.NewClient(config.Cfg.Daemon.Port)

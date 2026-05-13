@@ -401,7 +401,7 @@ func TestInsertDocument(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
-	docId, err := InsertDocument("notes", "test.md", "Test Title", "body content", 12, "hash123")
+	docId, err := InsertDocument("notes", "test.md", "Test Title", "body content", 12, 1234567890, "hash123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,24 +413,24 @@ func TestInsertDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Hash != "" {
-		t.Fatalf("expected empty hash (two-phase write), got '%s'", doc.Hash)
+	if doc.Hash != "hash123" {
+		t.Fatalf("expected hash 'hash123', got '%s'", doc.Hash)
 	}
-	if doc.FileModTime != 0 {
-		t.Fatalf("expected file_mod_time=0 (incomplete), got %d", doc.FileModTime)
+	if doc.FileModTime != 1234567890 {
+		t.Fatalf("expected file_mod_time=1234567890, got %d", doc.FileModTime)
 	}
 	if doc.Collection != "notes" || doc.Path != "test.md" {
 		t.Fatalf("unexpected collection/path: %s/%s", doc.Collection, doc.Path)
 	}
 }
 
-func TestCompleteDocument(t *testing.T) {
+func TestUpdateFileModTime(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
-	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, "hash1")
+	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, 0, "hash1")
 
-	err := CompleteDocument(docId, "hash1", 1234567890)
+	err := UpdateFileModTime(docId, 1234567890)
 	if err != nil {
 		t.Fatal(err)
 	}

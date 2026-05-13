@@ -397,7 +397,7 @@ func TestScanChangesIncompleteDoc(t *testing.T) {
 	tok, _ := tokenizer.NewGseTokenizer()
 	idx := NewChunkIndexer(tok, embedding.NewMockProvider(dao.EmbeddingDim))
 
-	dao.InsertDocument("notes", "chinese.md", "Chinese Title", "content", 7, "somehash")
+	dao.InsertDocument("notes", "chinese.md", "Chinese Title", "content", 7, 0, "somehash")
 
 	pending, err := idx.ScanChanges("notes", dir, "*.md", nil)
 	if err != nil {

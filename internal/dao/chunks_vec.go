@@ -79,6 +79,12 @@ func InsertChunks(docId int64, chunks []ChunkData, tokenizedContents []string) (
 				return err
 			}
 
+			if err := insertChunksLog(tx, id, docId, "INSERT", map[string]interface{}{
+				"doc_id": docId, "seq": i, "hash": c.Hash,
+			}); err != nil {
+				return err
+			}
+
 			records = append(records, ChunkRecord{
 				Id: id, DocId: docId, Seq: i,
 				Content: c.Content, Position: c.Position,
@@ -179,12 +185,18 @@ func InsertChunksAndVectors(docId int64, collection string, startSeq int, chunks
 			return err
 		}
 
+		if err := insertChunksLog(tx, chunkId, docId, "INSERT", map[string]interface{}{
+			"doc_id": docId, "seq": seq, "hash": c.Hash,
+		}); err != nil {
+			return err
+		}
+
 		result = append(result, ChunkRecord{
 			Id: chunkId, DocId: docId, Seq: seq,
 				Content: c.Content, Position: c.Position,
 				TokenCount: c.TokenCount, Hash: c.Hash,
-			})
-		}
+		})
+	}
 		return nil
 	})
 	return result, err
@@ -245,7 +257,18 @@ func DeleteVectorsByDocId(docId int64) error {
 		}
 		defer delChunksStmt.Close()
 		_, err = delChunksStmt.Exec(docId)
-		return err
+		if err != nil {
+			return err
+		}
+
+		for _, cid := range chunkIds {
+			if err := insertChunksLog(tx, cid, docId, "DELETE", map[string]interface{}{
+				"doc_id": docId, "reason": "vectors_deleted",
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

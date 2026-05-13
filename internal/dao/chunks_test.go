@@ -316,7 +316,7 @@ func TestInsertChunksAndVectors(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
-	docId, err := InsertDocument("notes", "test.md", "Title", "body", 4, "h1")
+	docId, err := InsertDocument("notes", "test.md", "Title", "body", 4, 0, "h1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestInsertChunksAndVectors(t *testing.T) {
 func TestInsertChunksAndVectorsMismatch(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
-	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, "h1")
+	docId, _ := InsertDocument("notes", "test.md", "Title", "body", 4, 0, "h1")
 
 	chunks := []ChunkData{{Content: "a", Position: 0, TokenCount: 1, Hash: "h"}}
 	tokenized := []string{"a"}
@@ -412,7 +412,7 @@ func TestInsertChunksAndVectorsBatchSeq(t *testing.T) {
 	initTestDB(t)
 	mustAddCollection(t, "notes", "/data")
 
-	docId, err := InsertDocument("notes", "big.md", "Big Doc", "body", 4, "h1")
+	docId, err := InsertDocument("notes", "big.md", "Big Doc", "body", 4, 0, "h1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,15 +25,15 @@ var statusCmd = &cobra.Command{
 		}
 
 		var resp struct {
-			Database     string `json:"database"`
-			Documents    int    `json:"documents"`
-			Chunks       int    `json:"chunks"`
-			Embedded     int    `json:"embedded"`
-			Pending      int    `json:"pending"`
-			ETA          string `json:"eta"`
-		HydeTotal int    `json:"hyde_total"`
-		HydeDone  int    `json:"hyde_done"`
-		Collections []struct {
+			Database    string `json:"database"`
+			Documents   int    `json:"documents"`
+			Chunks      int    `json:"chunks"`
+			Embedded    int    `json:"embedded"`
+			Pending     int    `json:"pending"`
+			ETA         string `json:"eta"`
+			HydeTotal   int    `json:"hyde_total"`
+			HydeDone    int    `json:"hyde_done"`
+			Collections []struct {
 				Name       string `json:"name"`
 				Path       string `json:"path"`
 				Glob       string `json:"glob"`

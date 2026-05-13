@@ -369,7 +369,7 @@ func (my *ChunkIndexer) ScanChanges(collectionName, rootDir, globPattern string,
 
 			if existing.hash == hash {
 				if existing.fileModTime == 0 {
-					if err := dao.CompleteDocument(existing.id, hash, fileModTime); err != nil {
+					if err := dao.UpdateFileModTime(existing.id, fileModTime); err != nil {
 						logo.Warn("scanChanges: fixup fileModTime for doc %d: %s", existing.id, err)
 					}
 				}
@@ -614,7 +614,7 @@ func (my *ChunkIndexer) ProcessDoc(ctx context.Context, doc PendingDoc) error {
 func (my *ChunkIndexer) processDocNew(ctx context.Context, doc PendingDoc) error {
 	totalStart := time.Now()
 
-	docId, err := dao.InsertDocument(doc.Collection, doc.Path, doc.Title, doc.Body, doc.FileSize, doc.Hash)
+	docId, err := dao.InsertDocument(doc.Collection, doc.Path, doc.Title, doc.Body, doc.FileSize, doc.FileModTime, doc.Hash)
 	if err != nil {
 		return fmt.Errorf("insert document: %w", err)
 	}
@@ -648,10 +648,6 @@ func (my *ChunkIndexer) processDocNew(ctx context.Context, doc PendingDoc) error
 			return fmt.Errorf("insert chunks batch %d: %w", i/batchSize, err)
 		}
 		insertDuration += time.Since(t)
-	}
-
-	if err := dao.CompleteDocument(docId, doc.Hash, doc.FileModTime); err != nil {
-		return fmt.Errorf("complete document: %w", err)
 	}
 
 	fullPath := doc.RootDir + "/" + doc.Path

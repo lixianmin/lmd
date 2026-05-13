@@ -17,7 +17,7 @@ var toolDefs = []ToolDef{
 	{Name: "vsearch", Description: "Vector semantic search"},
 	{Name: "hybrid", Description: "Hybrid search (BM25 + vector)"},
 	{Name: "hyde", Description: "Two-level HyDE search: Level 1 over @hyde → Level 2 in source docs"},
-	{Name: "get", Description: "Retrieve document by path or docid"},
+	{Name: "get", Description: "Retrieve document by path or doc_id"},
 	{Name: "status", Description: "Index status"},
 	{Name: "list_collections", Description: "List all collections"},
 }

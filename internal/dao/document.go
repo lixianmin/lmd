@@ -41,56 +41,97 @@ func ShortDocId(docId string) string {
 	return docId
 }
 
-func InsertDocument(collection, path, title, body string, fileSize int64, hash string) (int64, error) {
-	docId := generateDocId(collection, path, hash)
-	result, err := WithExec(
-		"INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, modified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', ?, 0, DATETIME('now','+8 hours'), DATETIME('now','+8 hours'), DATETIME('now','+8 hours'))",
-		docId, collection, path, title, body, fileSize,
-	)
-	if err != nil {
-		return 0, err
-	}
-	id, _ := result.LastInsertId()
-	return id, nil
-}
-
-func CompleteDocument(docId int64, hash string, fileModTime int64) error {
-	_, err := WithExec(
-		"UPDATE documents SET hash=?, file_mod_time=?, updated_at=DATETIME('now','+8 hours') WHERE id=?",
-		hash, fileModTime, docId,
-	)
-	return err
-}
-
-func UpsertDocument(doc *DocumentRecord) error {
-	doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
-
-	res, err := WithExec(`
-		INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))
-		ON CONFLICT(collection, path) DO UPDATE SET
-			docid=excluded.docid, title=excluded.title, body=excluded.body,
-			hash=excluded.hash, file_size=excluded.file_size, file_mod_time=excluded.file_mod_time,
-			source_doc_id=excluded.source_doc_id,
-			modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours')
-	`, doc.DocId, doc.Collection, doc.Path, doc.Title, doc.Body, doc.Hash, doc.FileSize, doc.FileModTime, doc.SourceDocId)
-	if err != nil {
-		return err
-	}
-
-	doc.Id, _ = res.LastInsertId()
-	if doc.Id == 0 {
-		err := withQueryRow("SELECT id FROM documents WHERE collection=? AND path=?",
-			doc.Collection, doc.Path).Scan(&doc.Id)
+func InsertDocument(collection, path, title, body string, fileSize int64, fileModTime int64, hash string) (int64, error) {
+	var id int64
+	err := withTransaction(func(tx *sql.Tx) error {
+		docId := generateDocId(collection, path, hash)
+		result, err := tx.Exec(
+			"INSERT INTO documents (doc_id, collection, path, title, body, hash, file_size, file_mod_time, modified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now','+8 hours'), DATETIME('now','+8 hours'), DATETIME('now','+8 hours'))",
+			docId, collection, path, title, body, hash, fileSize, fileModTime,
+		)
 		if err != nil {
 			return err
 		}
-	}
-	return nil
+		id, _ = result.LastInsertId()
+
+		return insertDocumentsLog(tx, id, "INSERT", map[string]interface{}{
+			"doc_id":      docId,
+			"collection": collection,
+			"path":       path,
+		})
+	})
+	return id, err
+}
+
+func UpdateFileModTime(docId int64, fileModTime int64) error {
+	return withTransaction(func(tx *sql.Tx) error {
+		_, err := tx.Exec(
+			"UPDATE documents SET file_mod_time=?, updated_at=DATETIME('now','+8 hours') WHERE id=?",
+			fileModTime, docId,
+		)
+		if err != nil {
+			return err
+		}
+
+		return insertDocumentsLog(tx, docId, "UPDATE", map[string]interface{}{
+			"file_mod_time": fileModTime,
+		})
+	})
+}
+
+func UpsertDocument(doc *DocumentRecord) error {
+	return withTransaction(func(tx *sql.Tx) error {
+		doc.DocId = generateDocId(doc.Collection, doc.Path, doc.Hash)
+
+		nodeId := doc.DocId
+		collection := doc.Collection
+		path := doc.Path
+		title := doc.Title
+		body := doc.Body
+		hash := doc.Hash
+		fileSize := doc.FileSize
+		fileModTime := doc.FileModTime
+		sourceDocId := doc.SourceDocId
+
+		var oldId int64
+		tx.QueryRow("SELECT id FROM documents WHERE collection=? AND path=?", collection, path).Scan(&oldId)
+
+		res, err := tx.Exec(`
+			INSERT INTO documents (doc_id, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', '+8 hours'))
+			ON CONFLICT(collection, path) DO UPDATE SET
+				doc_id=excluded.doc_id, title=excluded.title, body=excluded.body,
+				hash=excluded.hash, file_size=excluded.file_size, file_mod_time=excluded.file_mod_time,
+				source_doc_id=excluded.source_doc_id,
+				modified_at=DATETIME('now', '+8 hours'), updated_at=DATETIME('now', '+8 hours')
+		`, nodeId, collection, path, title, body, hash, fileSize, fileModTime, sourceDocId)
+		if err != nil {
+			return err
+		}
+
+		if oldId != 0 {
+			doc.Id = oldId
+		} else {
+			doc.Id, _ = res.LastInsertId()
+		}
+
+		if oldId == 0 {
+			return insertDocumentsLog(tx, doc.Id, "INSERT", map[string]interface{}{
+				"doc_id":      nodeId,
+				"collection": collection,
+				"path":       path,
+			})
+		}
+		return insertDocumentsLog(tx, doc.Id, "UPDATE", map[string]interface{}{
+			"doc_id":      nodeId,
+			"collection": collection,
+			"path":       path,
+		})
+	})
 }
 
 func GetDocumentByDocId(docId string) (*DocumentRecord, error) {
-	rows, err := withQuery("SELECT id, docid, collection, path, title, body, hash, file_size, source_doc_id, created_at, updated_at FROM documents WHERE docid LIKE ?", docId+"%")
+	rows, err := withQuery("SELECT id, doc_id, collection, path, title, body, hash, file_size, source_doc_id, created_at, updated_at FROM documents WHERE doc_id LIKE ?", docId+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +154,7 @@ func GetDocumentByDocId(docId string) (*DocumentRecord, error) {
 		return nil, errors.New("document not found")
 	}
 	if len(docs) > 1 {
-		return nil, fmt.Errorf("ambiguous docid '%s' matches %d documents, use a longer prefix", docId, len(docs))
+		return nil, fmt.Errorf("ambiguous doc_id '%s' matches %d documents, use a longer prefix", docId, len(docs))
 	}
 	return &docs[0], nil
 }
@@ -131,7 +172,7 @@ func GetDocumentBySourceDocId(collection string, sourceDocId int64) (*DocumentRe
 }
 
 func getDocument(whereClause string, args ...any) (*DocumentRecord, error) {
-	query := "SELECT id, docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, created_at, updated_at FROM documents " + whereClause
+	query := "SELECT id, doc_id, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, created_at, updated_at FROM documents " + whereClause
 	var doc DocumentRecord
 	err := withQueryRow(query, args...).Scan(&doc.Id, &doc.DocId, &doc.Collection, &doc.Path, &doc.Title, &doc.Body,
 		&doc.Hash, &doc.FileSize, &doc.FileModTime, &doc.SourceDocId, &doc.CreatedAt, &doc.UpdatedAt)
@@ -170,12 +211,20 @@ func deleteDocChunksAndVecs(tx *sql.Tx, docId int64) error {
 		if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
 			return err
 		}
+		if err := insertChunksLog(tx, cid, docId, "DELETE", map[string]interface{}{
+			"doc_id": docId, "reason": "document_deleted",
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func DeleteDocument(id int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
+		var docDocId, docPath string
+		tx.QueryRow("SELECT doc_id, path FROM documents WHERE id=?", id).Scan(&docDocId, &docPath)
+
 		hydeRows, err := tx.Query("SELECT id FROM documents WHERE collection='@hyde' AND source_doc_id=?", id)
 		if err != nil {
 			return err
@@ -194,11 +243,16 @@ func DeleteDocument(id int64) error {
 			return err
 		}
 
-		for _, hid := range hydeIds {
-			if err := deleteDocChunksAndVecs(tx, hid); err != nil {
+		for _, hydeId := range hydeIds {
+			if err := deleteDocChunksAndVecs(tx, hydeId); err != nil {
 				return err
 			}
-			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", hid); err != nil {
+			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", hydeId); err != nil {
+				return err
+			}
+			if err := insertDocumentsLog(tx, hydeId, "DELETE", map[string]interface{}{
+				"doc_id": docDocId, "path": docPath, "reason": "hyde_orphan",
+			}); err != nil {
 				return err
 			}
 		}
@@ -207,12 +261,20 @@ func DeleteDocument(id int64) error {
 			return err
 		}
 		_, err = tx.Exec("DELETE FROM documents WHERE id=?", id)
-		return err
+		if err != nil {
+			return err
+		}
+		return insertDocumentsLog(tx, id, "DELETE", map[string]interface{}{
+			"doc_id": docDocId, "path": docPath,
+		})
 	})
 }
 
 func DeleteDocumentAndSummary(docId int64) error {
 	return withTransaction(func(tx *sql.Tx) error {
+		var docDocId, docPath string
+		tx.QueryRow("SELECT doc_id, path FROM documents WHERE id=?", docId).Scan(&docDocId, &docPath)
+
 		rows, err := tx.Query("SELECT id FROM documents WHERE source_doc_id=?", docId)
 		if err != nil {
 			return err
@@ -238,13 +300,23 @@ func DeleteDocumentAndSummary(docId int64) error {
 			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", sid); err != nil {
 				return err
 			}
+			if err := insertDocumentsLog(tx, sid, "DELETE", map[string]interface{}{
+				"doc_id": docDocId, "path": docPath, "reason": "summary_orphan",
+			}); err != nil {
+				return err
+			}
 		}
 
 		if err := deleteDocChunksAndVecs(tx, docId); err != nil {
 			return err
 		}
 		_, err = tx.Exec("DELETE FROM documents WHERE id=?", docId)
-		return err
+		if err != nil {
+			return err
+		}
+		return insertDocumentsLog(tx, docId, "DELETE", map[string]interface{}{
+			"doc_id": docDocId, "path": docPath,
+		})
 	})
 }
 
@@ -258,7 +330,7 @@ func GetDocumentsByIds(ids []int64) ([]DocumentRecord, error) {
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	query := fmt.Sprintf("SELECT id, docid, collection, path, title, body, hash, file_size, source_doc_id, created_at, updated_at FROM documents WHERE id IN (%s)", strings.Join(placeholders, ","))
+	query := fmt.Sprintf("SELECT id, doc_id, collection, path, title, body, hash, file_size, source_doc_id, created_at, updated_at FROM documents WHERE id IN (%s)", strings.Join(placeholders, ","))
 	rows, err := withQuery(query, args...)
 	if err != nil {
 		return nil, err
@@ -278,7 +350,7 @@ func GetDocumentsByIds(ids []int64) ([]DocumentRecord, error) {
 }
 
 func ListDocumentsByCollection(collection string) ([]DocumentRecord, error) {
-	rows, err := withQuery("SELECT id, docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, created_at, updated_at FROM documents WHERE collection=?", collection)
+	rows, err := withQuery("SELECT id, doc_id, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, created_at, updated_at FROM documents WHERE collection=?", collection)
 	if err != nil {
 		return nil, err
 	}
@@ -333,22 +405,53 @@ func UpsertHydeData(sourceDocId int64, hash, content, tokenizedContent string, v
 		existingRows.Close()
 
 		for _, did := range existingIds {
-			if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id=?)", did); err != nil {
+			chunkRows, err := tx.Query("SELECT id FROM chunks WHERE doc_id=?", did)
+			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id IN (SELECT id FROM chunks WHERE doc_id=?)", did); err != nil {
+			var cids []int64
+			for chunkRows.Next() {
+				var cid int64
+				if err := chunkRows.Scan(&cid); err != nil {
+					chunkRows.Close()
+					return err
+				}
+				cids = append(cids, cid)
+			}
+			chunkRows.Close()
+			if err := chunkRows.Err(); err != nil {
 				return err
 			}
+
+			for _, cid := range cids {
+				if _, err := tx.Exec("DELETE FROM chunks_vec WHERE chunk_id=?", cid); err != nil {
+					return err
+				}
+				if _, err := tx.Exec("DELETE FROM chunks_fts WHERE rowid=?", cid); err != nil {
+					return err
+				}
+				if err := insertChunksLog(tx, cid, did, "DELETE", map[string]interface{}{
+					"doc_id": did, "reason": "hyde_replace",
+				}); err != nil {
+					return err
+				}
+			}
+
 			if _, err := tx.Exec("DELETE FROM chunks WHERE doc_id=?", did); err != nil {
 				return err
 			}
 			if _, err := tx.Exec("DELETE FROM documents WHERE id=?", did); err != nil {
 				return err
 			}
+			if err := insertDocumentsLog(tx, did, "DELETE", map[string]interface{}{
+				"source_doc_id": sourceDocId, "reason": "hyde_replace",
+			}); err != nil {
+				return err
+			}
 		}
 
 		docIdStr := generateDocId("@hyde", fmt.Sprintf("%d", sourceDocId), hash)
-		res, err := tx.Exec(`INSERT INTO documents (docid, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
+		res, err := tx.Exec(`INSERT INTO documents (doc_id, collection, path, title, body, hash, file_size, file_mod_time, source_doc_id, modified_at)
 			VALUES (?, '@hyde', ?, '', '', ?, 0, 0, ?, DATETIME('now', '+8 hours'))`,
 			docIdStr, fmt.Sprintf("/@hyde/%d", sourceDocId), hash, sourceDocId)
 		if err != nil {
@@ -372,14 +475,27 @@ func UpsertHydeData(sourceDocId int64, hash, content, tokenizedContent string, v
 			return err
 		}
 		_, err = tx.Exec("INSERT INTO chunks_vec(chunk_id, embedding, doc_id, collection) VALUES (?, ?, ?, '@hyde')", chunkId, serialized, docId)
-		return err
+		if err != nil {
+			return err
+		}
+
+		if err := insertDocumentsLog(tx, docId, "INSERT", map[string]interface{}{
+			"source_doc_id": sourceDocId,
+			"doc_id":         docIdStr,
+		}); err != nil {
+			return err
+		}
+
+		return insertChunksLog(tx, chunkId, docId, "INSERT", map[string]interface{}{
+			"doc_id": docId, "hash": hash,
+		})
 	})
 	return docId, err
 }
 
 func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 	query := `
-		SELECT d.id, d.docid, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
+		SELECT d.id, d.doc_id, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
 		FROM documents d
 		WHERE d.collection NOT LIKE '@%'
 		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)
@@ -405,7 +521,7 @@ func FindDocsWithMissingEmbeddings(limit int) ([]DocumentRecord, error) {
 
 func FindDocsWithMissingHydeData(limit int) ([]DocumentRecord, error) {
 	query := `
-		SELECT d.id, d.docid, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
+		SELECT d.id, d.doc_id, d.collection, d.path, d.title, d.body, d.hash, d.file_size, d.file_mod_time, d.source_doc_id, d.created_at, d.updated_at
 		FROM documents d
 		WHERE d.collection NOT LIKE '@%'
 		AND EXISTS (SELECT 1 FROM chunks c WHERE c.doc_id = d.id)

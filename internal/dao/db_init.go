@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/lixianmin/logo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -39,9 +37,7 @@ func Init(dbPath string) error {
 	if err := createTables(); err != nil {
 		return err
 	}
-	dropTopicsTables()
-	dropMemoryTables()
-	addSourceDocIdColumn()
+
 	return prepareFTSStatements()
 }
 
@@ -89,9 +85,6 @@ func withQueryRow(query string, args ...any) *sql.Row {
 }
 
 func createTables() error {
-	// Recreate index as UNIQUE — old installations may have a non-unique version of this index
-	DB.db.Exec("DROP INDEX IF EXISTS idx_documents_collection_path")
-
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS collections (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +97,7 @@ func createTables() error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS documents (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			docid       TEXT NOT NULL UNIQUE,
+			doc_id      TEXT NOT NULL UNIQUE,
 			collection  TEXT NOT NULL,
 			path        TEXT NOT NULL,
 			title       TEXT,
@@ -142,33 +135,29 @@ func createTables() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_path ON documents(collection, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_source_doc_id ON documents(source_doc_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`,
+		`CREATE TABLE IF NOT EXISTS documents_log (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			doc_id      INTEGER NOT NULL,
+			operation   TEXT NOT NULL,
+			data_json   TEXT NOT NULL,
+			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS chunks_log (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			chunk_id    INTEGER NOT NULL,
+			doc_id      INTEGER NOT NULL,
+			operation   TEXT NOT NULL,
+			data_json   TEXT NOT NULL,
+			created_at  DATETIME DEFAULT (DATETIME('now', '+8 hours'))
+		)`,
 		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
 	}
+
 	for _, s := range stmts {
 		if _, err := DB.db.Exec(s); err != nil {
 			return err
 		}
 	}
 
-	_, _ = DB.db.Exec("ALTER TABLE documents ADD COLUMN file_mod_time INTEGER DEFAULT 0")
-	addSourceDocIdColumn()
 	return nil
-}
-
-func dropTopicsTables() {
-	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS topics_vec`)
-	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS topics`)
-}
-
-func dropMemoryTables() {
-	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories_fts`)
-	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories_vec`)
-	_, _ = DB.db.Exec(`DROP TABLE IF EXISTS memories`)
-}
-
-func addSourceDocIdColumn() {
-	_, err := DB.db.Exec(`ALTER TABLE documents ADD COLUMN source_doc_id INTEGER`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
-		logo.Warn("add source_doc_id column error: %s", err)
-	}
 }
