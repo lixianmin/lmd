@@ -3,14 +3,14 @@
 import json, subprocess, sys, re, math, urllib.parse, time
 
 d = json.load(open('/Users/xmli/.cache/lmd/benchmarks/longmemeval_s_cleaned.json'))
-MODE = sys.argv[1] if len(sys.argv) > 1 else "query"
+MODE = sys.argv[1] if len(sys.argv) > 1 else "search"
 LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 PORT = 12345
 
 def search(query, mode, top_k=10):
     """Call LMD's search/query endpoint with retry on model loading."""
     url = f"http://localhost:{PORT}/{mode}"
-    body = json.dumps({"query": query, "collection": "bench_full", "limit": top_k}).encode()
+    body = json.dumps({"query": query, "collection": "benchmarks", "limit": top_k}).encode()
     for attempt in range(5):
         try:
             import urllib.request

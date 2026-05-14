@@ -31,7 +31,7 @@ func Init(dbPath string) error {
 	if err != nil {
 		return err
 	}
-	DB.db.SetMaxOpenConns(1)
+	DB.db.SetMaxOpenConns(4)
 	DB.db.SetMaxIdleConns(1)
 
 	if err := createTables(); err != nil {
