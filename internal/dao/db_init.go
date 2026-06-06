@@ -34,8 +34,12 @@ func Init(dbPath string) error {
 	DB.db.SetMaxOpenConns(4)
 	DB.db.SetMaxIdleConns(1)
 
-	if err := createTables(); err != nil {
+		if err := createTables(); err != nil {
 		return err
+	}
+
+	if err := migrateFTSTokenizer(); err != nil {
+		return fmt.Errorf("migrate FTS tokenizer: %w", err)
 	}
 
 	return prepareFTSStatements()
@@ -122,9 +126,7 @@ func createTables() error {
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 			content,
-			content = 'chunks',
-			content_rowid = 'id',
-			tokenize = 'porter unicode61'
+			tokenize = 'unicode61'
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
 			chunk_id INTEGER PRIMARY KEY,
@@ -160,4 +162,32 @@ func createTables() error {
 	}
 
 	return nil
+}
+
+func migrateFTSTokenizer() error {
+	const metaKey = "fts_tokenizer_v3"
+	_, ok, err := GetMeta(metaKey)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+
+	closeFTSStatements()
+
+	if _, err := DB.db.Exec("DROP TABLE IF EXISTS chunks_fts"); err != nil {
+		return err
+	}
+	if _, err := DB.db.Exec(`CREATE VIRTUAL TABLE chunks_fts USING fts5(
+		content,
+		tokenize = 'unicode61'
+	)`); err != nil {
+		return err
+	}
+	if _, err := DB.db.Exec("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')"); err != nil {
+		return err
+	}
+
+	return SetMeta(metaKey, "1")
 }
